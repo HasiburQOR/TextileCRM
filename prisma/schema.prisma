@@ -1,0 +1,393 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── User ───
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      String   @default("COMPANY_REP")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdRequests  SourcingRequest[] @relation("CreatedRequests")
+  reviewedRequests SourcingRequest[] @relation("ReviewedRequests")
+  qcReports        QCReport[]
+  warehouseCosts   WarehouseCost[]
+  invoicesCreated  Invoice[] @relation("InvoicesCreated")
+  invoicesApproved Invoice[] @relation("InvoicesApproved")
+  exchangeRates    ExchangeRate[]
+  payments         InvoicePayment[]
+  expenses         Expense[]
+  auditLogs        AuditLog[]
+  notifications    Notification[]
+  documentVaults   DocumentVault[]
+  closedTrips      SourcingTrip[] @relation("ClosedTrips")
+}
+
+// ─── Multi-Tenant: Buyer Profile ───
+
+model BuyerProfile {
+  id               String   @id @default(cuid())
+  name             String
+  contactInfo      String   @default("")
+  branding         String   @default("")
+  portalUsername   String   @unique
+  portalPasswordHash String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  sisterProfiles SisterProfile[]
+}
+
+// ─── Multi-Tenant: Sister Profile ───
+
+model SisterProfile {
+  id              String   @id @default(cuid())
+  buyerProfileId  String
+  name            String
+  poReference     String   @default("")
+  agreementType   String   @default("TYPE_1")
+  negotiatedRate  Float    @default(0)
+  terms           String   @default("")
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  buyerProfile    BuyerProfile    @relation(fields: [buyerProfileId], references: [id], onDelete: Cascade)
+  sourcingRequests SourcingRequest[]
+  invoices        Invoice[]
+  expenses        Expense[]
+  notifications   Notification[]
+  documentVaults  DocumentVault[]
+}
+
+// ─── Module 1: Product Sourcing Intake ───
+
+model SourcingRequest {
+  id              String   @id @default(cuid())
+  productName     String
+  photoUrl        String   @default("")
+  packingListNotes String @default("")
+  status          String   @default("PENDING_ADMIN_APPROVAL")
+  rejectionReason String   @default("")
+  createdById     String
+  reviewedById    String?
+  reviewedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Phase 2 additions
+  sisterProfileId String?
+  brandName       String   @default("NA")
+  styleNumber     String?  @unique
+  goodsName       String   @default("")
+  fabricDetails   String   @default("")
+  price           Float    @default(0)
+  productQrGenerated  Boolean @default(false)
+  cartonQrGenerated   Boolean @default(false)
+  imageUrls       String   @default("[]")
+
+  createdUser User @relation("CreatedRequests", fields: [createdById], references: [id])
+  reviewedUser User? @relation("ReviewedRequests", fields: [reviewedById], references: [id])
+  sisterProfile SisterProfile? @relation(fields: [sisterProfileId], references: [id])
+
+  variants SourcingVariant[]
+  qcReport QCReport?
+  packingLists PackingList[]
+  sourcingTrips SourcingTrip[]
+}
+
+model SourcingVariant {
+  id         String  @id @default(cuid())
+  requestId  String
+  styleNo    String  @default("")
+  buyer      String  @default("")
+  poNo       String  @default("")
+  color      String  @default("")
+  itemNumber String  @default("")
+  size       String  @default("")
+  qtyOrdered Int     @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  request SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
+// ─── Sourcing Trip ───
+
+model SourcingTrip {
+  id             String    @id @default(cuid())
+  requestId      String
+  status         String    @default("OPEN")
+  totalAdvance   Float     @default(0)
+  closedAt       DateTime?
+  closedById     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  request    SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  closedBy   User?          @relation("ClosedTrips", fields: [closedById], references: [id])
+  locations  TripLocation[]
+}
+
+model TripLocation {
+  id              String   @id @default(cuid())
+  sourcingTripId  String
+  locationName    String
+  quantity        Int      @default(0)
+  advanceAmount   Float    @default(0)
+  status          String   @default("PENDING")
+  date            DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sourcingTrip SourcingTrip @relation(fields: [sourcingTripId], references: [id], onDelete: Cascade)
+}
+
+// ─── Module 6: QC Sourcing Cost Report ───
+
+model QCReport {
+  id                String   @id @default(cuid())
+  reportId          String   @unique
+  requestId         String   @unique
+  lunchCostFlag     Boolean  @default(false)
+  lunchCost         Float    @default(0)
+  goodsCarryingCost Float    @default(0)
+  travelMode        String   @default("TRAVELLING_WITH_GOODS")
+  extraCost         Float    @default(0)
+  totalCost         Float    @default(0)
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  request    SourcingRequest  @relation(fields: [requestId], references: [id])
+  createdBy  User             @relation(fields: [createdById], references: [id])
+  warehouseCost WarehouseCost?
+}
+
+// ─── Module 7: Warehouse Costs ───
+
+model WarehouseCost {
+  id              String   @id @default(cuid())
+  qcReportId      String   @unique
+  loaderCost      Float    @default(0)
+  extraWorkerCost Float    @default(0)
+  labelsCost      Float    @default(0)
+  htakeCost       Float    @default(0)
+  stickersCost    Float    @default(0)
+  cartonsCost     Float    @default(0)
+  polyBagsCost    Float    @default(0)
+  gamtapeCost     Float    @default(0)
+  totalCost       Float    @default(0)
+  customCosts     String   @default("[]")
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  qcReport  QCReport @relation(fields: [qcReportId], references: [id])
+  createdBy User     @relation(fields: [createdById], references: [id])
+}
+
+// ─── Module 4/5: Packing List ───
+
+model PackingList {
+  id            String   @id @default(cuid())
+  requestId     String   @unique
+  orderQty      Int      @default(0)
+  shipmentQty   Int      @default(0)
+  shortQty      Int      @default(0)
+  shortPct      Float    @default(0)
+  totalCbm      Float    @default(0)
+  totalNetWeight   Float @default(0)
+  totalGrossWeight Float @default(0)
+  frontMark     String   @default("")
+  sideMark      String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  request SourcingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  cartons PackingCarton[]
+}
+
+model PackingCarton {
+  id             String  @id @default(cuid())
+  packingListId  String
+  cartonNoFrom   Int     @default(0)
+  cartonNoTo     Int     @default(0)
+  noOfCartons    Int     @default(0)
+  color          String  @default("")
+  assortId       String  @default("")
+  itemNumber     String  @default("")
+  sizeBreakdown  String  @default("")
+  qtyPerCarton   Int     @default(0)
+  shipQty        Int     @default(0)
+  orderQty       Int     @default(0)
+  shortQty       Int     @default(0)
+  shortPct       Float   @default(0)
+  ctnLength      Float   @default(0)
+  ctnWidth       Float   @default(0)
+  ctnHeight      Float   @default(0)
+  netWeight      Float   @default(0)
+  grossWeight    Float   @default(0)
+  ctnCbm         Float   @default(0)
+
+  packingList PackingList @relation(fields: [packingListId], references: [id], onDelete: Cascade)
+}
+
+// ─── Module 10: Invoice ───
+
+model Invoice {
+  id                   String    @id @default(cuid())
+  invoiceNo            String    @unique
+  buyerName            String    @default("")
+  status               String    @default("PENDING_APPROVAL")
+  rejectionReason      String    @default("")
+  exchangeRateId       String?
+  exchangeRateValue    Float     @default(0)
+  targetCurrency       String    @default("")
+  commissionType       String    @default("NONE")
+  commissionValue      Float     @default(0)
+  totalValue           Float     @default(0)
+  convertedTotal       Float     @default(0)
+  outstandingBalance   Float     @default(0)
+  createdById          String
+  approvedById         String?
+  approvedAt           DateTime?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  // Phase 2 addition
+  sisterProfileId      String?
+
+  createdBy      User              @relation("InvoicesCreated", fields: [createdById], references: [id])
+  approvedBy     User?             @relation("InvoicesApproved", fields: [approvedById], references: [id])
+  exchangeRate   ExchangeRate?     @relation(fields: [exchangeRateId], references: [id])
+  sisterProfile  SisterProfile?    @relation(fields: [sisterProfileId], references: [id])
+  lineItems      InvoiceLineItem[]
+  payments       InvoicePayment[]
+}
+
+model InvoiceLineItem {
+  id             String  @id @default(cuid())
+  invoiceId      String
+  requestId      String?
+  description    String  @default("")
+  brand          String  @default("")
+  ctn            Int     @default(0)
+  qtyPerCtn      Int     @default(0)
+  totalQty       Int     @default(0)
+  unitPrice      Float   @default(0)
+  amount         Float   @default(0)
+  netWeight      Float   @default(0)
+  grossWeight    Float   @default(0)
+  cbm            Float   @default(0)
+  material       String  @default("")
+  styleItemCode  String  @default("")
+  remarks        String  @default("")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model InvoicePayment {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  amount        Float    @default(0)
+  currency      String   @default("")
+  paymentDate   DateTime
+  bankReference String   @default("")
+  recordedById  String
+  createdAt     DateTime @default(now())
+
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  recordedBy User   @relation(fields: [recordedById], references: [id])
+}
+
+// ─── Module 11: Exchange Rate ───
+
+model ExchangeRate {
+  id              String   @id @default(cuid())
+  sourceCurrency  String
+  targetCurrency  String
+  rate            Float
+  effectiveDate   DateTime
+  publishedById   String
+  createdAt       DateTime @default(now())
+
+  publishedBy User     @relation(fields: [publishedById], references: [id])
+  invoices    Invoice[]
+}
+
+// ─── Expense Tracking ───
+
+model Expense {
+  id              String   @id @default(cuid())
+  sisterProfileId String
+  productId       String?
+  sourceType      String
+  amount          Float
+  currency        String   @default("BDT")
+  remarks         String   @default("")
+  fieldName       String?
+  createdById     String
+  createdAt       DateTime @default(now())
+
+  sisterProfile SisterProfile @relation(fields: [sisterProfileId], references: [id])
+  createdBy     User         @relation(fields: [createdById], references: [id])
+
+  @@index([sisterProfileId, sourceType])
+}
+
+// ─── Audit Log ───
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  actorId        String
+  action         String
+  entityType     String
+  entityId       String
+  beforeSnapshot String   @default("{}")
+  afterSnapshot  String   @default("{}")
+  ipAddress      String   @default("")
+  timestamp      DateTime @default(now())
+
+  actor User @relation(fields: [actorId], references: [id])
+}
+
+// ─── Notification ───
+
+model Notification {
+  id              String   @id @default(cuid())
+  userId          String
+  sisterProfileId String?
+  title           String
+  message         String
+  type            String
+  isRead          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sisterProfile SisterProfile? @relation(fields: [sisterProfileId], references: [id])
+}
+
+// ─── Document Vault ───
+
+model DocumentVault {
+  id              String   @id @default(cuid())
+  sisterProfileId String
+  documentType    String
+  fileName        String
+  fileSize        Int      @default(0)
+  uploadedById    String
+  createdAt       DateTime @default(now())
+
+  sisterProfile SisterProfile @relation(fields: [sisterProfileId], references: [id])
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block page_title %}Warehouse Costs{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead><tr><th>QC Report</th><th>Product</th><th>Total Cost</th><th>Created</th></tr></thead>
+            <tbody>
+              {% for c in costs %}
+              <tr>
+                <td><code>{{ c.qcReport.reportId }}</code></td>
+                <td>{{ c.qcReport.request.productName }}</td>
+                <td>{{ c.totalCost }}</td>
+                <td>{{ c.createdAt|date:"M j, Y" }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="4" class="text-center text-muted py-4">No warehouse costs yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title mb-3"><i class="bi bi-plus-circle me-1"></i>New Warehouse Cost</h6>
+        <form method="post">
+          {% csrf_token %}
+          <div class="mb-2">
+            <label class="form-label small">QC Report</label>
+            <select name="qcReportId" class="form-select" required>
+              {% for r in pending_qc %}
+              <option value="{{ r.pk }}">{{ r.reportId }} — {{ r.request.productName }}</option>
+              {% empty %}<option disabled>No QC reports awaiting warehouse costs</option>{% endfor %}
+            </select>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-6"><label class="form-label small">Loader Cost</label><input type="number" step="0.01" name="loaderCost" class="form-control" value="0"></div>
+            <div class="col-6"><label class="form-label small">Extra Worker Cost</label><input type="number" step="0.01" name="extraWorkerCost" class="form-control" value="0"></div>
+            <div class="col-6"><label class="form-label small">Labels</label><input type="number" step="0.01" name="labelsCost" class="form-control" value="0"></div>
+            <div class="col-6"><label class="form-label small">H-Take</label><input type="number" step="0.01" name="htakeCost" class="form-control" value="0"></div>
+            <div class="col-6"><label class="form-label small">Stickers</label><input type="number" step="0.01" name="stickersCost" class="form-control" value="0"></div>
+            <div class="col-6"><label class="form-label small">Cartons</label><input type="number" step="0.01" name="cartonsCost" class="form-control" value="0"></div>
+            <div class="col-6"><label class="form-label small">Poly Bags</label><input type="number" step="0.01" name="polyBagsCost" class="form-control" value="0"></div>
+            <div class="col-6"><label class="form-label small">Gum Tape</label><input type="number" step="0.01" name="gamtapeCost" class="form-control" value="0"></div>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0 small">Custom Costs</h6>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCustomRow()"><i class="bi bi-plus"></i></button>
+          </div>
+          <table class="table table-sm">
+            <tbody id="customTbody"></tbody>
+          </table>
+          <button type="submit" class="btn btn-primary w-100 mt-2">Save Warehouse Costs</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<template id="customRowTemplate">
+  <tr>
+    <td><input class="form-control form-control-sm" name="custom_name" placeholder="Field name"></td>
+    <td><input class="form-control form-control-sm" type="number" step="0.01" name="custom_amount" placeholder="Amount"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+  </tr>
+</template>
+{% endblock %}
+{% block extra_js %}
+<script>
+function addCustomRow() {
+  document.getElementById('customTbody').appendChild(document.getElementById('customRowTemplate').content.cloneNode(true));
+}
+</script>
+{% endblock %}

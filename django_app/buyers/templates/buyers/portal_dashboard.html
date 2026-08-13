@@ -1,0 +1,48 @@
+{% extends "portal_base.html" %}
+{% block title %}{{ buyer.name }} Portal{% endblock %}
+{% block body %}
+<nav class="navbar navbar-dark bg-dark px-4">
+  <span class="navbar-brand mb-0"><i class="bi bi-shop me-2"></i>{{ buyer.name }} Portal</span>
+  <a href="{% url 'portal:logout' %}" class="btn btn-outline-light btn-sm">Log out</a>
+</nav>
+<div class="container py-4">
+  {% for sister in sisters %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span class="fw-semibold">{{ sister.name }}</span>
+      <span class="badge bg-info text-dark">{{ sister.get_agreementType_display }}</span>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-4">
+          <h6>Sourcing Requests</h6>
+          <ul class="list-group list-group-flush mb-3">
+            {% for r in sister.sourcingRequests.all %}
+            <li class="list-group-item d-flex justify-content-between px-0"><span>{{ r.productName }}</span><span class="badge bg-secondary">{{ r.get_status_display }}</span></li>
+            {% empty %}<li class="list-group-item text-muted px-0">None yet.</li>{% endfor %}
+          </ul>
+        </div>
+        <div class="col-md-4">
+          <h6>Invoices</h6>
+          <ul class="list-group list-group-flush mb-3">
+            {% for inv in sister.invoices.all %}
+            <li class="list-group-item d-flex justify-content-between px-0"><span>{{ inv.invoiceNo }}</span><span class="badge bg-secondary">{{ inv.get_status_display }}</span></li>
+            {% empty %}<li class="list-group-item text-muted px-0">None yet.</li>{% endfor %}
+          </ul>
+        </div>
+        <div class="col-md-4">
+          <h6>Documents</h6>
+          <ul class="list-group list-group-flush">
+            {% for doc in sister.documentVaults.all %}
+            <li class="list-group-item px-0"><a href="{{ doc.file.url }}">{{ doc.fileName }}</a></li>
+            {% empty %}<li class="list-group-item text-muted px-0">None yet.</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <p class="text-muted">No sister profiles linked yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

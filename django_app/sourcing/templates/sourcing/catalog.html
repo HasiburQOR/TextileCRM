@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block page_title %}Product Catalog{% endblock %}
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-body">
+    <form method="get" class="mb-3">
+      <input type="text" name="q" value="{{ search }}" class="form-control" placeholder="Search by product name…" onchange="this.form.submit()">
+    </form>
+    <div class="row g-3">
+      {% for r in requests %}
+      <div class="col-md-4">
+        <div class="card h-100">
+          {% if r.photoUrl %}<img src="{{ r.photoUrl }}" class="card-img-top" style="height:160px;object-fit:cover;">{% endif %}
+          <div class="card-body">
+            <h6 class="card-title">{{ r.productName }}</h6>
+            <div class="text-muted small mb-2">{{ r.styleNumber }} · {{ r.brandName }}</div>
+            <span class="badge bg-secondary">{{ r.get_status_display }}</span>
+            {% if r.sisterProfile %}<span class="badge bg-info text-dark">{{ r.sisterProfile.buyerProfile.name }}</span>{% endif %}
+          </div>
+          <div class="card-footer bg-transparent">
+            <a href="{% url 'sourcing:detail' r.pk %}" class="btn btn-sm btn-outline-primary w-100">View</a>
+          </div>
+        </div>
+      </div>
+      {% empty %}
+      <p class="text-muted text-center py-5">No products found.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

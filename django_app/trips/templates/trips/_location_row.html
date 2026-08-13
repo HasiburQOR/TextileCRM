@@ -1,0 +1,18 @@
+<tr id="loc-row-{{ loc.pk }}">
+  <td>{{ loc.locationName }}</td>
+  <td>{{ loc.quantity }}</td>
+  <td>{{ loc.advanceAmount }}</td>
+  <td>{{ loc.date|date:"M j, Y" }}</td>
+  <td>
+    <span class="badge {% if loc.status == 'REPORTED' %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ loc.get_status_display }}</span>
+  </td>
+  <td class="text-end">
+    {% if loc.status == "PENDING" and loc.sourcingTrip.status == "OPEN" %}
+    <button class="btn btn-sm btn-outline-success"
+            hx-post="{% url 'trips:report_location' loc.sourcingTrip_id loc.pk %}"
+            hx-target="#loc-row-{{ loc.pk }}" hx-swap="outerHTML">
+      <i class="bi bi-check-lg"></i> Report
+    </button>
+    {% endif %}
+  </td>
+</tr>

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block page_title %}Settlement{% endblock %}
+{% block content %}
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label small">Sister Profile</label>
+        <select name="sisterProfile" class="form-select" onchange="this.form.submit()">
+          <option value="">Select…</option>
+          {% for sp in sister_profiles %}
+          <option value="{{ sp.pk }}" {% if selected_id == sp.pk|stringformat:"s" %}selected{% endif %}>{{ sp.name }} ({{ sp.buyerProfile.name }})</option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if settlement %}
+<div class="row g-3">
+  <div class="col-md-3">
+    <div class="card shadow-sm stat-card"><div class="card-body"><div class="text-muted small">Total Advance</div><div class="fs-4 fw-bold">{{ settlement.totalAdvance }}</div></div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm stat-card"><div class="card-body"><div class="text-muted small">Total Expense</div><div class="fs-4 fw-bold">{{ settlement.totalExpense }}</div></div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm stat-card"><div class="card-body"><div class="text-muted small">Amount Owed</div><div class="fs-4 fw-bold">{{ settlement.amountOwed }}</div></div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm stat-card {% if settlement.negativeBalance %}border-danger{% endif %}">
+      <div class="card-body">
+        <div class="text-muted small">Net Position</div>
+        <div class="fs-4 fw-bold {% if settlement.negativeBalance %}text-danger{% else %}text-success{% endif %}">{{ settlement.netPosition }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="alert alert-info mt-3 small">
+  Agreement: <strong>{{ settlement.sisterProfile.get_agreementType_display }}</strong> at rate <strong>{{ settlement.negotiatedRate }}</strong>.
+  {% if settlement.negativeBalance %}<span class="text-danger fw-semibold">This sister profile owes more than the advance covers.</span>{% endif %}
+</div>
+{% elif selected_id %}
+<p class="text-muted">No data for this sister profile yet.</p>
+{% endif %}
+{% endblock %}

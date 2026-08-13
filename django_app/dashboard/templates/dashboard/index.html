@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card shadow-sm stat-card">
+      <div class="card-body">
+        <div class="text-muted small">Total Requests</div>
+        <div class="fs-3 fw-bold">{{ totalRequests }}</div>
+        <div class="small text-muted">{{ pendingRequests }} pending · {{ approvedRequests }} approved · {{ rejectedRequests }} rejected</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm stat-card">
+      <div class="card-body">
+        <div class="text-muted small">Invoices</div>
+        <div class="fs-3 fw-bold">{{ totalInvoices }}</div>
+        <div class="small text-muted">{{ pendingInvoices }} pending · {{ issuedInvoices }} issued</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm stat-card">
+      <div class="card-body">
+        <div class="text-muted small">Outstanding Balance</div>
+        <div class="fs-3 fw-bold">{{ totalOutstanding }}</div>
+        <div class="small text-muted">{{ totalPayments }} collected of {{ totalInvoiceValue }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm stat-card">
+      <div class="card-body">
+        <div class="text-muted small">Buyers / Sister Profiles</div>
+        <div class="fs-3 fw-bold">{{ totalBuyers }} / {{ totalSisterProfiles }}</div>
+        <div class="small text-muted">{{ totalExpenses }} total expenses</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h6 class="card-title">Recent Sourcing Requests</h6>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead><tr><th>Product</th><th>Style #</th><th>Status</th><th>Created By</th><th>Created</th></tr></thead>
+        <tbody>
+          {% for r in requests %}
+          <tr>
+            <td><a href="{% url 'sourcing:detail' r.pk %}" class="text-decoration-none">{{ r.productName }}</a></td>
+            <td><code>{{ r.styleNumber }}</code></td>
+            <td><span class="badge bg-secondary">{{ r.get_status_display }}</span></td>
+            <td>{{ r.createdBy.display_name }}</td>
+            <td>{{ r.createdAt|date:"M j, Y" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="text-center text-muted py-4">No sourcing requests yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

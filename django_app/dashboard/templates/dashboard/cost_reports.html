@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block page_title %}Cost Reports{% endblock %}
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead><tr><th>Report #</th><th>Product</th><th>QC Cost</th><th>Warehouse Cost</th><th>Grand Total</th></tr></thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td><code>{{ row.report.reportId }}</code></td>
+            <td>{{ row.report.request.productName }}</td>
+            <td>{{ row.report.totalCost }}</td>
+            <td>{{ row.warehouseTotal }}</td>
+            <td class="fw-bold">{{ row.grandTotal }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="text-center text-muted py-4">No cost data yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

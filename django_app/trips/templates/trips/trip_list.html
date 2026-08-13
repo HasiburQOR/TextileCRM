@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block page_title %}Sourcing Trips{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-end mb-3">
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newTripModal"><i class="bi bi-plus-lg me-1"></i>New Trip</button>
+</div>
+
+{% for trip in trips %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <div>
+      <span class="fw-semibold">{{ trip.request.productName }}</span>
+      <span class="badge {% if trip.status == 'CLOSED' %}bg-success{% else %}bg-primary{% endif %} ms-2">{{ trip.get_status_display }}</span>
+    </div>
+    <div class="d-flex align-items-center gap-3">
+      <span class="small text-muted">Total advance: <strong>{{ trip.totalAdvance }}</strong></span>
+      {% if trip.status == "OPEN" %}
+      <form method="post" action="{% url 'trips:close' trip.pk %}" onsubmit="return confirm('Close this trip? Total advance will be locked.');">
+        {% csrf_token %}
+        <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="bi bi-lock"></i> Close Trip</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Location</th><th>Qty</th><th>Advance</th><th>Date</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for loc in trip.locations.all %}
+          {% include "trips/_location_row.html" with loc=loc %}
+          {% empty %}
+          <tr><td colspan="6" class="text-muted text-center">No locations.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% empty %}
+<p class="text-muted text-center py-5">No sourcing trips yet.</p>
+{% endfor %}
+
+<div class="modal fade" id="newTripModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{% url 'trips:create' %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title">New Sourcing Trip</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small">Approved Request</label>
+            <select name="requestId" class="form-select" required>
+              {% for r in available_requests %}
+              <option value="{{ r.pk }}">{{ r.productName }} ({{ r.styleNumber }})</option>
+              {% empty %}
+              <option disabled>No approved requests without a trip</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Locations</h6>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addLocRow()"><i class="bi bi-plus"></i> Add Location</button>
+          </div>
+          <table class="table table-sm">
+            <thead><tr><th>Location</th><th>Qty</th><th>Advance</th><th>Date</th><th></th></tr></thead>
+            <tbody id="locTbody"></tbody>
+          </table>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">Create Trip</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<template id="locRowTemplate">
+  <tr>
+    <td><input class="form-control form-control-sm" name="loc_name"></td>
+    <td><input class="form-control form-control-sm" type="number" name="loc_qty" value="0"></td>
+    <td><input class="form-control form-control-sm" type="number" step="0.01" name="loc_advance" value="0"></td>
+    <td><input class="form-control form-control-sm" type="datetime-local" name="loc_date"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+  </tr>
+</template>
+{% endblock %}
+{% block extra_js %}
+<script>
+function addLocRow() {
+  document.getElementById('locTbody').appendChild(document.getElementById('locRowTemplate').content.cloneNode(true));
+}
+addLocRow();
+</script>
+{% endblock %}

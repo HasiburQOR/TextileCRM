@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block page_title %}{{ sister.name }}{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title">Edit Agreement</h6>
+        {% if sister.has_expenses %}
+        <div class="alert alert-warning small">Agreement type and rate are locked because expenses already exist for this sister profile.</div>
+        {% endif %}
+        <form method="post" action="{% url 'buyers:sister_update' sister.pk %}">
+          {% csrf_token %}
+          <div class="mb-2">
+            <label class="form-label small">Agreement Type</label>
+            <select name="agreementType" class="form-select" {% if sister.has_expenses %}disabled{% endif %}>
+                <option value="TYPE_1" {% if sister.agreementType == "TYPE_1" %}selected{% endif %}>Type 1 (% Commission)</option>
+              <option value="TYPE_2" {% if sister.agreementType == "TYPE_2" %}selected{% endif %}>Type 2 (Per Unit)</option>
+              <option value="TYPE_3" {% if sister.agreementType == "TYPE_3" %}selected{% endif %}>Type 3 (Reimburse + Commission)</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Negotiated Rate</label>
+            <input type="number" step="0.01" name="negotiatedRate" class="form-control" value="{{ sister.negotiatedRate }}" {% if sister.has_expenses %}readonly{% endif %}>
+          </div>
+          <input type="hidden" name="buyerProfile" value="{{ sister.buyerProfile.pk }}">
+          <input type="hidden" name="poReference" value="{{ sister.poReference }}">
+          <input type="hidden" name="terms" value="{{ sister.terms }}">
+          <div class="mb-3">
+            <label class="form-label small">Status</label>
+            <select name="status" class="form-select">
+              <option value="ACTIVE" {% if sister.status == "ACTIVE" %}selected{% endif %}>Active</option>
+              <option value="INACTIVE" {% if sister.status == "INACTIVE" %}selected{% endif %}>Inactive</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary w-100" {% if sister.has_expenses %}title="Rate locked"{% endif %}>Save</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h6 class="card-title">Sourcing Requests</h6>
+        <ul class="list-group list-group-flush">
+          {% for r in sister.sourcingRequests.all %}
+          <li class="list-group-item d-flex justify-content-between"><span>{{ r.productName }}</span><span class="badge bg-secondary">{{ r.get_status_display }}</span></li>
+          {% empty %}<li class="list-group-item text-muted">None yet.</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title">Invoices</h6>
+        <ul class="list-group list-group-flush">
+          {% for inv in sister.invoices.all %}
+          <li class="list-group-item d-flex justify-content-between"><span>{{ inv.invoiceNo }}</span><span class="badge bg-secondary">{{ inv.get_status_display }}</span></li>
+          {% empty %}<li class="list-group-item text-muted">None yet.</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
