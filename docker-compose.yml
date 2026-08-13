@@ -31,13 +31,23 @@ services:
     build: ./backend
     restart: unless-stopped
     environment:
-      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.dev}
       DB_ENGINE: postgres
       POSTGRES_HOST: db
       POSTGRES_DB: backend_db
       POSTGRES_USER: ${POSTGRES_USER:-app_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-local-dev-secret-key-change-me}
+      # Only read by config.settings.prod (see docments/Deployment_Guide.md)
+      # — harmless no-ops under the dev settings module used locally.
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # backend-api is only ever reached internally (via frontend-admin's
+      # nginx proxy), never directly from the internet — TLS is terminated
+      # at the reverse proxy in front of frontend-admin, so this service
+      # forcing its own https redirect would break that internal hop.
+      DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-false}
     ports:
       - "${BACKEND_PORT:-8020}:8000"
     depends_on:
@@ -55,7 +65,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-app_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-local-dev-secret-key-change-me}
-      DJANGO_DEBUG: "true"
+      DJANGO_DEBUG: ${DJANGO_APP_DEBUG:-true}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
       DJANGO_SEED_DATA: "true"
     ports:
       - "${DJANGO_PORT:-8000}:8000"

@@ -38,5 +38,8 @@ Thumbs.db
 .vscode/
 .idea/
 
+# ── Office lock files (created while a .docx/.xlsx is open) ──────────
+~$*
+
 # ── Claude Code local session state (not part of the app) ────────────
 .claude/
