@@ -49,8 +49,8 @@ class SettlementFormulaTests(APITestCase):
         )
         rep = User.objects.create_user(username="rep_t2", password="pass12345", role=Roles.COMPANY_REP)
         product = Product.objects.create(sisterProfile=sister, name="Socks", createdBy=rep)
-        ProductVariant.objects.create(product=product, colorBreakdown={"Black": 120}, orderQty=120)
-        ProductVariant.objects.create(product=product, colorBreakdown={"Navy": 80}, orderQty=80)
+        ProductVariant.objects.create(product=product, colorName="Black", orderQty=120)
+        ProductVariant.objects.create(product=product, colorName="Navy", orderQty=80)
         # totalQty = 200
 
         record_expense(sister_profile=sister, source_type=SourceType.SOURCING_ADVANCE, amount=100, created_by=self.admin)

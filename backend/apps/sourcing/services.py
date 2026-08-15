@@ -11,21 +11,65 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from apps.core.utils import sum_size_breakdown
 from apps.expenses.models import SourceType
 from apps.expenses.services import record_expense
 from apps.sourcing.models import (
-    LocationEntryStatus,
     Product,
     ProductStatus,
+    ProductTemplate,
+    ProductTemplateField,
     ProductVariant,
-    SourcingLocationEntry,
-    SourcingTrip,
+    SourcingCost,
+    SourcingCostItem,
+    TemplateField,
     TripStatus,
 )
 
 
 def _dec(value) -> Decimal:
     return Decimal(str(value or 0))
+
+
+# ── Product Templates & Custom Fields (Product_Templates_Custom_Fields_Module.md) ──
+
+@transaction.atomic
+def save_template_fields(template: ProductTemplate, field_ids: list[str]) -> ProductTemplate:
+    """BR: 'Selecting one field in a field_group auto-adds the rest of that
+    group to the template at save time — implement as a single validation/
+    completion step on save, not a live client-side-only behavior that
+    could be bypassed via direct API calls.' Fully replaces the template's
+    field selection (same delete-and-recreate pattern used for
+    ProductVariant/PackingCarton rows elsewhere in this app)."""
+    fields = list(TemplateField.objects.filter(id__in=field_ids).select_related("fieldGroup"))
+    touched_group_ids = {f.fieldGroup_id for f in fields if f.fieldGroup_id}
+    if touched_group_ids:
+        group_fields = TemplateField.objects.filter(fieldGroup_id__in=touched_group_ids)
+        seen_ids = {f.id for f in fields}
+        fields += [f for f in group_fields if f.id not in seen_ids]
+
+    ProductTemplateField.objects.filter(template=template).delete()
+    for order, field in enumerate(fields):
+        ProductTemplateField.objects.create(template=template, field=field, displayOrder=order)
+    return template
+
+
+def resolve_template_fields(template: ProductTemplate | None) -> list[dict]:
+    """Snapshotted onto Product.resolvedTemplateFields at creation time —
+    never a live read through `template` afterward (BR: editing a
+    Template's field set must not retroactively alter existing Products)."""
+    if not template:
+        return []
+    return [
+        {
+            "fieldKey": ptf.field.fieldKey,
+            "label": ptf.field.label,
+            "fieldType": ptf.field.fieldType,
+            "selectOptions": ptf.field.selectOptions,
+            "isRequired": ptf.field.isRequired,
+        }
+        for ptf in template.templateFields.select_related("field").order_by("displayOrder")
+    ]
 
 
 def _round4(value: Decimal) -> Decimal:
@@ -38,7 +82,7 @@ def compute_variant_derived(variant: ProductVariant) -> None:
     the calc must match exactly (Module Documentation Pack §4)."""
     from apps.packing.models import CUBIC_INCHES_PER_CBM
 
-    variant.pcsPerCarton = sum(int(v) for v in (variant.sizeBreakdown or {}).values())
+    variant.pcsPerCarton = sum_size_breakdown(variant.sizeBreakdown)
 
     if variant.cartonNoTo is not None and variant.cartonNoFrom is not None and variant.cartonNoTo >= variant.cartonNoFrom:
         variant.noOfCartons = variant.cartonNoTo - variant.cartonNoFrom + 1
@@ -56,67 +100,146 @@ def compute_variant_derived(variant: ProductVariant) -> None:
 
 
 @transaction.atomic
-def report_location(location: SourcingLocationEntry, actor) -> SourcingLocationEntry:
-    """FR-72: the advance paid at a location is a "sourcing advance" cost
-    and must land in the Central Expense Table — recorded the moment the
-    location is confirmed/reported, matching the workflow doc's "how much
-    advance was paid at that location" language."""
-    if location.sourcingTrip.status == TripStatus.CLOSED:
-        raise ValidationError("Cannot modify a location on a closed Sourcing Trip.")
-    location.status = LocationEntryStatus.REPORTED
-    location.reportedAt = timezone.now()
-    location.save(update_fields=["status", "reportedAt", "updatedAt"])
-
-    product = location.sourcingTrip.product
-    record_expense(
-        sister_profile=product.sisterProfile,
-        product=product,
-        source_type=SourceType.SOURCING_ADVANCE,
-        amount=location.advanceAmount,
-        remarks=f"Sourcing advance at {location.locationName} for {product.name}",
-        created_by=actor,
-    )
-    return location
+def deduct_cost_item(item: SourcingCostItem, actor) -> None:
+    """Record expenses for each custom cost field, deducting from the buyer's wallet."""
+    product = item.product
+    sister_profile = product.sisterProfile
+    for cf in item.customCostFields or []:
+        amount = cf.get("amount", 0)
+        if amount:
+            record_expense(
+                sister_profile=sister_profile,
+                product=product,
+                source_type=SourceType.SOURCING_ADVANCE,
+                amount=amount,
+                remarks=f"{cf.get('name', 'Custom cost')}: {product.name} @ {item.locationName}",
+                field_name=f"sourcing_cost_item:{item.id}",
+                created_by=actor,
+            )
 
 
 @transaction.atomic
-def close_sourcing_trip(trip: SourcingTrip) -> SourcingTrip:
-    """BR-13 / FR-69: a trip closes only once every location is Reported —
-    this stands in for "full payment confirmed", which the same action
-    records (App_Workflow §4 Step 5: locations report in -> full payment
-    made -> trip closes, as one gated step in this system)."""
-    if trip.status == TripStatus.CLOSED:
-        raise ValidationError("Sourcing Trip is already closed.")
-    if not trip.locations.exists():
-        raise ValidationError("Cannot close a Sourcing Trip with no locations.")
-    if trip.locations.filter(status=LocationEntryStatus.PENDING).exists():
-        raise ValidationError("Cannot close a Sourcing Trip while any location is still Pending.")
-    trip.status = TripStatus.CLOSED
-    trip.fullPaymentConfirmedAt = timezone.now()
-    trip.save(update_fields=["status", "fullPaymentConfirmedAt", "updatedAt"])
+def adjust_cost_item(item: SourcingCostItem, old_custom_costs: list, actor) -> None:
+    """Refund old expenses and deduct new ones when item costs change."""
+    from apps.expenses.models import Expense
 
-    from django.db.models import Sum
+    product = item.product
+    sister_profile = product.sisterProfile
+
+    # Find and refund old expenses for this item
+    old_expenses = list(Expense.objects.filter(
+        product=product,
+        sourceType=SourceType.SOURCING_ADVANCE,
+        fieldName=f"sourcing_cost_item:{item.id}",
+    ))
+
+    if old_expenses:
+        from apps.wallet.models import WalletTransaction, WalletTransactionType
+        from apps.wallet.services import create_wallet, record_refund
+
+        wallet = create_wallet(sister_profile.buyerProfile)
+        for expense in old_expenses:
+            deduction = WalletTransaction.objects.filter(
+                wallet=wallet, type=WalletTransactionType.DEDUCTION, sourceExpense=expense
+            ).first()
+            if deduction:
+                record_refund(
+                    wallet=wallet, amount=-deduction.amount,
+                    source_type=expense.sourceType,
+                    sister_profile=sister_profile,
+                    source_expense=expense,
+                    created_by=actor or deduction.createdBy,
+                    currency=deduction.currency,
+                    reason=f"Sourcing cost item updated for {product.name}",
+                )
+        Expense.objects.filter(id__in=[e.id for e in old_expenses]).delete()
+
+        from apps.ledger.services import recompute_settlement
+        recompute_settlement(sister_profile)
+
+    # Deduct new costs
+    deduct_cost_item(item, actor)
+
+
+@transaction.atomic
+def refund_cost_item(item: SourcingCostItem, actor) -> None:
+    """Refund all expenses for a cost item being deleted."""
+    from apps.expenses.models import Expense
+
+    product = item.product
+    sister_profile = product.sisterProfile
+
+    expenses = list(Expense.objects.filter(
+        product=product,
+        sourceType=SourceType.SOURCING_ADVANCE,
+        fieldName=f"sourcing_cost_item:{item.id}",
+    ))
+
+    if expenses:
+        from apps.wallet.models import WalletTransaction, WalletTransactionType
+        from apps.wallet.services import create_wallet, record_refund
+
+        wallet = create_wallet(sister_profile.buyerProfile)
+        for expense in expenses:
+            deduction = WalletTransaction.objects.filter(
+                wallet=wallet, type=WalletTransactionType.DEDUCTION, sourceExpense=expense
+            ).first()
+            if deduction:
+                record_refund(
+                    wallet=wallet, amount=-deduction.amount,
+                    source_type=expense.sourceType,
+                    sister_profile=sister_profile,
+                    source_expense=expense,
+                    created_by=actor or deduction.createdBy,
+                    currency=deduction.currency,
+                    reason=f"Sourcing cost item deleted for {product.name}",
+                )
+
+        Expense.objects.filter(id__in=[e.id for e in expenses]).delete()
+
+        from apps.ledger.services import recompute_settlement
+        recompute_settlement(sister_profile)
+
+
+@transaction.atomic
+def close_sourcing_cost(cost: SourcingCost) -> SourcingCost:
+    """A sourcing cost closes once it has at least one item. Wallet deductions
+    already happened on item creation, so closing is just a status gate."""
+    if cost.status == TripStatus.CLOSED:
+        raise ValidationError("Sourcing Cost is already closed.")
+    if not cost.items.exists():
+        raise ValidationError("Cannot close a Sourcing Cost with no items.")
+    cost.status = TripStatus.CLOSED
+    cost.fullPaymentConfirmedAt = timezone.now()
+    cost.save(update_fields=["status", "fullPaymentConfirmedAt", "updatedAt"])
+
+    total_amount = _dec("0")
+    for item in cost.items.all():
+        for cf in item.customCostFields or []:
+            total_amount += _dec(cf.get("amount", 0))
 
     from apps.notifications.models import NotificationType
     from apps.notifications.services import notify
 
-    total_advance = trip.locations.aggregate(total=Sum("advanceAmount"))["total"] or 0
-    notify(
-        user=trip.product.createdBy, title="Sourcing Trip closed",
-        message=f"The Sourcing Trip for {trip.product.name} has closed with a total advance of {total_advance}.",
-        notification_type=NotificationType.TRIP_CLOSED, sister_profile=trip.product.sisterProfile,
-    )
-    return trip
+    for portal_user in cost.sisterProfile.buyerProfile.portal_users.all():
+        notify(
+            user=portal_user,
+            title="Sourcing Cost closed",
+            message=f"The Sourcing Cost for {cost.sisterProfile.poReference} has closed with a total of {total_amount}.",
+            notification_type=NotificationType.TRIP_CLOSED,
+            sister_profile=cost.sisterProfile,
+        )
+    return cost
 
 
 def submit_for_approval(product: Product) -> Product:
     """BR-08 / BR-14 / FR-04 / FR-70: the hard gate — a product cannot enter
-    Pending Admin Approval while its Sourcing Trip is Open (or has none)."""
+    Pending Admin Approval while its Sourcing Cost is Open (or has none)."""
     if product.status != ProductStatus.SOURCING_TRIP_OPEN:
         raise ValidationError(f"Cannot submit for approval from status '{product.status}'.")
-    trip = product.sourcingTrips.order_by("-createdAt").first()
-    if trip is None or trip.status != TripStatus.CLOSED:
-        raise ValidationError("Cannot submit for approval while the Sourcing Trip is Open (or missing).")
+    item = product.sourcingCostItems.order_by("-createdAt").first()
+    if item is None or item.sourcingCost.status != TripStatus.CLOSED:
+        raise ValidationError("Cannot submit for approval while the product's Sourcing Cost is Open (or missing).")
     product.status = ProductStatus.PENDING_ADMIN_APPROVAL
     product.save(update_fields=["status", "updatedAt"])
     return product
@@ -227,8 +350,10 @@ def generate_product_qr(product: Product, actor) -> Product:
     """FR-25: encodes size/color/quantity/fabric/price — the finished-goods
     identity, one QR per product."""
     _require_finalized(product)
-    colors = sorted({color for v in product.variants.all() for color in (v.colorBreakdown or {}).keys()})
-    sizes = sorted({size for v in product.variants.all() for size in (v.sizeBreakdown or {}).keys()})
+    colors = sorted({v.colorName for v in product.variants.all() if v.colorName})
+    sizes = sorted(
+        {entry.get("size_label", "") for v in product.variants.all() for entry in (v.sizeBreakdown or [])} - {""}
+    )
     product.productQrPayload = {
         "schema_version": QR_SCHEMA_VERSION,
         "type": "product",

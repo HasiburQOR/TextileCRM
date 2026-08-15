@@ -1,5 +1,5 @@
 import { type ReactNode } from "react"
-import { LayoutDashboard, ListOrdered, LogOut, Package } from "lucide-react"
+import { LayoutDashboard, ListOrdered, LogOut, Package, Wallet } from "lucide-react"
 import { NavLink, useNavigate } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuthStore } from "@/lib/auth-store"
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 const BUYER_NAV_ITEMS = [
   { to: "/portal", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/portal/orders", label: "My Orders", icon: ListOrdered, end: false },
+  { to: "/portal/wallet", label: "Wallet", icon: Wallet, end: false },
 ]
 
 export function BuyerShell({ children }: { children: ReactNode }) {

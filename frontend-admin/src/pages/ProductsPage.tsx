@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, FileImage, Pencil, Plus, Trash2 } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { ColorBreakdownInput, colorBreakdownToRows, colorRowsToBreakdown, emptyColorBreakdownRows, type ColorBreakdownRow } from "@/components/packing/ColorBreakdownInput"
-import { SizeBreakdownInput } from "@/components/packing/SizeBreakdownInput"
+import { AddColumnDialog, ColumnCellInput, blankValuesForColumns, columnsFromTemplateFields, getCellValue, setCellValue } from "@/components/sourcing/GridColumns"
+import { SizeBreakdownInput, emptySizeBreakdownRows, sizeRowsClean, sizeRowsTotalQty } from "@/components/packing/SizeBreakdownInput"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -19,16 +19,15 @@ import { resolveMediaUrl } from "@/lib/media"
 import { PRODUCT_STATUS_BADGE_VARIANT, PRODUCT_STATUS_LABEL } from "@/lib/status"
 import { nextStyleNo } from "@/lib/style-no"
 import type { Paginated } from "@/types/api"
-import { DEFAULT_SIZE_OPTIONS } from "@/types/packing"
 import type { Product, ProductCreateInput, ProductStatus, ProductVariantInput, SisterProfile } from "@/types/sourcing"
+import type { ProductTemplate, ProductTemplateFieldEntry } from "@/types/templates"
 
-const SIZE_OPTIONS = DEFAULT_SIZE_OPTIONS
 const CUBIC_INCHES_PER_CBM = 61023.7441
 
-type VariantRowDraft = Omit<ProductVariantInput, "colorBreakdown"> & { colorRows: ColorBreakdownRow[] }
+type VariantRowDraft = ProductVariantInput & { tempId: string }
 
 function computeVariantDerived(row: VariantRowDraft) {
-  const pcsPerCarton = Object.values(row.sizeBreakdown).reduce((a, b) => a + b, 0)
+  const pcsPerCarton = sizeRowsTotalQty(row.sizeBreakdown)
   const noOfCartons =
     row.cartonNoFrom != null && row.cartonNoTo != null && row.cartonNoTo >= row.cartonNoFrom
       ? row.cartonNoTo - row.cartonNoFrom + 1
@@ -55,10 +54,13 @@ const STATUS_FILTER_OPTIONS: { value: ProductStatus | "all"; label: string }[] =
 
 const CAN_CREATE_ROLES = ["admin", "company_rep"]
 
-function emptyVariant(prevCartonTo?: number | null): VariantRowDraft {
+function emptyVariant(prevCartonTo: number | null | undefined, columns: ProductTemplateFieldEntry[]): VariantRowDraft {
   const nextFrom = prevCartonTo != null ? prevCartonTo + 1 : 1
   return {
-    colorRows: emptyColorBreakdownRows(), patternNo: "", orderQty: 0, sizeBreakdown: {}, innerBundle: 1,
+    tempId: crypto.randomUUID(),
+    colorName: "", patternNo: "", orderQty: 0, sizeBreakdown: emptySizeBreakdownRows(),
+    customFieldValues: blankValuesForColumns(columns),
+    innerBundle: 1,
     cartonNoFrom: nextFrom, cartonNoTo: nextFrom,
     grossWeight: null, netWeight: null, ctnLength: null, ctnWidth: null, ctnHeight: null,
   }
@@ -66,10 +68,12 @@ function emptyVariant(prevCartonTo?: number | null): VariantRowDraft {
 
 function variantToDraft(v: Product["variants"][number]): VariantRowDraft {
   return {
-    colorRows: colorBreakdownToRows(v.colorBreakdown),
+    tempId: crypto.randomUUID(),
+    colorName: v.colorName,
     patternNo: v.patternNo,
     orderQty: v.orderQty,
-    sizeBreakdown: { ...v.sizeBreakdown },
+    sizeBreakdown: v.sizeBreakdown.map((e) => ({ ...e })),
+    customFieldValues: v.customFieldValues.map((e) => ({ ...e })),
     innerBundle: v.innerBundle,
     cartonNoFrom: v.cartonNoFrom,
     cartonNoTo: v.cartonNoTo,
@@ -197,8 +201,10 @@ export function ProductsPage() {
                       <td className="px-4 py-2.5 text-slate-500">{p.sisterProfilePoReference}</td>
                       <td className="px-4 py-2.5 text-slate-500">{p.totalOrderQty}</td>
                       <td className="px-4 py-2.5">
-                        {p.factoryPackingList ? (
-                          <FileImage className="h-4 w-4 text-emerald-600" />
+                        {p.packingCartonCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-600" title={`${p.packingCartonCount} carton row(s) in the Packing List module`}>
+                            <FileImage className="h-4 w-4" /> {p.packingCartonCount}
+                          </span>
                         ) : (
                           <span className="text-slate-300">—</span>
                         )}
@@ -281,17 +287,43 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
     },
   })
 
+  const templatesQuery = useQuery({
+    queryKey: ["product-templates", "all"],
+    queryFn: async () => {
+      const { data } = await api.get<Paginated<ProductTemplate>>("/product-templates/", { params: { page_size: 200, isActive: true } })
+      return data.results
+    },
+  })
+
   const [styleNumber, setStyleNumber] = useState(nextStyleNo)
   const [sisterProfile, setSisterProfile] = useState("")
   const [name, setName] = useState("")
   const [brandName, setBrandName] = useState("")
   const [poNo, setPoNo] = useState("")
+  const [templateId, setTemplateId] = useState("")
+  const [columns, setColumns] = useState<ProductTemplateFieldEntry[]>([])
   const [variants, setVariants] = useState<VariantRowDraft[]>(
-    Array.from({ length: DEFAULT_VARIANT_ROWS }, () => emptyVariant()),
+    Array.from({ length: DEFAULT_VARIANT_ROWS }, () => emptyVariant(null, [])),
   )
   const [packingListFile, setPackingListFile] = useState<File | null>(null)
   const packingListInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
+
+  function handleTemplateChange(id: string) {
+    setTemplateId(id)
+    const template = templatesQuery.data?.find((t) => t.id === id)
+    // Choosing a template reshapes the grid itself: its fields become real
+    // columns (one value per color row), replacing whatever columns were
+    // active before — matches "mix and match, create a template and reuse it."
+    const newColumns = template ? columnsFromTemplateFields(template.fields) : []
+    setColumns(newColumns)
+    setVariants((prev) => prev.map((v) => ({ ...v, customFieldValues: blankValuesForColumns(newColumns) })))
+  }
+
+  function addColumn(column: ProductTemplateFieldEntry) {
+    setColumns((prev) => [...prev, column])
+    setVariants((prev) => prev.map((v) => ({ ...v, customFieldValues: setCellValue(v.customFieldValues, column, "") })))
+  }
 
   const createMutation = useMutation({
     mutationFn: async (payload: ProductCreateInput) => {
@@ -317,10 +349,17 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
     e.preventDefault()
     setError(null)
     const cleanVariants = variants
-      .filter((v) => v.colorRows.some((c) => c.name.trim() || c.qty))
-      .map(({ colorRows, ...rest }) => ({ ...rest, colorBreakdown: colorRowsToBreakdown(colorRows) }))
+      .filter((v) => v.colorName.trim())
+      .map(({ tempId: _tempId, sizeBreakdown, ...rest }) => ({
+        ...rest,
+        sizeBreakdown: sizeRowsClean(sizeBreakdown),
+      }))
     if (!sisterProfile) {
       setError("Sister Profile is required.")
+      return
+    }
+    if (cleanVariants.length === 0) {
+      setError("Add at least one row with a color name.")
       return
     }
     createMutation.mutate({
@@ -329,6 +368,8 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
       name,
       brandName: brandName || "NA",
       poNo,
+      template: templateId || null,
+      resolvedTemplateFields: columns,
       variants: cleanVariants,
     })
   }
@@ -337,6 +378,18 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onClose={onClose} title="New Sourcing Request" className="max-w-[95vw] xl:max-w-7xl">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
+
+        <div className="flex flex-col gap-1.5 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <label className="text-xs font-medium text-slate-600">Product Template</label>
+          <Select value={templateId} onChange={(e) => handleTemplateChange(e.target.value)} className="max-w-sm">
+            <option value="">Custom (no template — core fields only)</option>
+            {templatesQuery.data?.map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
+          </Select>
+          <p className="text-[11px] text-slate-400">
+            Choosing a template adds its fields as real columns in the grid below — one value per color row. You can
+            still add one-off columns with "Add Column" either way, and reuse this template on future products.
+          </p>
+        </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="flex flex-col gap-1.5 lg:col-span-2">
@@ -391,7 +444,13 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
-        <VariantRowsEditor variants={variants} onChange={setVariants} />
+        <VariantRowsEditor
+          variants={variants}
+          columns={columns}
+          onChange={setVariants}
+          onAddColumn={addColumn}
+          onAddRow={() => setVariants((prev) => [...prev, emptyVariant(prev[prev.length - 1]?.cartonNoTo, columns)])}
+        />
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>
@@ -406,7 +465,15 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-function VariantRowsEditor({ variants, onChange }: { variants: VariantRowDraft[]; onChange: (rows: VariantRowDraft[]) => void }) {
+function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow }: {
+  variants: VariantRowDraft[]
+  columns: ProductTemplateFieldEntry[]
+  onChange: (rows: VariantRowDraft[]) => void
+  onAddColumn: (column: ProductTemplateFieldEntry) => void
+  onAddRow: () => void
+}) {
+  const [addColumnOpen, setAddColumnOpen] = useState(false)
+
   function updateVariant(index: number, patch: Partial<VariantRowDraft>) {
     onChange(variants.map((row, i) => (i === index ? { ...row, ...patch } : row)))
   }
@@ -418,25 +485,30 @@ function VariantRowsEditor({ variants, onChange }: { variants: VariantRowDraft[]
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <label className="text-xs font-medium text-slate-600">Per-Color Packing Detail (one row per color)</label>
-        <Button
-          type="button" variant="outline" size="sm"
-          onClick={() => onChange([...variants, emptyVariant(variants[variants.length - 1]?.cartonNoTo)])}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add Product
-        </Button>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => setAddColumnOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            Add Column
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={onAddRow}>
+            <Plus className="h-3.5 w-3.5" />
+            Add Row
+          </Button>
+        </div>
       </div>
       <p className="text-xs text-slate-400">
-        Weights, carton dimensions, and carton numbers can be left blank now and completed later in the Packing List module.
+        Each row is exactly one color — its own Order Qty, size breakdown, weights, and carton range, so it's always
+        clear how much of which color is packed how. Weights, carton dimensions, and carton numbers can be left blank
+        now and completed later in the Packing List module.
       </p>
       <div className="overflow-x-auto rounded-md border border-slate-200">
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
-              <th className="px-2 py-1.5 font-medium">COLOR BREAKDOWN</th>
+              <th className="px-2 py-1.5 font-medium">Color</th>
               <th className="px-2 py-1.5 font-medium">Pattern No</th>
               <th className="px-2 py-1.5 font-medium">Order Qty</th>
-              <th className="px-2 py-1.5 font-medium">Size Breakdown</th>
+              <th className="px-2 py-1.5 font-medium">Size Breakdown (per carton)</th>
               <th className="px-2 py-1.5 font-medium">PC/CTN</th>
               <th className="px-2 py-1.5 font-medium">Inner Bdl</th>
               <th className="px-2 py-1.5 font-medium">CTN From</th>
@@ -452,6 +524,9 @@ function VariantRowsEditor({ variants, onChange }: { variants: VariantRowDraft[]
               <th className="px-2 py-1.5 font-medium">H(in)</th>
               <th className="px-2 py-1.5 font-medium">CBM</th>
               <th className="px-2 py-1.5 font-medium">TTL CBM</th>
+              {columns.map((c) => (
+                <th key={c.id} className="px-2 py-1.5 font-medium text-indigo-600">{c.label}</th>
+              ))}
               <th className="w-8" />
             </tr>
           </thead>
@@ -459,9 +534,12 @@ function VariantRowsEditor({ variants, onChange }: { variants: VariantRowDraft[]
             {variants.map((row, i) => {
               const d = computeVariantDerived(row)
               return (
-                <tr key={i} className="border-b border-slate-100 last:border-0">
+                <tr key={row.tempId} className="border-b border-slate-100 last:border-0">
                   <td className="p-1">
-                    <ColorBreakdownInput rows={row.colorRows} onChange={(cr) => updateVariant(i, { colorRows: cr })} />
+                    <Input
+                      className="h-7 w-24 text-xs" placeholder="Color name"
+                      value={row.colorName} onChange={(e) => updateVariant(i, { colorName: e.target.value })}
+                    />
                   </td>
                   <td className="p-1">
                     <Input className="h-7 w-24 text-xs" value={row.patternNo} onChange={(e) => updateVariant(i, { patternNo: e.target.value })} />
@@ -470,7 +548,7 @@ function VariantRowsEditor({ variants, onChange }: { variants: VariantRowDraft[]
                     <Input className="h-7 w-16 text-xs" type="number" min={0} value={row.orderQty} onChange={(e) => updateVariant(i, { orderQty: Number(e.target.value) })} />
                   </td>
                   <td className="p-1">
-                    <SizeBreakdownInput sizeKeys={SIZE_OPTIONS} values={row.sizeBreakdown} onChange={(sb) => updateVariant(i, { sizeBreakdown: sb })} />
+                    <SizeBreakdownInput rows={row.sizeBreakdown} onChange={(sb) => updateVariant(i, { sizeBreakdown: sb })} />
                   </td>
                   <td className="p-1 text-center text-xs font-medium text-slate-600">{d.pcsPerCarton}</td>
                   <td className="p-1">
@@ -503,6 +581,15 @@ function VariantRowsEditor({ variants, onChange }: { variants: VariantRowDraft[]
                   </td>
                   <td className="p-1 text-center text-xs font-medium text-slate-600">{d.cbm.toFixed(4)}</td>
                   <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalCbm.toFixed(4)}</td>
+                  {columns.map((c) => (
+                    <td key={c.id} className="p-1">
+                      <ColumnCellInput
+                        column={c}
+                        value={getCellValue(row.customFieldValues, c)}
+                        onChange={(v) => updateVariant(i, { customFieldValues: setCellValue(row.customFieldValues, c, v) })}
+                      />
+                    </td>
+                  ))}
                   <td className="p-1 text-center">
                     {variants.length > 1 && (
                       <button type="button" onClick={() => removeVariant(i)} className="text-slate-400 hover:text-red-600">
@@ -521,6 +608,12 @@ function VariantRowsEditor({ variants, onChange }: { variants: VariantRowDraft[]
         <span>Total Cartons: <strong>{variants.reduce((s, v) => s + computeVariantDerived(v).noOfCartons, 0)}</strong></span>
         <span>Total CBM: <strong>{variants.reduce((s, v) => s + computeVariantDerived(v).totalCbm, 0).toFixed(4)}</strong></span>
       </div>
+      {addColumnOpen && (
+        <AddColumnDialog
+          onClose={() => setAddColumnOpen(false)}
+          onAdd={(column) => { onAddColumn(column); setAddColumnOpen(false) }}
+        />
+      )}
     </div>
   )
 }
@@ -537,6 +630,7 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
   ]
   const packingListLightboxIndex = product.factoryPackingList && isPackingListImage ? 0 : null
   const galleryStartIndex = packingListLightboxIndex !== null ? 1 : 0
+  const columns = product.resolvedTemplateFields
 
   return (
     <Dialog open onClose={onClose} title="Product Details" className="max-w-[95vw] xl:max-w-6xl">
@@ -563,6 +657,7 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
           <Field label="Total Order Qty" value={String(product.totalOrderQty)} />
           <Field label="Created By" value={product.createdByName || "—"} />
           <Field label="Created" value={new Date(product.createdAt).toLocaleString()} />
+          <Field label="Template" value={product.templateName || "Custom (no template)"} />
           {product.reviewedByName && (
             <Field
               label="Reviewed By"
@@ -579,7 +674,7 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-                  <th className="px-3 py-2 font-medium">Color Breakdown</th>
+                  <th className="px-3 py-2 font-medium">Color</th>
                   <th className="px-3 py-2 font-medium">Pattern No</th>
                   <th className="px-3 py-2 font-medium">Order Qty</th>
                   <th className="px-3 py-2 font-medium">Size Breakdown</th>
@@ -589,29 +684,28 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
                   <th className="px-3 py-2 font-medium">TTL G.W</th>
                   <th className="px-3 py-2 font-medium">TTL N.W</th>
                   <th className="px-3 py-2 font-medium">CBM</th>
+                  {columns.map((c) => (
+                    <th key={c.id} className="px-3 py-2 font-medium text-indigo-500">{c.label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {product.variants.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-3 py-6 text-center text-sm text-slate-400">
+                    <td colSpan={10 + columns.length} className="px-3 py-6 text-center text-sm text-slate-400">
                       No color rows recorded.
                     </td>
                   </tr>
                 ) : (
                   product.variants.map((v) => (
                     <tr key={v.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-3 py-2 font-medium text-slate-900">
-                        {Object.entries(v.colorBreakdown).length === 0
-                          ? "—"
-                          : Object.entries(v.colorBreakdown).map(([color, qty]) => `${color}:${qty}`).join(" / ")}
-                      </td>
+                      <td className="px-3 py-2 font-medium text-slate-900">{v.colorName || "—"}</td>
                       <td className="px-3 py-2 text-slate-500">{v.patternNo || "—"}</td>
                       <td className="px-3 py-2 text-slate-500">{v.orderQty}</td>
                       <td className="px-3 py-2 text-slate-500">
-                        {Object.entries(v.sizeBreakdown).length === 0
+                        {v.sizeBreakdown.length === 0
                           ? "—"
-                          : Object.entries(v.sizeBreakdown).map(([size, qty]) => `${size}:${qty}`).join(" / ")}
+                          : v.sizeBreakdown.map((e) => `${e.size_label}:${e.quantity}`).join(" / ")}
                       </td>
                       <td className="px-3 py-2 text-slate-500">{v.pcsPerCarton}</td>
                       <td className="px-3 py-2 text-slate-500">{v.noOfCartons}</td>
@@ -619,6 +713,9 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
                       <td className="px-3 py-2 text-slate-500">{Number(v.totalGrossWeight).toFixed(2)}</td>
                       <td className="px-3 py-2 text-slate-500">{Number(v.totalNetWeight).toFixed(2)}</td>
                       <td className="px-3 py-2 text-slate-500">{Number(v.totalCbm).toFixed(4)}</td>
+                      {columns.map((c) => (
+                        <td key={c.id} className="px-3 py-2 text-slate-500">{getCellValue(v.customFieldValues, c) || "—"}</td>
+                      ))}
                     </tr>
                   ))
                 )}
@@ -722,17 +819,30 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
     brandName: product.brandName,
     poNo: product.poNo,
   })
+  const [columns, setColumns] = useState<ProductTemplateFieldEntry[]>(product.resolvedTemplateFields)
   const [variants, setVariants] = useState<VariantRowDraft[]>(
-    product.variants.length ? product.variants.map(variantToDraft) : [emptyVariant()],
+    product.variants.length ? product.variants.map(variantToDraft) : [emptyVariant(null, product.resolvedTemplateFields)],
   )
   const [error, setError] = useState<string | null>(null)
+
+  function addColumn(column: ProductTemplateFieldEntry) {
+    setColumns((prev) => [...prev, column])
+    setVariants((prev) => prev.map((v) => ({ ...v, customFieldValues: setCellValue(v.customFieldValues, column, "") })))
+  }
 
   const updateMutation = useMutation({
     mutationFn: async () => {
       const cleanVariants = variants
-        .filter((v) => v.colorRows.some((c) => c.name.trim() || c.qty))
-        .map(({ colorRows, ...rest }) => ({ ...rest, colorBreakdown: colorRowsToBreakdown(colorRows) }))
-      const { data } = await api.patch<Product>(`/products/${product.id}/`, { ...form, variants: cleanVariants })
+        .filter((v) => v.colorName.trim())
+        .map(({ tempId: _tempId, sizeBreakdown, ...rest }) => ({
+          ...rest,
+          sizeBreakdown: sizeRowsClean(sizeBreakdown),
+        }))
+      const { data } = await api.patch<Product>(`/products/${product.id}/`, {
+        ...form,
+        resolvedTemplateFields: columns,
+        variants: cleanVariants,
+      })
       return data
     },
     onSuccess: (data) => {
@@ -784,7 +894,17 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
           </div>
         </div>
 
-        <VariantRowsEditor variants={variants} onChange={setVariants} />
+        {product.templateName && (
+          <p className="text-xs text-slate-400">Template: <span className="font-medium text-slate-600">{product.templateName}</span></p>
+        )}
+
+        <VariantRowsEditor
+          variants={variants}
+          columns={columns}
+          onChange={setVariants}
+          onAddColumn={addColumn}
+          onAddRow={() => setVariants((prev) => [...prev, emptyVariant(prev[prev.length - 1]?.cartonNoTo, columns)])}
+        />
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>

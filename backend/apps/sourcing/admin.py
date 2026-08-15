@@ -1,6 +1,16 @@
 from django.contrib import admin
 
-from apps.sourcing.models import Product, ProductImage, ProductVariant, SourcingLocationEntry, SourcingTrip
+from apps.sourcing.models import (
+    FieldGroup,
+    Product,
+    ProductImage,
+    ProductTemplate,
+    ProductTemplateField,
+    ProductVariant,
+    SourcingCost,
+    SourcingCostItem,
+    TemplateField,
+)
 
 
 class ProductVariantInline(admin.TabularInline):
@@ -21,13 +31,39 @@ class ProductAdmin(admin.ModelAdmin):
     inlines = [ProductVariantInline, ProductImageInline]
 
 
-class SourcingLocationEntryInline(admin.TabularInline):
-    model = SourcingLocationEntry
+class SourcingCostItemInline(admin.TabularInline):
+    model = SourcingCostItem
     extra = 0
 
 
-@admin.register(SourcingTrip)
-class SourcingTripAdmin(admin.ModelAdmin):
-    list_display = ("product", "status", "fullPaymentConfirmedAt", "createdAt")
+@admin.register(SourcingCost)
+class SourcingCostAdmin(admin.ModelAdmin):
+    list_display = ("sisterProfile", "status", "fullPaymentConfirmedAt", "createdAt")
     list_filter = ("status",)
-    inlines = [SourcingLocationEntryInline]
+    inlines = [SourcingCostItemInline]
+
+
+@admin.register(FieldGroup)
+class FieldGroupAdmin(admin.ModelAdmin):
+    list_display = ("name",)
+    search_fields = ("name",)
+
+
+@admin.register(TemplateField)
+class TemplateFieldAdmin(admin.ModelAdmin):
+    list_display = ("label", "fieldKey", "fieldType", "isRequired", "fieldGroup")
+    list_filter = ("fieldType", "fieldGroup")
+    search_fields = ("label", "fieldKey")
+
+
+class ProductTemplateFieldInline(admin.TabularInline):
+    model = ProductTemplateField
+    extra = 0
+
+
+@admin.register(ProductTemplate)
+class ProductTemplateAdmin(admin.ModelAdmin):
+    list_display = ("name", "isActive", "createdBy", "createdAt")
+    list_filter = ("isActive",)
+    search_fields = ("name",)
+    inlines = [ProductTemplateFieldInline]

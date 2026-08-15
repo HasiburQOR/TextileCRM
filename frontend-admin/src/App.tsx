@@ -1,10 +1,12 @@
-import { Navigate, Route, Routes } from "react-router-dom"
+import { Navigate, Route, Routes, useLocation } from "react-router-dom"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { AppShell } from "@/components/layout/AppShell"
 import { BuyerShell } from "@/components/layout/BuyerShell"
 import { useAuthStore } from "@/lib/auth-store"
 import { BuyerDashboardPage } from "@/pages/portal/BuyerDashboardPage"
 import { BuyerOrdersPage } from "@/pages/portal/BuyerOrdersPage"
 import { BuyerOrderDetailPage } from "@/pages/portal/BuyerOrderDetailPage"
+import { BuyerWalletPage } from "@/pages/portal/BuyerWalletPage"
 import { LoginPage } from "@/pages/LoginPage"
 import { DashboardPage } from "@/pages/DashboardPage"
 import { BuyersPage } from "@/pages/BuyersPage"
@@ -13,12 +15,14 @@ import { SisterProfilesPage } from "@/pages/SisterProfilesPage"
 import { SisterProfileDetailPage } from "@/pages/SisterProfileDetailPage"
 import { ProductsPage } from "@/pages/ProductsPage"
 import { ProductDetailPage } from "@/pages/ProductDetailPage"
+import { ProductTemplatesPage } from "@/pages/ProductTemplatesPage"
 import { ApprovalsPage } from "@/pages/ApprovalsPage"
-import { SourcingTripsPage } from "@/pages/SourcingTripsPage"
-import { SourcingTripDetailPage } from "@/pages/SourcingTripDetailPage"
+import { SourcingCostsPage } from "@/pages/SourcingCostsPage"
+import { SourcingCostDetailPage } from "@/pages/SourcingCostDetailPage"
 import { PackingListsPage } from "@/pages/PackingListsPage"
-import { FinalQCPage } from "@/pages/FinalQCPage"
-import { QCCostsPage } from "@/pages/QCCostsPage"
+// Temporarily disabled — see the commented-out routes below.
+// import { FinalQCPage } from "@/pages/FinalQCPage"
+// import { QCCostsPage } from "@/pages/QCCostsPage"
 import { WarehouseCostsPage } from "@/pages/WarehouseCostsPage"
 import { ExpensesPage } from "@/pages/ExpensesPage"
 import { SettlementLedgerPage } from "@/pages/SettlementLedgerPage"
@@ -33,23 +37,30 @@ import { ProtectedRoute } from "@/routes/ProtectedRoute"
 
 function ProtectedApp() {
   const user = useAuthStore((s) => s.user)
+  // Keyed on the path so navigating away from a page that errored clears
+  // the boundary, rather than stranding the user on the error screen.
+  const { pathname } = useLocation()
 
   if (user?.role === "buyer") {
     return (
       <BuyerShell>
-        <Routes>
-          <Route path="/" element={<Navigate to="/portal" replace />} />
-          <Route path="/portal" element={<BuyerDashboardPage />} />
-          <Route path="/portal/orders" element={<BuyerOrdersPage />} />
-          <Route path="/portal/orders/:id" element={<BuyerOrderDetailPage />} />
-          <Route path="*" element={<Navigate to="/portal" replace />} />
-        </Routes>
+        <ErrorBoundary resetKey={pathname}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/portal" replace />} />
+            <Route path="/portal" element={<BuyerDashboardPage />} />
+            <Route path="/portal/orders" element={<BuyerOrdersPage />} />
+            <Route path="/portal/orders/:id" element={<BuyerOrderDetailPage />} />
+            <Route path="/portal/wallet" element={<BuyerWalletPage />} />
+            <Route path="*" element={<Navigate to="/portal" replace />} />
+          </Routes>
+        </ErrorBoundary>
       </BuyerShell>
     )
   }
 
   return (
     <AppShell>
+      <ErrorBoundary resetKey={pathname}>
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/buyers" element={<BuyersPage />} />
@@ -58,12 +69,18 @@ function ProtectedApp() {
         <Route path="/sister-profiles/:id" element={<SisterProfileDetailPage />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/products/:id" element={<ProductDetailPage />} />
+        <Route path="/product-templates" element={<ProductTemplatesPage />} />
         <Route path="/approvals" element={<ApprovalsPage />} />
-        <Route path="/sourcing-trips" element={<SourcingTripsPage />} />
-        <Route path="/sourcing-trips/:id" element={<SourcingTripDetailPage />} />
+        <Route path="/sourcing-costs" element={<SourcingCostsPage />} />
+        <Route path="/sourcing-costs/:id" element={<SourcingCostDetailPage />} />
         <Route path="/packing-lists" element={<PackingListsPage />} />
-        <Route path="/final-qc" element={<FinalQCPage />} />
-        <Route path="/qc-reports" element={<QCCostsPage />} />
+        {/* Final QC & QR / QC Costs temporarily disabled — still under active
+            work. Also hidden from nav (see lib/nav-items.ts). The pages and
+            their backend endpoints are untouched; re-enable by uncommenting
+            these two routes, their imports above, and the nav entries. Until
+            then the catch-all below redirects these URLs to the dashboard. */}
+        {/* <Route path="/final-qc" element={<FinalQCPage />} /> */}
+        {/* <Route path="/qc-reports" element={<QCCostsPage />} /> */}
         <Route path="/warehouse-costs" element={<WarehouseCostsPage />} />
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/settlements" element={<SettlementLedgerPage />} />
@@ -76,6 +93,7 @@ function ProtectedApp() {
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </ErrorBoundary>
     </AppShell>
   )
 }

@@ -20,7 +20,7 @@ from apps.notifications.models import Notification
 from apps.notifications.serializers import NotificationSerializer
 from apps.packing.models import PackingList
 from apps.packing.serializers import PackingListSelfSerializer
-from apps.sourcing.models import Product, SourcingTrip
+from apps.sourcing.models import Product, SourcingCost
 from apps.sourcing.serializers import ProductSelfSerializer
 
 
@@ -51,8 +51,8 @@ class BuyerPortalDashboardView(APIView):
                 issued=Count("id", filter=Q(status=InvoiceStatus.ISSUED)),
                 outstanding=Sum("outstandingBalance"),
             )
-            latest_trip = (
-                SourcingTrip.objects.filter(product__sisterProfile=sister).order_by("-createdAt").first()
+            latest_cost = (
+                SourcingCost.objects.filter(sisterProfile=sister).order_by("-createdAt").first()
             )
             rows.append(
                 {
@@ -61,7 +61,7 @@ class BuyerPortalDashboardView(APIView):
                     "agreementType": sister.agreementType,
                     "status": sister.status,
                     "productCount": sister.products.count(),
-                    "latestTripStatus": latest_trip.status if latest_trip else None,
+                    "latestCostStatus": latest_cost.status if latest_cost else None,
                     "settlement": {
                         "totalAdvance": ledger.totalAdvance, "totalExpense": ledger.totalExpense,
                         "amountOwed": ledger.amountOwed, "netPosition": ledger.netPosition,
@@ -124,25 +124,39 @@ class PortalDashboardView(APIView):
         sister_ids = [s.id for s in sister_profiles]
 
         ledgers = {l.sisterProfile_id: l for l in SettlementLedger.objects.filter(sisterProfile_id__in=sister_ids)}
-        outstanding_balance = sum(
+        # Negative settlement balance (expense has outrun the advance) — a
+        # different thing from unpaid invoices, so it's labeled distinctly
+        # from `invoices_outstanding` below rather than merged with it.
+        negative_settlement_balance = sum(
             (max(Decimal("0"), -l.netPosition) for l in ledgers.values()), Decimal("0")
         )
+        # What the buyer actually still owes against issued invoices — the
+        # figure a buyer means by "Outstanding Balance". Previously this KPI
+        # was silently sourced from the settlement balance above instead,
+        # which reads 0 whenever the net position is positive even if a real
+        # invoice sits unpaid (as it does for a freshly issued/part-paid one).
+        invoices_outstanding = Invoice.objects.filter(
+            sisterProfile_id__in=sister_ids, status=InvoiceStatus.ISSUED,
+        ).aggregate(total=Sum("outstandingBalance"))["total"] or Decimal("0")
 
-        active_trips = (
-            SourcingTrip.objects.filter(product__sisterProfile_id__in=sister_ids, status="open")
-            .select_related("product", "product__sisterProfile")
-            .prefetch_related("locations")
+        active_costs = (
+            SourcingCost.objects.filter(sisterProfile_id__in=sister_ids, status="open")
+            .select_related("sisterProfile")
+            .prefetch_related("items__product")
         )
-        active_trips_data = [
+        active_costs_data = [
             {
                 "id": str(t.id),
-                "productName": t.product.name,
-                "sisterProfileId": str(t.product.sisterProfile_id),
-                "poReference": t.product.sisterProfile.poReference,
-                "locationsReported": t.locations.filter(status="reported").count(),
-                "locationsTotal": t.locations.count(),
+                "sisterProfileId": str(t.sisterProfile_id),
+                "poReference": t.sisterProfile.poReference,
+                "itemsCount": t.items.count(),
+                "totalAmount": sum(
+                    Decimal(str(cf.get("amount", 0)))
+                    for item in t.items.all()
+                    for cf in (item.customCostFields or [])
+                ),
             }
-            for t in active_trips
+            for t in active_costs
         ]
 
         recent_activity = Notification.objects.filter(user=request.user).order_by("-createdAt")[:10]
@@ -164,9 +178,10 @@ class PortalDashboardView(APIView):
                     "totalOrders": len(sister_profiles),
                     "ordersInProgress": sum(1 for s in sister_profiles if s.status == "active"),
                     "ordersCompleted": sum(1 for s in sister_profiles if s.status == "completed"),
-                    "outstandingBalance": outstanding_balance,
+                    "invoicesOutstanding": invoices_outstanding,
+                    "negativeSettlementBalance": negative_settlement_balance,
                 },
-                "activeSourcingTrips": active_trips_data,
+                "activeSourcingCosts": active_costs_data,
                 "recentActivity": NotificationSerializer(recent_activity, many=True).data,
                 "alerts": alerts,
             }
@@ -207,7 +222,7 @@ class PortalOrderDetailView(APIView):
 
 
 class PortalOrderSourcingProgressView(APIView):
-    """§17.4: per-product Sourcing Trip + location-by-location breakdown."""
+    """§17.4: per-product Sourcing Cost + location-by-location breakdown."""
 
     permission_classes = [BuyerPortalPermission]
 
@@ -218,27 +233,27 @@ class PortalOrderSourcingProgressView(APIView):
 
         products = (
             Product.objects.filter(sisterProfile=sister)
-            .prefetch_related("images", "sourcingTrips__locations")
+            .prefetch_related("images", "sourcingCostItems__sourcingCost")
             .order_by("-createdAt")
         )
         rows = []
         for product in products:
-            trip = product.sourcingTrips.order_by("-createdAt").first()
+            item = product.sourcingCostItems.order_by("-createdAt").first()
             rows.append(
                 {
                     "product": ProductSelfSerializer(product).data,
-                    "trip": {
-                        "status": trip.status,
-                        "fullPaymentConfirmedAt": trip.fullPaymentConfirmedAt,
-                        "locations": [
+                    "cost": {
+                        "status": item.sourcingCost.status if item else None,
+                        "fullPaymentConfirmedAt": item.sourcingCost.fullPaymentConfirmedAt if item else None,
+                        "items": [
                             {
-                                "locationName": loc.locationName, "quantity": loc.quantity,
-                                "advanceAmount": loc.advanceAmount, "status": loc.status,
-                                "reportedAt": loc.reportedAt,
+                                "locationName": i.locationName,
+                                "quantity": i.quantity,
+                                "customCostFields": i.customCostFields,
                             }
-                            for loc in trip.locations.all()
+                            for i in (product.sourcingCostItems.filter(sourcingCost=item.sourcingCost) if item else [])
                         ],
-                    } if trip else None,
+                    } if item else None,
                 }
             )
         return Response(rows)
@@ -306,6 +321,28 @@ class PortalOrderInvoicesView(APIView):
             .order_by("-createdAt")
         )
         return Response(InvoiceSelfSerializer(invoices, many=True).data)
+
+
+class PortalWalletView(APIView):
+    """Buyer_Wallet_Module.md WF-10 / GET /api/v1/portal/wallet/: read-only,
+    self-scoped from the authenticated buyer's own profile — no {id} param,
+    same 'resolved from request.user.buyer_profile' pattern as every other
+    /portal/ view in this module."""
+
+    permission_classes = [BuyerPortalPermission]
+
+    def get(self, request):
+        from apps.wallet.serializers import WalletSelfSerializer, WalletTransactionSelfSerializer
+        from apps.wallet.services import create_wallet
+
+        wallet = create_wallet(request.user.buyer_profile)
+        transactions = wallet.transactions.select_related("sisterProfile").order_by("-createdAt")[:200]
+        return Response(
+            {
+                "wallet": WalletSelfSerializer(wallet).data,
+                "transactions": WalletTransactionSelfSerializer(transactions, many=True).data,
+            }
+        )
 
 
 class PortalOrderDocumentsView(APIView):

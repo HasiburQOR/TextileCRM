@@ -9,12 +9,18 @@ class NotificationType(models.TextChoices):
     """BR-58 / FR-84: exactly the five trigger points the spec names,
     plus the BR-50/FR-76 negative-balance alert."""
 
-    TRIP_CLOSED = "trip_closed", "Sourcing Trip Closed"
+    TRIP_CLOSED = "trip_closed", "Sourcing Cost Closed"
     REQUEST_APPROVED = "request_approved", "Request Approved"
     REQUEST_REJECTED = "request_rejected", "Request Rejected"
     INVOICE_ISSUED = "invoice_issued", "Invoice Issued"
     PAYMENT_RECORDED = "payment_recorded", "Payment Recorded"
     NEGATIVE_BALANCE_ALERT = "negative_balance_alert", "Negative Balance Alert"
+    # Buyer_Wallet_Module.md WF-08: a distinct signal from
+    # NEGATIVE_BALANCE_ALERT above — that one is the Settlement Ledger's
+    # contractual "amount owed" going negative; these two are the Buyer
+    # Wallet's actual cash position.
+    WALLET_NEGATIVE_BALANCE = "wallet_negative_balance", "Wallet Negative Balance"
+    WALLET_LOW_BALANCE = "wallet_low_balance", "Wallet Low Balance"
 
 
 class Notification(UUIDModel):

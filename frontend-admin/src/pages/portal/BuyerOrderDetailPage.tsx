@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, ArrowLeft, Download } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Download, FileSpreadsheet } from "lucide-react"
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
-import { API_BASE_URL, api } from "@/lib/api"
+import { api } from "@/lib/api"
+import { downloadFile } from "@/lib/download"
+import { extractErrorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import type {
   PortalCosts, PortalDocument, PortalInvoice, PortalLedger, PortalOrderDetail,
@@ -29,6 +31,22 @@ export function BuyerOrderDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [tab, setTab] = useState<TabKey>("overview")
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [exportingKey, setExportingKey] = useState<string | null>(null)
+
+  async function handleExport(kind: "invoice" | "packing-list", entityId: string, filetype: "pdf" | "xlsx", filename: string) {
+    const key = `${kind}:${entityId}:${filetype}`
+    setExportingKey(key)
+    setExportError(null)
+    try {
+      const base = kind === "invoice" ? `/invoices/${entityId}/export/` : `/packing-lists/${entityId}/export/`
+      await downloadFile(`${base}${filetype === "xlsx" ? "?filetype=xlsx" : ""}`, filename)
+    } catch (err) {
+      setExportError(extractErrorMessage(err))
+    } finally {
+      setExportingKey(null)
+    }
+  }
 
   const orderQuery = useQuery({
     queryKey: ["portal", "orders", id],
@@ -92,6 +110,10 @@ export function BuyerOrderDetailPage() {
         </div>
       </div>
 
+      {exportError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div>
+      )}
+
       {ledger?.negativeBalance && (
         <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -136,18 +158,18 @@ export function BuyerOrderDetailPage() {
                   <Badge variant="default">{row.product.status.replace(/_/g, " ")}</Badge>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  {!row.trip ? (
-                    <p className="text-sm text-slate-400">No sourcing trip recorded yet.</p>
+                  {!row.cost ? (
+                    <p className="text-sm text-slate-400">No sourcing cost recorded yet.</p>
                   ) : (
                     <div className="flex flex-col gap-2">
-                      <Badge variant={row.trip.status === "open" ? "default" : "success"}>{row.trip.status}</Badge>
+                      <Badge variant={row.cost.status === "open" ? "default" : "success"}>{row.cost.status}</Badge>
                       <table className="w-full text-left text-sm">
                         <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                           <th className="px-2 py-1.5 font-medium">Location</th><th className="px-2 py-1.5 font-medium">Qty</th>
                           <th className="px-2 py-1.5 font-medium">Advance</th><th className="px-2 py-1.5 font-medium">Status</th>
                         </tr></thead>
                         <tbody>
-                          {row.trip.locations.map((loc, i) => (
+                          {row.cost.locations?.map((loc, i) => (
                             <tr key={i} className="border-b border-slate-100 last:border-0">
                               <td className="px-2 py-1.5 font-medium text-slate-900">{loc.locationName}</td>
                               <td className="px-2 py-1.5 text-slate-500">{loc.quantity}</td>
@@ -172,7 +194,7 @@ export function BuyerOrderDetailPage() {
             <Card>
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div className="flex flex-wrap gap-4 text-sm">
-                  {costsQuery.data.bySourceType.map((s) => (
+                  {costsQuery.data.bySourceType?.map((s) => (
                     <span key={s.sourceType} className="text-slate-600">
                       {s.sourceType.replace(/_/g, " ")}: <strong>{Number(s.total).toLocaleString()}</strong>
                     </span>
@@ -182,14 +204,14 @@ export function BuyerOrderDetailPage() {
               </CardContent>
             </Card>
           )}
-          <ListCard loading={costsQuery.isLoading} empty={!costsQuery.data?.items.length} emptyText="No costs recorded yet.">
+          <ListCard loading={costsQuery.isLoading} empty={!costsQuery.data?.items?.length} emptyText="No costs recorded yet.">
             <table className="w-full text-left text-sm">
               <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                 <th className="px-4 py-2 font-medium">Source</th><th className="px-4 py-2 font-medium">Amount</th>
                 <th className="px-4 py-2 font-medium">Remarks</th><th className="px-4 py-2 font-medium">Date</th>
               </tr></thead>
               <tbody>
-                {costsQuery.data?.items.map((c) => (
+                {costsQuery.data?.items?.map((c) => (
                   <tr key={c.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-2 font-medium text-slate-900">{c.sourceType.replace(/_/g, " ")}</td>
                     <td className="px-4 py-2 text-slate-500">{Number(c.amount).toLocaleString()} {c.currency}</td>
@@ -221,19 +243,37 @@ export function BuyerOrderDetailPage() {
           <div className="flex flex-col gap-4 p-4">
             {packingQuery.data?.map((pl) => (
               <Card key={pl.id}>
-                <CardHeader><CardTitle>{pl.poNo || pl.id} — {pl.brandName || "—"}</CardTitle></CardHeader>
+                <CardHeader className="flex-row items-center justify-between">
+                  <CardTitle>{pl.poNo || pl.id} — {pl.brandName || "—"}</CardTitle>
+                  <div className="inline-flex gap-1">
+                    <Button
+                      size="sm" variant="outline"
+                      disabled={exportingKey === `packing-list:${pl.id}:pdf`}
+                      onClick={() => handleExport("packing-list", pl.id, "pdf", `${pl.poNo || pl.id}.pdf`)}
+                    >
+                      <Download className="h-3 w-3" /> PDF
+                    </Button>
+                    <Button
+                      size="sm" variant="outline"
+                      disabled={exportingKey === `packing-list:${pl.id}:xlsx`}
+                      onClick={() => handleExport("packing-list", pl.id, "xlsx", `${pl.poNo || pl.id}.xlsx`)}
+                    >
+                      <FileSpreadsheet className="h-3 w-3" /> Excel
+                    </Button>
+                  </div>
+                </CardHeader>
                 <CardContent className="p-0">
                   <table className="w-full text-left text-xs">
                     <thead><tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
-                      <th className="px-2 py-1.5 font-medium">Style</th><th className="px-2 py-1.5 font-medium">Colors</th>
+                      <th className="px-2 py-1.5 font-medium">Style</th><th className="px-2 py-1.5 font-medium">Color</th>
                       <th className="px-2 py-1.5 font-medium">Cartons</th><th className="px-2 py-1.5 font-medium">Ship Qty</th>
                       <th className="px-2 py-1.5 font-medium">G.W</th><th className="px-2 py-1.5 font-medium">N.W</th><th className="px-2 py-1.5 font-medium">CBM</th>
                     </tr></thead>
                     <tbody>
-                      {pl.cartons.map((c) => (
+                      {pl.cartons?.map((c) => (
                         <tr key={c.id} className="border-b border-slate-100 last:border-0">
                           <td className="px-2 py-1.5 font-medium text-slate-900">{c.styleNumber}</td>
-                          <td className="px-2 py-1.5 text-slate-500">{Object.entries(c.colorBreakdown).map(([k, v]) => `${k}:${v}`).join(", ") || "—"}</td>
+                          <td className="px-2 py-1.5 text-slate-500">{c.colorName || "—"}</td>
                           <td className="px-2 py-1.5 text-slate-500">{c.noOfCartons}</td>
                           <td className="px-2 py-1.5 text-slate-500">{c.shipQty}</td>
                           <td className="px-2 py-1.5 text-slate-500">{Number(c.totalGrossWeight).toFixed(2)}</td>
@@ -256,6 +296,7 @@ export function BuyerOrderDetailPage() {
             <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
               <th className="px-4 py-2 font-medium">Invoice No</th><th className="px-4 py-2 font-medium">Status</th>
               <th className="px-4 py-2 font-medium">Grand Total</th><th className="px-4 py-2 font-medium">Outstanding</th>
+              <th className="px-4 py-2 font-medium">Converted</th>
               <th className="px-4 py-2 font-medium" />
             </tr></thead>
             <tbody>
@@ -265,13 +306,24 @@ export function BuyerOrderDetailPage() {
                   <td className="px-4 py-2 text-slate-500">{inv.status.replace(/_/g, " ")}</td>
                   <td className="px-4 py-2 text-slate-500">{Number(inv.grandTotal).toLocaleString()}</td>
                   <td className="px-4 py-2 text-slate-500">{Number(inv.outstandingBalance).toLocaleString()}</td>
+                  <td className="px-4 py-2 text-slate-500">
+                    {inv.targetCurrency ? `${Number(inv.convertedTotal).toLocaleString()} ${inv.targetCurrency}` : "—"}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     <div className="inline-flex gap-1">
-                      <Button size="sm" variant="outline" onClick={() => window.open(`${API_BASE_URL}/invoices/${inv.id}/export/?lang=en`, "_blank")}>
-                        <Download className="h-3 w-3" /> EN
+                      <Button
+                        size="sm" variant="outline"
+                        disabled={exportingKey === `invoice:${inv.id}:pdf`}
+                        onClick={() => handleExport("invoice", inv.id, "pdf", `${inv.invoiceNo}.pdf`)}
+                      >
+                        <Download className="h-3 w-3" /> PDF
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => window.open(`${API_BASE_URL}/invoices/${inv.id}/export/?lang=ka`, "_blank")}>
-                        <Download className="h-3 w-3" /> KA
+                      <Button
+                        size="sm" variant="outline"
+                        disabled={exportingKey === `invoice:${inv.id}:xlsx`}
+                        onClick={() => handleExport("invoice", inv.id, "xlsx", `${inv.invoiceNo}.xlsx`)}
+                      >
+                        <FileSpreadsheet className="h-3 w-3" /> Excel
                       </Button>
                     </div>
                   </td>

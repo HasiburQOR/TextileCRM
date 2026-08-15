@@ -35,6 +35,7 @@ export interface InvoiceLineItem {
   cbm: string
   material: string
   styleItemCode: string
+  packingListRef: string
   remarks: string
 }
 
@@ -53,6 +54,7 @@ export interface InvoiceLineItemInput {
   cbm: number
   material: string
   styleItemCode: string
+  packingListRef: string
   remarks: string
 }
 

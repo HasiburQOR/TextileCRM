@@ -11,10 +11,16 @@ export interface PortalKpis {
   totalOrders: number
   ordersInProgress: number
   ordersCompleted: number
-  outstandingBalance: string
+  /** Sum of outstandingBalance across this buyer's Issued invoices — what
+   * they still owe to be paid up. */
+  invoicesOutstanding: string
+  /** Sum, across Sister Profiles, of how far expense has outrun the
+   * advance (0 when the net position is positive) — a settlement-ledger
+   * concept, distinct from invoicesOutstanding above. */
+  negativeSettlementBalance: string
 }
 
-export interface PortalActiveTrip {
+export interface PortalActiveCost {
   id: string
   productName: string
   sisterProfileId: string
@@ -43,7 +49,7 @@ export interface PortalNotification {
 export interface PortalDashboard {
   buyerProfile: PortalBuyerProfile
   kpis: PortalKpis
-  activeSourcingTrips: PortalActiveTrip[]
+  activeSourcingCosts: PortalActiveCost[]
   recentActivity: PortalNotification[]
   alerts: PortalAlert[]
 }
@@ -70,7 +76,7 @@ export interface PortalLocation {
   reportedAt: string | null
 }
 
-export interface PortalTrip {
+export interface PortalCost {
   status: "open" | "closed"
   fullPaymentConfirmedAt: string | null
   locations: PortalLocation[]
@@ -99,7 +105,7 @@ export interface PortalProduct {
 
 export interface PortalProductProgress {
   product: PortalProduct
-  trip: PortalTrip | null
+  cost: PortalCost | null
 }
 
 export interface PortalCostItem {

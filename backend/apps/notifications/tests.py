@@ -10,7 +10,7 @@ from apps.expenses.services import record_expense
 from apps.invoicing import services as invoicing_services
 from apps.notifications.models import Notification, NotificationType
 from apps.sourcing import services as sourcing_services
-from apps.sourcing.models import LocationEntryStatus, Product, ProductStatus, SourcingLocationEntry, SourcingTrip, TripStatus
+from apps.sourcing.models import Product, ProductStatus, SourcingCost, SourcingCostItem, TripStatus
 
 
 class NotificationTriggerTests(APITestCase):
@@ -31,13 +31,17 @@ class NotificationTriggerTests(APITestCase):
 
     def test_trip_closure_notifies_the_creating_rep(self):
         product = Product.objects.create(sisterProfile=self.sister, name="Jacket", createdBy=self.rep)
-        trip = SourcingTrip.objects.create(product=product)
-        loc = SourcingLocationEntry.objects.create(sourcingTrip=trip, locationName="Gazipur", date=timezone.now())
-        sourcing_services.report_location(loc, self.rep)
-        sourcing_services.close_sourcing_trip(trip)
+        cost = SourcingCost.objects.create(sisterProfile=self.sister)
+        SourcingCostItem.objects.create(
+            sourcingCost=cost, product=product, locationName="Gazipur",
+            customCostFields=[{"name": "Transport", "amount": 500}],
+            date=timezone.now(),
+        )
+        sourcing_services.close_sourcing_cost(cost)
 
-        notif = Notification.objects.get(user=self.rep, type=NotificationType.TRIP_CLOSED)
-        self.assertIn("Jacket", notif.message)
+        notif = Notification.objects.filter(type=NotificationType.TRIP_CLOSED).first()
+        self.assertIsNotNone(notif)
+        self.assertIn(cost.sisterProfile.poReference, notif.message)
 
     def test_approval_and_rejection_notify_the_creating_rep(self):
         product = Product.objects.create(
@@ -74,7 +78,7 @@ class NotificationTriggerTests(APITestCase):
         product = Product.objects.create(sisterProfile=self.sister, name="Bags", createdBy=self.rep)
         from apps.sourcing.models import ProductVariant
 
-        ProductVariant.objects.create(product=product, colorBreakdown={"Black": 20}, orderQty=20)
+        ProductVariant.objects.create(product=product, colorName="Black", orderQty=20)
         self.sister.agreementType = AgreementType.TYPE_2
         self.sister.agreementRateConfig = {"rate_per_unit": 10}
         self.sister.save()

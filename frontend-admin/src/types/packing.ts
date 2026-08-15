@@ -1,5 +1,5 @@
-/** Default 5 size options used when no PackingRule specifies otherwise */
-export const DEFAULT_SIZE_OPTIONS = ["S", "M", "L", "XL", "XXL"]
+import type { SizeBreakdownEntry } from "@/components/packing/SizeBreakdownInput"
+import type { CustomFieldEntry } from "@/types/templates"
 
 export interface PackingRule {
   id: string; buyerProfile: string | null; name: string
@@ -12,10 +12,14 @@ export interface PackingRule {
 
 export interface PackingCarton {
   id: string; packingList: string; product: string; styleNo: string
-  styleNumber: string; productName: string
+  // Packing_List_Module_Instructions.md §3.1: defaults from the Product's
+  // PO No but independently editable/stored per row.
+  poNo: string
+  styleNumber: string; productName: string; packingListReferenceCode: string
   cartonNoFrom: number; cartonNoTo: number; noOfCartons: number
-  colorBreakdown: Record<string, number>; patternNo: string; assortId: string
-  sizeBreakdown: Record<string, number>
+  colorName: string; patternNo: string; assortId: string
+  sizeBreakdown: SizeBreakdownEntry[]
+  customFieldValues: CustomFieldEntry[]
   totalPcsPerCarton: number; innerBundle: number
   orderQty: number; shipQty: number
   shortExcessQty: number; shortExcessPct: number
@@ -26,7 +30,7 @@ export interface PackingCarton {
 }
 
 export interface PackingList {
-  id: string; sisterProfile: string; sisterProfilePoReference: string
+  id: string; sisterProfile: string; sisterProfilePoReference: string; referenceCode: string
   packingRule: string | null; poNo: string; brandName: string
   date: string | null; frontMark: string; sideMark: string
   totalOrderQty: number; totalShipQty: number
@@ -38,9 +42,12 @@ export interface PackingList {
 }
 
 export interface CartonInput {
-  product: string; styleNo: string; cartonNoFrom: number; cartonNoTo: number
-  colorBreakdown: Record<string, number>; patternNo: string; assortId: string
-  sizeBreakdown: Record<string, number>; innerBundle: number
+  // No `styleNo` — server-derived from `product.styleNumber`, always
+  // (Reference_Numbers_Identifier_System.md "Reference, Don't Copy").
+  product: string; poNo: string; cartonNoFrom: number; cartonNoTo: number
+  colorName: string; patternNo: string; assortId: string
+  sizeBreakdown: SizeBreakdownEntry[]; customFieldValues: CustomFieldEntry[]
+  innerBundle: number
   orderQty: number; grossWeight: number; netWeight: number
   ctnLength: number; ctnWidth: number; ctnHeight: number
 }

@@ -63,7 +63,7 @@ export function NotificationsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Notifications</h1>
-          <p className="text-sm text-slate-500">Trip closures, approvals, invoices, payments, and balance alerts.</p>
+          <p className="text-sm text-slate-500">Cost closures, approvals, invoices, payments, and balance alerts.</p>
         </div>
         <Button
           variant="outline" size="sm"

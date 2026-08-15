@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "apps.warehouse",
     "apps.invoicing",
     "apps.ledger",
+    "apps.wallet",
     "apps.audit",
     "apps.notifications",
     "apps.documents",

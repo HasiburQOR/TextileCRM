@@ -1,3 +1,6 @@
+import type { SizeBreakdownEntry } from "@/components/packing/SizeBreakdownInput"
+import type { CustomFieldEntry, ProductTemplateFieldEntry } from "@/types/templates"
+
 export type ProductStatus =
   | "sourcing_trip_open"
   | "pending_admin_approval"
@@ -9,10 +12,11 @@ export type ProductStatus =
 
 export interface ProductVariant {
   id: string
-  colorBreakdown: Record<string, number>
+  colorName: string
   patternNo: string
   orderQty: number
-  sizeBreakdown: Record<string, number>
+  sizeBreakdown: SizeBreakdownEntry[]
+  customFieldValues: CustomFieldEntry[]
   pcsPerCarton: number
   innerBundle: number
   cartonNoFrom: number | null
@@ -51,12 +55,18 @@ export interface Product {
   name: string
   brandName: string
   poNo: string
+  // Product_Templates_Custom_Fields_Module.md
+  template: string | null
+  templateName: string | null
+  resolvedTemplateFields: ProductTemplateFieldEntry[]
+  customFields: CustomFieldEntry[]
   status: ProductStatus
   rejectionReason: string
   goodsName: string
   finalPrice: string | null
   fabricDetails: string
   factoryPackingList: string | null
+  packingCartonCount: number
   productQrGenerated: boolean
   productQrPayload: Record<string, unknown>
   cartonQrGenerated: boolean
@@ -74,10 +84,11 @@ export interface Product {
 }
 
 export interface ProductVariantInput {
-  colorBreakdown: Record<string, number>
+  colorName: string
   patternNo: string
   orderQty: number
-  sizeBreakdown: Record<string, number>
+  sizeBreakdown: SizeBreakdownEntry[]
+  customFieldValues: CustomFieldEntry[]
   innerBundle: number
   cartonNoFrom: number | null
   cartonNoTo: number | null
@@ -94,6 +105,8 @@ export interface ProductCreateInput {
   name: string
   brandName: string
   poNo: string
+  template?: string | null
+  resolvedTemplateFields?: ProductTemplateFieldEntry[]
   variants: ProductVariantInput[]
 }
 
@@ -106,42 +119,52 @@ export interface SisterProfile {
   status: string
 }
 
-export type LocationEntryStatus = "pending" | "reported"
-
-export interface SourcingLocationEntry {
-  id: string
-  sourcingTrip: string
-  locationName: string
-  quantity: number
-  advanceAmount: string
-  status: LocationEntryStatus
-  date: string
-  reportedAt: string | null
-  createdAt: string
-  updatedAt: string
+export interface CustomCostField {
+  name: string
+  amount: number
 }
 
-export interface SourcingLocationEntryInput {
-  locationName: string
-  quantity: number
-  advanceAmount: number
-  date: string
-}
-
-export type TripStatus = "open" | "closed"
-
-export interface SourcingTrip {
+export interface SourcingCostItem {
   id: string
+  sourcingCost: string
   product: string
   productName: string
-  status: TripStatus
-  fullPaymentConfirmedAt: string | null
-  locations: SourcingLocationEntry[]
+  styleNumber: string
+  poNo: string
+  brandName: string
+  locationName: string
+  quantity: number
+  customCostFields: CustomCostField[]
+  totalAmount: string
+  date: string
   createdAt: string
   updatedAt: string
 }
 
-export interface SourcingTripCreateInput {
+export interface SourcingCostItemInput {
   product: string
-  locations: SourcingLocationEntryInput[]
+  locationName: string
+  quantity: number
+  customCostFields: CustomCostField[]
+  date: string
+}
+
+export type CostStatus = "open" | "closed"
+
+export interface SourcingCost {
+  id: string
+  sisterProfile: string
+  sisterProfileName: string
+  poReference: string
+  status: CostStatus
+  fullPaymentConfirmedAt: string | null
+  items: SourcingCostItem[]
+  totalAmount: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SourcingCostCreateInput {
+  sisterProfile: string
+  items: SourcingCostItemInput[]
 }

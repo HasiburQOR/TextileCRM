@@ -82,7 +82,7 @@ def update_warehouse_cost(wc: WarehouseCost, *, updated_by, custom_costs=None, e
     from apps.expenses.services import delete_expenses
 
     product = wc.qcReport.product
-    delete_expenses(product=product, source_types=_WAREHOUSE_SOURCE_TYPES)
+    delete_expenses(product=product, source_types=_WAREHOUSE_SOURCE_TYPES, actor=updated_by)
 
     custom_costs = custom_costs or []
     for field, value in cost_fields.items():

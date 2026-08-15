@@ -5,7 +5,7 @@ NAV_ITEMS = [
     {"id": "buyers", "url": "buyers:list", "label": "Buyers", "icon": "people", "admin_only": True},
     {"id": "sister-profiles", "url": "buyers:sister_list", "label": "Sister Profiles", "icon": "diagram-3", "admin_only": True},
     {"id": "sourcing", "url": "sourcing:list", "label": "Sourcing Intake", "icon": "building-gear", "admin_only": False},
-    {"id": "sourcing-trips", "url": "trips:list", "label": "Sourcing Trips", "icon": "geo-alt", "admin_only": False},
+    {"id": "sourcing-costs", "url": "costs:list", "label": "Sourcing Costs", "icon": "geo-alt", "admin_only": False},
     {"id": "approval", "url": "sourcing:approval", "label": "Admin Approval", "icon": "shield-check", "admin_only": True},
     {"id": "catalog", "url": "sourcing:catalog", "label": "Product Catalog", "icon": "search", "admin_only": False},
     {"id": "packing", "url": "packing:list", "label": "Packing Lists", "icon": "clipboard-data", "admin_only": False},

@@ -262,3 +262,58 @@ class BuyerPortalDashboardTests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.get(reverse("buyer-portal-dashboard"))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class ReferenceCodeTests(APITestCase):
+    """Reference_Numbers_Identifier_System.md."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
+
+    def test_buyer_reference_code_auto_generates_sequentially(self):
+        b1 = BuyerProfile.objects.create(name="Buyer One")
+        b2 = BuyerProfile.objects.create(name="Buyer Two")
+        self.assertRegex(b1.referenceCode, r"^BUY-\d{4}$")
+        self.assertRegex(b2.referenceCode, r"^BUY-\d{4}$")
+        self.assertNotEqual(b1.referenceCode, b2.referenceCode)
+        # Strictly increasing — proves it's a real sequence, not random/time-based.
+        self.assertLess(int(b1.referenceCode.split("-")[1]), int(b2.referenceCode.split("-")[1]))
+
+    def test_sister_profile_reference_code_auto_generates_independently_of_po_reference(self):
+        buyer = BuyerProfile.objects.create(name="Buyer")
+        sister = SisterProfile.objects.create(
+            buyerProfile=buyer, poReference="002F25BV",
+            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+        )
+        self.assertRegex(sister.referenceCode, r"^SIS-\d{4}$")
+        # These must never be confused/merged (BR: "never auto-filled" from one to the other).
+        self.assertNotEqual(sister.referenceCode, sister.poReference)
+        self.assertEqual(sister.poReference, "002F25BV")
+
+    def test_manual_override_accepted_and_used_verbatim(self):
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(reverse("buyer-profile-list"), {"name": "Custom Buyer", "referenceCode": "BUY-CUSTOM-1"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data["referenceCode"], "BUY-CUSTOM-1")
+
+    def test_duplicate_manual_reference_code_is_rejected_not_silently_modified(self):
+        BuyerProfile.objects.create(name="First", referenceCode="BUY-DUPE")
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(reverse("buyer-profile-list"), {"name": "Second", "referenceCode": "BUY-DUPE"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(BuyerProfile.objects.filter(referenceCode="BUY-DUPE").count(), 1)
+
+    def test_duplicate_sister_profile_reference_code_is_rejected(self):
+        buyer = BuyerProfile.objects.create(name="Buyer")
+        SisterProfile.objects.create(
+            buyerProfile=buyer, referenceCode="SIS-DUPE",
+            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+        )
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(
+            reverse("sister-profile-list"),
+            {"buyerProfile": str(buyer.id), "referenceCode": "SIS-DUPE", "agreementType": AgreementType.TYPE_1, "agreementRateConfig": {"percentage_rate": 5}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(SisterProfile.objects.filter(referenceCode="SIS-DUPE").count(), 1)

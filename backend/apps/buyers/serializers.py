@@ -10,7 +10,7 @@ class BuyerProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BuyerProfile
-        fields = ["id", "name", "contactInfo", "branding", "sisterProfileCount", "createdAt", "updatedAt"]
+        fields = ["id", "referenceCode", "name", "contactInfo", "branding", "sisterProfileCount", "createdAt", "updatedAt"]
         read_only_fields = ["id", "createdAt", "updatedAt"]
 
 
@@ -21,7 +21,7 @@ class BuyerProfileSelfSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BuyerProfile
-        fields = ["id", "name", "branding"]
+        fields = ["id", "referenceCode", "name", "branding"]
         read_only_fields = fields
 
 
@@ -34,7 +34,7 @@ class SisterProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = SisterProfile
         fields = [
-            "id", "buyerProfile", "buyerProfileName", "poReference", "agreementType",
+            "id", "referenceCode", "buyerProfile", "buyerProfileName", "poReference", "agreementType",
             "agreementRateConfig", "status", "rateLocked", "createdAt", "updatedAt",
         ]
         read_only_fields = ["id", "createdAt", "updatedAt"]
@@ -63,5 +63,5 @@ class SisterProfileSelfSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SisterProfile
-        fields = ["id", "buyerProfileName", "poReference", "agreementType", "status", "createdAt"]
+        fields = ["id", "referenceCode", "buyerProfileName", "poReference", "agreementType", "status", "createdAt"]
         read_only_fields = fields

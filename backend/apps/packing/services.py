@@ -10,6 +10,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from apps.core.utils import sum_size_breakdown
 from apps.packing.models import CUBIC_INCHES_PER_CBM, PackingCarton, PackingList, PackingRule
 
 
@@ -44,11 +45,26 @@ def _validate_carton_ranges(carton: PackingCarton) -> None:
 
 def compute_carton_derived(carton: PackingCarton) -> None:
     """Fills every column that the sample packing list computes rather than
-    hand-enters, from the columns that are actually typed in."""
+    hand-enters, from the columns that are actually typed in.
+
+    Reference_Numbers_Identifier_System.md, "Reference, Don't Copy": Style
+    No is generated once at Sourcing Intake and must never independently
+    drift on a Packing List row. `styleNo` is unconditionally re-derived
+    from `carton.product.styleNumber` here — the single point every carton
+    save path (create, add_carton, PackingListSerializer.update,
+    PackingCartonViewSet.perform_create) already funnels through — so a
+    client-supplied override, whatever the entry point, can never stick."""
+    carton.styleNo = carton.product.styleNumber
+    # Only default when blank — unlike styleNo, poNo stays editable per row
+    # once set (a split shipment may legitimately need a different PO on
+    # one carton), so a value the caller already supplied is never overwritten.
+    if not carton.poNo:
+        carton.poNo = carton.product.poNo
+
     carton.noOfCartons = (
         carton.cartonNoTo - carton.cartonNoFrom + 1 if carton.cartonNoTo >= carton.cartonNoFrom else 0
     )
-    carton.totalPcsPerCarton = sum(int(v) for v in (carton.sizeBreakdown or {}).values())
+    carton.totalPcsPerCarton = sum_size_breakdown(carton.sizeBreakdown)
     carton.shipQty = carton.noOfCartons * carton.totalPcsPerCarton
 
     # Signed: positive = short of order, negative = shipped in excess of order.
@@ -126,8 +142,8 @@ def generate_cartons_from_rule(
     continue sequentially from `start_carton_no`, so callers can chain this
     across multiple products/colors within one PackingList (FR-20).
 
-    `colors` is a list of {"colorBreakdown": {...}, "patternNo": ..., "orderQty": ...}
-    — typically summed straight from that product's ProductVariant rows.
+    `colors` is a list of {"colorName": ..., "patternNo": ..., "orderQty": ...}
+    — typically one entry per that product's ProductVariant rows.
     Returns plain dicts ready to pass into `create_packing_list`/`add_carton`
     (not yet saved), so the caller can review/edit before committing.
     """
@@ -147,10 +163,15 @@ def generate_cartons_from_rule(
                 "product": product,
                 "cartonNoFrom": carton_no,
                 "cartonNoTo": carton_no + num_cartons - 1,
-                "colorBreakdown": entry.get("colorBreakdown", {}),
+                "colorName": entry.get("colorName", ""),
                 "patternNo": entry.get("patternNo", ""),
                 "assortId": entry.get("assortId", ""),
-                "sizeBreakdown": dict(packing_rule.sizeRatio),
+                # Custom_Size_Breakdown_Feature.md: the per-row shape is the
+                # free-form array — PackingRule.sizeRatio itself stays a dict
+                # (it's a reusable ratio *template*, not a per-row entity),
+                # converted to the row shape only here, at the point a draft
+                # carton is generated from it.
+                "sizeBreakdown": [{"size_label": k, "quantity": v} for k, v in packing_rule.sizeRatio.items()],
                 "innerBundle": entry.get("innerBundle", 1),
                 "orderQty": order_qty,
                 "grossWeight": packing_rule.cartonGrossWeight,

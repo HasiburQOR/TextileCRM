@@ -12,7 +12,7 @@ import type { Paginated } from "@/types/api"
 import type { SisterProfile } from "@/types/buyers"
 import type { Invoice } from "@/types/invoicing"
 import type { PackingList } from "@/types/packing"
-import type { Product, SourcingTrip } from "@/types/sourcing"
+import type { Product, SourcingCost } from "@/types/sourcing"
 
 interface SettlementLedgerRow {
   sisterProfile: string; totalAdvance: string; totalExpense: string
@@ -28,12 +28,12 @@ interface DocumentRow {
   id: string; documentType: string; file: string; fileName: string; createdAt: string
 }
 
-type TabKey = "overview" | "products" | "trips" | "packing" | "expenses" | "invoices" | "documents"
+type TabKey = "overview" | "products" | "costs" | "packing" | "expenses" | "invoices" | "documents"
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "products", label: "Products" },
-  { key: "trips", label: "Sourcing Trips" },
+  { key: "costs", label: "Sourcing Costs" },
   { key: "packing", label: "Packing Lists" },
   { key: "expenses", label: "Expenses" },
   { key: "invoices", label: "Invoices" },
@@ -63,21 +63,20 @@ export function SisterProfileDetailPage() {
       const { data } = await api.get<Paginated<Product>>("/products/", { params: { sisterProfile: id, page_size: 200 } })
       return data.results
     },
-    enabled: !!id && (tab === "products" || tab === "trips"),
+    enabled: !!id && (tab === "products" || tab === "costs"),
   })
 
-  const tripsQuery = useQuery({
-    queryKey: ["sourcing-trips", "all"],
+  const costsQuery = useQuery({
+    queryKey: ["sourcing-costs", "all"],
     queryFn: async () => {
-      const { data } = await api.get<Paginated<SourcingTrip>>("/sourcing-trips/", { params: { page_size: 200 } })
+      const { data } = await api.get<Paginated<SourcingCost>>("/sourcing-costs/", { params: { page_size: 200 } })
       return data.results
     },
-    enabled: !!id && tab === "trips",
+    enabled: !!id && tab === "costs",
   })
-  const productIds = useMemo(() => new Set((productsQuery.data ?? []).map((p) => p.id)), [productsQuery.data])
-  const tripsForProfile = useMemo(
-    () => (tripsQuery.data ?? []).filter((t) => productIds.has(t.product)),
-    [tripsQuery.data, productIds],
+  const costsForProfile = useMemo(
+    () => (costsQuery.data ?? []).filter((t) => t.sisterProfile === id),
+    [costsQuery.data, id],
   )
 
   const packingListsQuery = useQuery({
@@ -138,6 +137,7 @@ export function SisterProfileDetailPage() {
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold text-slate-900">{profile.poReference || profile.id}</h1>
+            <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{profile.referenceCode}</code>
             <Badge variant={profile.status === "active" ? "info" : profile.status === "completed" ? "success" : "danger"}>
               {profile.status}
             </Badge>
@@ -209,23 +209,24 @@ export function SisterProfileDetailPage() {
         </ListCard>
       )}
 
-      {tab === "trips" && (
+      {tab === "costs" && (
         <ListCard
-          loading={productsQuery.isLoading || tripsQuery.isLoading}
-          empty={!tripsForProfile.length}
-          emptyText="No sourcing trips yet under this profile."
+          loading={productsQuery.isLoading || costsQuery.isLoading}
+          empty={!costsForProfile.length}
+          emptyText="No sourcing costs yet under this profile."
         >
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
-              <th className="px-4 py-2 font-medium">Product</th><th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 font-medium">Locations</th>
+              <th className="px-4 py-2 font-medium">PO Reference</th><th className="px-4 py-2 font-medium">Status</th>
+              <th className="px-4 py-2 font-medium">Items</th><th className="px-4 py-2 font-medium">Total Amount</th>
             </tr></thead>
             <tbody>
-              {tripsForProfile.map((t) => (
-                <tr key={t.id} className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50" onClick={() => navigate(`/sourcing-trips/${t.id}`)}>
-                  <td className="px-4 py-2 font-medium text-slate-900">{t.productName}</td>
+              {costsForProfile.map((t) => (
+                <tr key={t.id} className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50" onClick={() => navigate(`/sourcing-costs/${t.id}`)}>
+                  <td className="px-4 py-2 font-medium text-slate-900">{t.poReference}</td>
                   <td className="px-4 py-2"><Badge variant={t.status === "open" ? "default" : "success"}>{t.status}</Badge></td>
-                  <td className="px-4 py-2 text-slate-500">{t.locations.length}</td>
+                  <td className="px-4 py-2 text-slate-500">{t.items.length}</td>
+                  <td className="px-4 py-2 text-slate-500">{Number(t.totalAmount || 0).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>

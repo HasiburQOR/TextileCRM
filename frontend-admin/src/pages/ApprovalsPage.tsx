@@ -18,6 +18,7 @@ export function ApprovalsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [rejectTarget, setRejectTarget] = useState<Product | null>(null)
+  const [approveTarget, setApproveTarget] = useState<Product | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const pendingQuery = useQuery({
@@ -36,6 +37,7 @@ export function ApprovalsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] })
       setError(null)
+      setApproveTarget(null)
     },
     onError: (err: unknown) => setError(extractErrorMessage(err)),
   })
@@ -90,7 +92,7 @@ export function ApprovalsPage() {
                         <div className="flex justify-end gap-2">
                           <Button
                             size="sm"
-                            onClick={() => approveMutation.mutate(p.id)}
+                            onClick={() => setApproveTarget(p)}
                             disabled={approveMutation.isPending}
                           >
                             <Check className="h-3.5 w-3.5" />
@@ -117,6 +119,23 @@ export function ApprovalsPage() {
           onClose={() => setRejectTarget(null)}
           onError={setError}
         />
+      )}
+
+      {approveTarget && (
+        <Dialog open onClose={() => setApproveTarget(null)} title={`Approve "${approveTarget.name}"?`}>
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-slate-600">
+              This moves {approveTarget.styleNumber} to Approved for QC. It can't be rejected or sent back after
+              this — the next step is a QC Report against it.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setApproveTarget(null)}>Cancel</Button>
+              <Button disabled={approveMutation.isPending} onClick={() => approveMutation.mutate(approveTarget.id)}>
+                {approveMutation.isPending ? "Approving…" : "Approve"}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
       )}
     </div>
   )

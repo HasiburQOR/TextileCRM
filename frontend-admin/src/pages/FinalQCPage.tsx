@@ -264,7 +264,7 @@ function FinalQCDialog({ productId, canManage, onClose }: { productId: string; c
           ) : (
             <table className="w-full text-left text-xs">
               <thead><tr className="border-b border-slate-200 text-slate-400">
-                <th className="py-1 pr-3 font-medium">Colors</th>
+                <th className="py-1 pr-3 font-medium">Color</th>
                 <th className="py-1 pr-3 font-medium">Cartons</th>
                 <th className="py-1 pr-3 font-medium">Ship Qty</th>
                 <th className="py-1 pr-3 font-medium">G.W</th>
@@ -274,7 +274,7 @@ function FinalQCDialog({ productId, canManage, onClose }: { productId: string; c
               <tbody>
                 {cartons.map((c) => (
                   <tr key={c.id} className="border-b border-slate-100 last:border-0">
-                    <td className="py-1 pr-3 text-slate-700">{Object.keys(c.colorBreakdown).join(", ") || "—"}</td>
+                    <td className="py-1 pr-3 text-slate-700">{c.colorName || "—"}</td>
                     <td className="py-1 pr-3 text-slate-500">{c.noOfCartons}</td>
                     <td className="py-1 pr-3 text-slate-500">{c.shipQty}</td>
                     <td className="py-1 pr-3 text-slate-500">{Number(c.totalGrossWeight).toFixed(2)}</td>

@@ -7,13 +7,15 @@ import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { api } from "@/lib/api"
 import type { Paginated } from "@/types/api"
+import type { BuyerProfile } from "@/types/buyers"
 import type { SisterProfile } from "@/types/sourcing"
 
 interface Expense {
   id: string; sisterProfile: string; sisterProfilePoReference: string
+  buyerProfile: string; buyerProfileName: string
   product: string | null; productName: string | null
   sourceType: string; amount: string; currency: string
-  remarks: string; createdAt: string
+  remarks: string; fieldName: string; createdByName: string; createdAt: string
 }
 
 const SOURCE_TYPES = [
@@ -23,6 +25,7 @@ const SOURCE_TYPES = [
 
 export function ExpensesPage() {
   const navigate = useNavigate()
+  const [buyerFilter, setBuyerFilter] = useState("")
   const [sisterProfileFilter, setSisterProfileFilter] = useState("")
   const [sourceTypeFilter, setSourceTypeFilter] = useState("")
   const [dateFrom, setDateFrom] = useState("")
@@ -36,6 +39,14 @@ export function ExpensesPage() {
     },
   })
 
+  const buyersQuery = useQuery({
+    queryKey: ["buyers", "all"],
+    queryFn: async () => {
+      const { data } = await api.get<Paginated<BuyerProfile>>("/buyers/", { params: { page_size: 200 } })
+      return data.results
+    },
+  })
+
   const profilesQuery = useQuery({
     queryKey: ["sister-profiles", "all"],
     queryFn: async () => {
@@ -44,9 +55,26 @@ export function ExpensesPage() {
     },
   })
 
+  // Choosing a Buyer narrows which Sister Profiles are selectable to that
+  // buyer's own — picking one from a different buyer would silently produce
+  // zero rows otherwise.
+  const sisterProfileOptions = useMemo(
+    () => (profilesQuery.data ?? []).filter((sp) => !buyerFilter || sp.buyerProfile === buyerFilter),
+    [profilesQuery.data, buyerFilter],
+  )
+
+  function handleBuyerChange(value: string) {
+    setBuyerFilter(value)
+    if (value && sisterProfileFilter) {
+      const current = profilesQuery.data?.find((sp) => sp.id === sisterProfileFilter)
+      if (current?.buyerProfile !== value) setSisterProfileFilter("")
+    }
+  }
+
   const filtered = useMemo(() => {
     const rows = expensesQuery.data ?? []
     return rows.filter((e) => {
+      if (buyerFilter && e.buyerProfile !== buyerFilter) return false
       if (sisterProfileFilter && e.sisterProfile !== sisterProfileFilter) return false
       if (sourceTypeFilter && e.sourceType !== sourceTypeFilter) return false
       const day = e.createdAt.slice(0, 10)
@@ -54,7 +82,7 @@ export function ExpensesPage() {
       if (dateTo && day > dateTo) return false
       return true
     })
-  }, [expensesQuery.data, sisterProfileFilter, sourceTypeFilter, dateFrom, dateTo])
+  }, [expensesQuery.data, buyerFilter, sisterProfileFilter, sourceTypeFilter, dateFrom, dateTo])
 
   const total = filtered.reduce((sum, e) => sum + Number(e.amount), 0)
 
@@ -66,9 +94,13 @@ export function ExpensesPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
+        <Select className="w-56" value={buyerFilter} onChange={(e) => handleBuyerChange(e.target.value)}>
+          <option value="">All Buyers</option>
+          {buyersQuery.data?.map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
+        </Select>
         <Select className="w-56" value={sisterProfileFilter} onChange={(e) => setSisterProfileFilter(e.target.value)}>
           <option value="">All Sister Profiles</option>
-          {profilesQuery.data?.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id}</option>))}
+          {sisterProfileOptions.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id}</option>))}
         </Select>
         <Select className="w-48" value={sourceTypeFilter} onChange={(e) => setSourceTypeFilter(e.target.value)}>
           <option value="">All Source Types</option>
@@ -97,11 +129,14 @@ export function ExpensesPage() {
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+                    <th className="px-4 py-3 font-medium">Buyer</th>
                     <th className="px-4 py-3 font-medium">Sister Profile</th>
                     <th className="px-4 py-3 font-medium">Product</th>
                     <th className="px-4 py-3 font-medium">Source Type</th>
+                    <th className="px-4 py-3 font-medium">Field</th>
                     <th className="px-4 py-3 font-medium">Amount</th>
                     <th className="px-4 py-3 font-medium">Remarks</th>
+                    <th className="px-4 py-3 font-medium">Recorded By</th>
                     <th className="px-4 py-3 font-medium">Date</th>
                   </tr>
                 </thead>
@@ -112,12 +147,15 @@ export function ExpensesPage() {
                       className="cursor-pointer hover:bg-slate-50"
                       onClick={() => navigate(e.product ? `/products/${e.product}` : `/sister-profiles/${e.sisterProfile}`)}
                     >
+                      <td className="px-4 py-3 text-slate-500">{e.buyerProfileName || "—"}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{e.sisterProfilePoReference || e.sisterProfile}</td>
                       <td className="px-4 py-3 text-slate-500">{e.productName || "—"}</td>
                       <td className="px-4 py-3 text-slate-500">{e.sourceType.replace(/_/g, " ")}</td>
+                      <td className="px-4 py-3 text-slate-500">{e.fieldName || "—"}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{Number(e.amount).toLocaleString()} {e.currency}</td>
-                      <td className="max-w-xs truncate px-4 py-3 text-slate-400">{e.remarks || "—"}</td>
-                      <td className="px-4 py-3 text-slate-400">{new Date(e.createdAt).toLocaleDateString()}</td>
+                      <td className="max-w-xs truncate px-4 py-3 text-slate-400" title={e.remarks || undefined}>{e.remarks || "—"}</td>
+                      <td className="px-4 py-3 text-slate-400">{e.createdByName || "—"}</td>
+                      <td className="px-4 py-3 text-slate-400">{new Date(e.createdAt).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>

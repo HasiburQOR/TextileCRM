@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import ProtectedError
+from django.http import HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -9,7 +10,7 @@ from rest_framework.response import Response
 from apps.accounts.models import Roles
 from apps.accounts.permissions import IsAdmin, IsRole, IsSupplierStaff
 from apps.core.tenancy import TenantScopedViewSet
-from apps.packing import services
+from apps.packing import exports, services
 from apps.packing.models import PackingCarton, PackingList, PackingRule
 from apps.packing.serializers import (
     GenerateCartonsSerializer,
@@ -22,6 +23,7 @@ from apps.sourcing.models import Product
 
 WRITE_ACTIONS = ("update", "partial_update", "destroy")
 CREATE_ROLES = [Roles.COMPANY_REP, Roles.EMPLOYEE]
+XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 class PackingRuleViewSet(viewsets.ModelViewSet):
@@ -117,6 +119,24 @@ class PackingListViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         except DjangoValidationError as exc:
             raise DRFValidationError(exc.messages if hasattr(exc, "messages") else str(exc))
         return Response(PackingCartonSerializer(carton).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"])
+    def export(self, request, pk=None):
+        """Downloadable copy of the packing list — PDF (default) or
+        ?filetype=xlsx. (Named `filetype`, not `format` — see the matching
+        note on InvoiceViewSet.export.) Tenant-scoped the same as every
+        other action here."""
+        packing_list = self.get_object()
+        if request.query_params.get("filetype") == "xlsx":
+            content = exports.render_packing_list_xlsx(packing_list)
+            response = HttpResponse(content, content_type=XLSX_CONTENT_TYPE)
+            filename = exports.packing_list_filename(packing_list, "xlsx")
+        else:
+            content = exports.render_packing_list_pdf(packing_list)
+            response = HttpResponse(content, content_type="application/pdf")
+            filename = exports.packing_list_filename(packing_list, "pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     @action(detail=False, methods=["post"])
     def generate_preview(self, request):

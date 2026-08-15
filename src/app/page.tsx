@@ -46,7 +46,7 @@ import {
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
 
-type Page = 'dashboard' | 'buyers' | 'sister-profiles' | 'sourcing' | 'sourcing-trips' | 'approval' | 'catalog' | 'packing' | 'qc-costs' | 'warehouse' | 'expenses' | 'settlement' | 'costing' | 'invoices' | 'exchange-rates' | 'audit-log'
+type Page = 'dashboard' | 'buyers' | 'sister-profiles' | 'sourcing' | 'sourcing-costs' | 'approval' | 'catalog' | 'packing' | 'qc-costs' | 'warehouse' | 'expenses' | 'settlement' | 'costing' | 'invoices' | 'exchange-rates' | 'audit-log'
 
 interface User { id: string; email: string; name: string | null; role: string }
 interface Variant { id?: string; styleNo: string; buyer: string; poNo: string; color: string; itemNumber: string; size: string; qtyOrdered: number }
@@ -68,8 +68,8 @@ interface DashboardData { totalRequests: number; pendingRequests: number; approv
 
 interface BuyerProfile { id: string; name: string; contactInfo: string; branding: string; portalUsername: string; _count: { sisterProfiles: number } }
 interface SisterProfile { id: string; buyerProfileId: string; name: string; poReference: string; agreementType: string; negotiatedRate: number; terms: string; status: string; buyerProfile: { id: string; name: string } }
-interface TripLocation { id: string; sourcingTripId: string; locationName: string; quantity: number; advanceAmount: number; status: string; date: string }
-interface SourcingTrip { id: string; requestId: string; status: string; totalAdvance: number; closedAt: string | null; locations: TripLocation[]; request: { id: string; productName: string; brandName: string; styleNumber: string | null } }
+interface CostLocation { id: string; sourcingTripId: string; locationName: string; quantity: number; advanceAmount: number; status: string; date: string }
+interface SourcingCost { id: string; requestId: string; status: string; totalAdvance: number; closedAt: string | null; locations: CostLocation[]; request: { id: string; productName: string; brandName: string; styleNumber: string | null } }
 interface Expense { id: string; sisterProfileId: string; productId: string | null; sourceType: string; amount: number; currency: string; remarks: string; fieldName: string | null; createdBy: { id: string; name: string | null }; createdAt: string; sisterProfile: { id: string; name: string; buyerProfile: { id: string; name: string } } }
 interface SettlementData { sisterProfileId: string; sisterProfileName: string; agreementType: string; negotiatedRate: number; totalAdvance: number; totalExpense: number; amountOwed: number; netPosition: number; negativeBalance: boolean }
 interface AuditLogEntry { id: string; actorId: string; action: string; entityType: string; entityId: string; afterSnapshot: string; timestamp: string; actor: { id: string; name: string | null } }
@@ -100,7 +100,7 @@ const NAV: { id: Page; label: string; icon: React.ElementType; adminOnly?: boole
   { id: 'buyers', label: 'Buyers', icon: Users, adminOnly: true },
   { id: 'sister-profiles', label: 'Sister Profiles', icon: FolderTree, adminOnly: true },
   { id: 'sourcing', label: 'Sourcing Intake', icon: Factory },
-  { id: 'sourcing-trips', label: 'Sourcing Trips', icon: MapPin },
+  { id: 'sourcing-costs', label: 'Sourcing Costs', icon: MapPin },
   { id: 'approval', label: 'Admin Approval', icon: ShieldCheck, adminOnly: true },
   { id: 'catalog', label: 'Product Catalog', icon: Search },
   { id: 'packing', label: 'Packing Lists', icon: ClipboardList },
@@ -153,7 +153,7 @@ export default function Home() {
   // ─── New Phase 2 Data ───
   const [buyers, setBuyers] = useState<BuyerProfile[]>([])
   const [sisterProfiles, setSisterProfiles] = useState<SisterProfile[]>([])
-  const [sourcingTrips, setSourcingTrips] = useState<SourcingTrip[]>([])
+  const [sourcingCosts, setSourcingCosts] = useState<SourcingCost[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [settlementData, setSettlementData] = useState<SettlementData | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
@@ -256,10 +256,10 @@ export default function Home() {
   const [sisterRate, setSisterRate] = useState('')
   const [sisterTerms, setSisterTerms] = useState('')
 
-  // ─── Sourcing Trip Form ───
-  const [tripDialogOpen, setTripDialogOpen] = useState(false)
-  const [tripReqId, setTripReqId] = useState('')
-  const [tripLocations, setTripLocations] = useState([{ locationName: '', quantity: '', advanceAmount: '', date: '' }])
+  // ─── Sourcing Cost Form ───
+  const [costDialogOpen, setCostDialogOpen] = useState(false)
+  const [costReqId, setCostReqId] = useState('')
+  const [costLocations, setCostLocations] = useState([{ locationName: '', quantity: '', advanceAmount: '', date: '' }])
 
   // ─── Expense Filter ───
   const [expenseSisterFilter, setExpenseSisterFilter] = useState('all')
@@ -294,14 +294,14 @@ export default function Home() {
       fetch('/api/sourcing-trips').then(r => r.json()),
       fetch('/api/expenses').then(r => r.json()),
       fetch('/api/audit-log').then(r => r.json()),
-    ]).then(([dash, reqs, invs, rates, buyerList, sisterList, trips, expenseList, auditList]) => {
+    ]).then(([dash, reqs, invs, rates, buyerList, sisterList, costs, expenseList, auditList]) => {
       setDashData(dash)
       setRequests(reqs)
       setInvoices(invs)
       setExchangeRates(rates)
       setBuyers(buyerList)
       setSisterProfiles(sisterList)
-      setSourcingTrips(trips)
+      setSourcingCosts(costs)
       setExpenses(expenseList)
       setAuditLogs(auditList)
       setLoading(false)
@@ -627,41 +627,41 @@ export default function Home() {
     } catch { toast({ title: 'Network error', variant: 'destructive' }) }
   }
 
-  const submitSourcingTrip = async () => {
-    if (!tripReqId) return
+  const submitSourcingCost = async () => {
+    if (!costReqId) return
     try {
       const res = await fetch('/api/sourcing-trips', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId: tripReqId }),
+        body: JSON.stringify({ requestId: costReqId }),
       })
       if (res.ok) {
-        const trip = await res.json()
-        for (const loc of tripLocations.filter(l => l.locationName.trim())) {
-          await fetch(`/api/sourcing-trips/${trip.id}/locations`, {
+        const cost = await res.json()
+        for (const loc of costLocations.filter(l => l.locationName.trim())) {
+          await fetch(`/api/sourcing-trips/${cost.id}/locations`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...loc, quantity: parseInt(loc.quantity) || 0, advanceAmount: parseFloat(loc.advanceAmount) || 0, status: 'PENDING' }),
           })
         }
-        toast({ title: 'Sourcing trip created' }); setTripDialogOpen(false); refresh()
+        toast({ title: 'Sourcing cost created' }); setCostDialogOpen(false); refresh()
       } else toast({ title: 'Failed', variant: 'destructive' })
     } catch { toast({ title: 'Network error', variant: 'destructive' }) }
   }
 
-  const closeTrip = async (tripId: string) => {
+  const closeCost = async (costId: string) => {
     if (!currentUser) return
     try {
-      const res = await fetch(`/api/sourcing-trips/${tripId}`, {
+      const res = await fetch(`/api/sourcing-trips/${costId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'CLOSED', closedById: currentUser.id }),
       })
-      if (res.ok) { toast({ title: 'Trip closed' }); refresh() }
-      else toast({ title: 'Failed to close trip', variant: 'destructive' })
+      if (res.ok) { toast({ title: 'Cost closed' }); refresh() }
+      else toast({ title: 'Failed to close cost', variant: 'destructive' })
     } catch { toast({ title: 'Network error', variant: 'destructive' }) }
   }
 
-  const reportLocation = async (tripId: string, locId: string) => {
+  const reportLocation = async (costId: string, locId: string) => {
     try {
-      const res = await fetch(`/api/sourcing-trips/${tripId}/locations/${locId}`, {
+      const res = await fetch(`/api/sourcing-trips/${costId}/locations/${locId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'REPORTED' }),
       })
@@ -716,10 +716,10 @@ export default function Home() {
     if (f) { setPhotoFile(f); setPhotoUrl(URL.createObjectURL(f)) }
   }
 
-  const addTripLocation = () => setTripLocations(prev => [...prev, { locationName: '', quantity: '', advanceAmount: '', date: '' }])
-  const removeTripLocation = (idx: number) => setTripLocations(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)
-  const updateTripLocation = (idx: number, field: string, val: string) => {
-    setTripLocations(prev => prev.map((l, i) => i !== idx ? l : { ...l, [field]: val }))
+  const addCostLocation = () => setCostLocations(prev => [...prev, { locationName: '', quantity: '', advanceAmount: '', date: '' }])
+  const removeCostLocation = (idx: number) => setCostLocations(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)
+  const updateCostLocation = (idx: number, field: string, val: string) => {
+    setCostLocations(prev => prev.map((l, i) => i !== idx ? l : { ...l, [field]: val }))
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -731,10 +731,10 @@ export default function Home() {
   const reqsWithWarehouse = requests.filter(r => r.qcReport?.warehouseCost)
   const qcEstimate = (qcLunchFlag ? parseFloat(qcLunchCost) || 0 : 0) + (parseFloat(qcGoodsCost) || 0) + (qcTravelMode === 'TRAVELLING_INDIVIDUALLY' ? parseFloat(qcExtraCost) || 0 : 0)
 
-  const approvedReqsNoTrip = useMemo(() => {
-    const tripReqIds = new Set(sourcingTrips.map(t => t.requestId))
-    return requests.filter(r => r.status === 'APPROVED_FOR_QC' && !tripReqIds.has(r.id))
-  }, [requests, sourcingTrips])
+  const approvedReqsNoCost = useMemo(() => {
+    const costReqIds = new Set(sourcingCosts.map(t => t.requestId))
+    return requests.filter(r => r.status === 'APPROVED_FOR_QC' && !costReqIds.has(r.id))
+  }, [requests, sourcingCosts])
 
   const statusBadge = (s: string) => {
     const c: Record<string, string> = { PENDING_ADMIN_APPROVAL: 'bg-yellow-100 text-yellow-800', APPROVED_FOR_QC: 'bg-blue-100 text-blue-800', QC_IN_PROGRESS: 'bg-purple-100 text-purple-800', REJECTED: 'bg-red-100 text-red-800', OPEN: 'bg-green-100 text-green-800', CLOSED: 'bg-gray-100 text-gray-800', PENDING: 'bg-yellow-100 text-yellow-800', APPROVED: 'bg-green-100 text-green-800', ISSUED: 'bg-blue-100 text-blue-800', PAID: 'bg-green-100 text-green-800', VOID: 'bg-gray-300 text-gray-700', ACTIVE: 'bg-green-100 text-green-800', INACTIVE: 'bg-red-100 text-red-800' }
@@ -745,7 +745,7 @@ export default function Home() {
     { key: 'buyers', label: 'Buyers', icon: <Users className="w-4 h-4" /> },
     { key: 'sister-profiles', label: 'Sister Profiles', icon: <FolderTree className="w-4 h-4" /> },
     { key: 'sourcing', label: 'Sourcing', icon: <Package className="w-4 h-4" /> },
-    { key: 'sourcing-trips', label: 'Sourcing Trips', icon: <MapPin className="w-4 h-4" /> },
+    { key: 'sourcing-costs', label: 'Sourcing Costs', icon: <MapPin className="w-4 h-4" /> },
     { key: 'approval', label: 'Approvals', icon: <CheckCircle2 className="w-4 h-4" /> },
     { key: 'packing', label: 'Packing Lists', icon: <ClipboardList className="w-4 h-4" /> },
     { key: 'qc-costs', label: 'QC & Warehouse', icon: <ShieldCheck className="w-4 h-4" /> },
@@ -797,10 +797,10 @@ export default function Home() {
             <Table><TableHeader><TableRow><TableHead>Product</TableHead><TableHead>Brand</TableHead><TableHead>Created By</TableHead><TableHead>Date</TableHead><TableHead>Actions</TableHead></TableRow></TableHeader><TableBody>{requests.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').map(r => <TableRow key={r.id}><TableCell className="font-medium">{r.productName}</TableCell><TableCell>{r.brandName || 'N/A'}</TableCell><TableCell>{r.createdUser.name || r.createdUser.email}</TableCell><TableCell>{new Date(r.createdAt).toLocaleDateString()}</TableCell><TableCell><div className="flex gap-2"><Button size="sm" onClick={() => handleApproveReq(r.id)}><CheckCircle2 className="w-4 h-4 mr-1" />Approve</Button><Button size="sm" variant="destructive" onClick={() => openRejectDialog('request', r.id)}><XCircle className="w-4 h-4 mr-1" />Reject</Button></div></TableCell></TableRow>)}</TableBody></Table>
           )}
         </div>}
-        {/* TRIPS */}
-        {activePage === 'sourcing-trips' && <div className="space-y-6">
-          <div className="flex justify-between items-center"><h2 className="text-2xl font-bold">Sourcing Trips</h2><Button onClick={() => { setTripDialogOpen(true); setTripReqId('') }}><Plus className="w-4 h-4 mr-2" />New Trip</Button></div>
-          <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Status</TableHead><TableHead>Locations</TableHead></TableRow></TableHeader><TableBody>{sourcingTrips.map(t => <TableRow key={t.id}><TableCell className="font-medium">{requests.find(r => r.id === t.requestId)?.productName || t.requestId}</TableCell><TableCell>{statusBadge(t.status)}</TableCell><TableCell>{(t.locations || []).length}</TableCell><TableCell>{t.status === 'OPEN' && <Button size="sm" variant="outline" onClick={() => closeTrip(t.id)}>Close</Button>}</TableCell></TableRow>)}</TableBody></Table>
+        {/* COSTS */}
+        {activePage === 'sourcing-costs' && <div className="space-y-6">
+          <div className="flex justify-between items-center"><h2 className="text-2xl font-bold">Sourcing Costs</h2><Button onClick={() => { setCostDialogOpen(true); setCostReqId('') }}><Plus className="w-4 h-4 mr-2" />New Cost</Button></div>
+          <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Status</TableHead><TableHead>Locations</TableHead></TableRow></TableHeader><TableBody>{sourcingCosts.map(t => <TableRow key={t.id}><TableCell className="font-medium">{requests.find(r => r.id === t.requestId)?.productName || t.requestId}</TableCell><TableCell>{statusBadge(t.status)}</TableCell><TableCell>{(t.locations || []).length}</TableCell><TableCell>{t.status === 'OPEN' && <Button size="sm" variant="outline" onClick={() => closeCost(t.id)}>Close</Button>}</TableCell></TableRow>)}</TableBody></Table>
         </div>}
         {/* PACKING */}
         {activePage === 'packing' && <div className="space-y-6">
@@ -921,13 +921,13 @@ export default function Home() {
       </div>}</DialogContent></Dialog>
       {/* Reject / Void */}
       <AlertDialog open={rejectOpen} onOpenChange={setRejectOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{rejectTarget?.type === 'void' ? 'Void Invoice' : 'Confirm Rejection'}</AlertDialogTitle><AlertDialogDescription>Please provide a reason.</AlertDialogDescription></AlertDialogHeader><Textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Reason..." /><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmReject}>Confirm</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      {/* Sourcing Trip */}
-      <Dialog open={tripDialogOpen} onOpenChange={setTripDialogOpen}><DialogContent><DialogHeader><DialogTitle>New Sourcing Trip</DialogTitle></DialogHeader><div className="space-y-4">
-        <Select value={tripReqId} onValueChange={setTripReqId}><SelectTrigger><SelectValue placeholder="Select approved request *" /></SelectTrigger><SelectContent>{approvedReqsNoTrip.map(r => <SelectItem key={r.id} value={r.id}>{r.productName}</SelectItem>)}</SelectContent></Select>
+      {/* Sourcing Cost */}
+      <Dialog open={costDialogOpen} onOpenChange={setCostDialogOpen}><DialogContent><DialogHeader><DialogTitle>New Sourcing Cost</DialogTitle></DialogHeader><div className="space-y-4">
+        <Select value={costReqId} onValueChange={setCostReqId}><SelectTrigger><SelectValue placeholder="Select approved request *" /></SelectTrigger><SelectContent>{approvedReqsNoCost.map(r => <SelectItem key={r.id} value={r.id}>{r.productName}</SelectItem>)}</SelectContent></Select>
         <Label>Locations</Label>
-        {tripLocations.map((loc, i) => <div key={i} className="grid grid-cols-4 gap-2"><Input placeholder="Location" value={loc.locationName} onChange={e => updateTripLocation(i, 'locationName', e.target.value)} /><Input type="number" placeholder="Qty" value={loc.quantity} onChange={e => updateTripLocation(i, 'quantity', e.target.value)} /><Input type="number" placeholder="Advance" value={loc.advanceAmount} onChange={e => updateTripLocation(i, 'advanceAmount', e.target.value)} /><Input type="date" value={loc.date} onChange={e => updateTripLocation(i, 'date', e.target.value)} /></div>)}
-        <Button size="sm" variant="outline" onClick={addTripLocation}><Plus className="w-3 h-3 mr-1" />Add Location</Button>
-        <Button onClick={submitSourcingTrip} disabled={!tripReqId}>Create Trip</Button>
+        {costLocations.map((loc, i) => <div key={i} className="grid grid-cols-4 gap-2"><Input placeholder="Location" value={loc.locationName} onChange={e => updateCostLocation(i, 'locationName', e.target.value)} /><Input type="number" placeholder="Qty" value={loc.quantity} onChange={e => updateCostLocation(i, 'quantity', e.target.value)} /><Input type="number" placeholder="Advance" value={loc.advanceAmount} onChange={e => updateCostLocation(i, 'advanceAmount', e.target.value)} /><Input type="date" value={loc.date} onChange={e => updateCostLocation(i, 'date', e.target.value)} /></div>)}
+        <Button size="sm" variant="outline" onClick={addCostLocation}><Plus className="w-3 h-3 mr-1" />Add Location</Button>
+        <Button onClick={submitSourcingCost} disabled={!costReqId}>Create Cost</Button>
       </div></DialogContent></Dialog>
       {/* Payment */}
       <Dialog open={!!payInvId} onOpenChange={() => setPayInvId('')}><DialogContent><DialogHeader><DialogTitle>Record Payment</DialogTitle></DialogHeader><div className="space-y-4">

@@ -114,7 +114,12 @@ class InvoiceLineItem(UUIDModel):
     grossWeight = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     cbm = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     material = models.CharField(max_length=255, blank=True, default="")
-    styleItemCode = models.CharField(max_length=255, blank=True, default="")
+    styleItemCode = models.CharField(max_length=255, blank=True, default="")  # Product's own style code ("PRO-...")
+    # PackingList.referenceCode ("PKG-...") at generation time — copied, not
+    # FK-derived-live, same "locked at generation" discipline as
+    # exchangeRateValueLocked, so this invoice line stays correct even if the
+    # source packingCarton/packingList is later edited or deleted.
+    packingListRef = models.CharField(max_length=32, blank=True, default="")
     remarks = models.CharField(max_length=255, blank=True, default="")  # FR-45: flag exceptions before approval
 
     def __str__(self):

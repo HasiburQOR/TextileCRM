@@ -76,6 +76,7 @@ export function BuyersPage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+                  <th className="px-4 py-3 font-medium">Reference</th>
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Contact</th>
                   <th className="px-4 py-3 font-medium">Sister Profiles</th>
@@ -85,6 +86,7 @@ export function BuyersPage() {
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((buyer) => (
                   <tr key={buyer.id} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/buyers/${buyer.id}`)}>
+                    <td className="px-4 py-3"><code className="text-xs text-slate-500">{buyer.referenceCode}</code></td>
                     <td className="px-4 py-3 font-medium text-slate-900">{buyer.name}</td>
                     <td className="max-w-xs truncate px-4 py-3 text-slate-500">{buyer.contactInfo || "—"}</td>
                     <td className="px-4 py-3"><Badge variant="info">{buyer.sisterProfileCount}</Badge></td>
@@ -112,9 +114,10 @@ function CreateBuyerDialog({ open, onClose, onSubmit, loading, error }: {
   const [name, setName] = useState("")
   const [contactInfo, setContactInfo] = useState("")
   const [branding, setBranding] = useState("")
+  const [referenceCode, setReferenceCode] = useState("")
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    onSubmit({ name, contactInfo, branding })
+    onSubmit({ name, contactInfo, branding, referenceCode: referenceCode.trim() || undefined })
   }
   return (
     <Dialog open={open} onClose={onClose} title="New Buyer Profile">
@@ -131,6 +134,10 @@ function CreateBuyerDialog({ open, onClose, onSubmit, loading, error }: {
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Branding / Display Name</label>
           <Input value={branding} onChange={(e) => setBranding(e.target.value)} placeholder="Logo label" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Reference Code</label>
+          <Input value={referenceCode} onChange={(e) => setReferenceCode(e.target.value)} placeholder="Leave blank to auto-generate BUY-0001..." />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>

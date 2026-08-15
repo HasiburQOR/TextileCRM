@@ -15,7 +15,7 @@ import type { Paginated } from "@/types/api"
 import type { AgreementType, BuyerProfile, SisterProfile, SisterProfileCreateInput, SisterProfileStatus } from "@/types/buyers"
 
 const AGREEMENT_RATE_KEY: Record<AgreementType, { key: string; label: string; suffix: string }> = {
-  "1": { key: "percentage_rate", label: "Percentage of Purchase Value", suffix: "%" },
+  "1": { key: "percentage_rate", label: "Percentage of Sourcing Expense", suffix: "%" },
   "2": { key: "rate_per_unit", label: "Rate per Unit", suffix: "/pc" },
   "3": { key: "commission_percentage", label: "Commission Percentage", suffix: "%" },
 }
@@ -87,7 +87,7 @@ export function SisterProfilesPage() {
         </div>
         <Select className="w-44" value={agreementFilter} onChange={(e) => setAgreementFilter(e.target.value as AgreementType | "all")}>
           <option value="all">All Agreement Types</option>
-          <option value="1">Type 1 — % of purchase</option>
+          <option value="1">Type 1 — % of sourcing expense</option>
           <option value="2">Type 2 — per unit</option>
           <option value="3">Type 3 — commission</option>
         </Select>
@@ -114,6 +114,7 @@ export function SisterProfilesPage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+                  <th className="px-4 py-3 font-medium">Reference</th>
                   <th className="px-4 py-3 font-medium">PO Reference</th>
                   <th className="px-4 py-3 font-medium">Buyer</th>
                   <th className="px-4 py-3 font-medium">Agreement</th>
@@ -124,6 +125,7 @@ export function SisterProfilesPage() {
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((sp) => (
                   <tr key={sp.id} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/sister-profiles/${sp.id}`)}>
+                    <td className="px-4 py-3"><code className="text-xs text-slate-500">{sp.referenceCode}</code></td>
                     <td className="px-4 py-3 font-medium text-slate-900">{sp.poReference || sp.id}</td>
                     <td className="px-4 py-3 text-slate-500">{sp.buyerProfileName}</td>
                     <td className="px-4 py-3 text-slate-500">Type {sp.agreementType}</td>
@@ -159,6 +161,7 @@ function CreateSisterProfileDialog({ initialBuyer, onClose, onSubmit, loading, e
   const [poReference, setPoReference] = useState("")
   const [agreementType, setAgreementType] = useState<AgreementType>("1")
   const [rateValue, setRateValue] = useState<number>(0)
+  const [referenceCode, setReferenceCode] = useState("")
 
   const buyersQuery = useQuery({
     queryKey: ["buyers", "all"],
@@ -177,6 +180,7 @@ function CreateSisterProfileDialog({ initialBuyer, onClose, onSubmit, loading, e
       poReference,
       agreementType,
       agreementRateConfig: { [rateSpec.key]: rateValue },
+      referenceCode: referenceCode.trim() || undefined,
     })
   }
 
@@ -198,7 +202,7 @@ function CreateSisterProfileDialog({ initialBuyer, onClose, onSubmit, loading, e
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Agreement Type *</label>
           <Select required value={agreementType} onChange={(e) => { setAgreementType(e.target.value as AgreementType); setRateValue(0) }}>
-            <option value="1">Type 1 — % of purchase value</option>
+            <option value="1">Type 1 — % of sourcing expense</option>
             <option value="2">Type 2 — fixed rate per unit</option>
             <option value="3">Type 3 — reimburse + commission</option>
           </Select>
@@ -212,6 +216,10 @@ function CreateSisterProfileDialog({ initialBuyer, onClose, onSubmit, loading, e
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{rateSpec.suffix}</span>
           </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Reference Code</label>
+          <Input value={referenceCode} onChange={(e) => setReferenceCode(e.target.value)} placeholder="Leave blank to auto-generate SIS-0001..." />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>

@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -8,10 +9,12 @@ from rest_framework.response import Response
 from apps.accounts.models import Roles
 from apps.accounts.permissions import IsAdmin, IsRole, IsSupplierStaff
 from apps.core.tenancy import TenantScopedViewSet
-from apps.invoicing import services
+from apps.invoicing import exports, services
 from apps.invoicing.models import ExchangeRate, Invoice
 from apps.invoicing.serializers import ExchangeRateSerializer, InvoiceSelfSerializer, InvoiceSerializer
 from apps.sourcing.models import Product
+
+XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 class ExchangeRateViewSet(viewsets.ModelViewSet):
@@ -112,6 +115,27 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         except DjangoValidationError as exc:
             raise DRFValidationError(exc.messages if hasattr(exc, "messages") else str(exc))
         return Response(self.get_serializer(invoice).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"])
+    def export(self, request, pk=None):
+        """Downloadable copy of the invoice — PDF (default) or
+        ?filetype=xlsx. (Named `filetype`, not `format` — DRF reserves the
+        `format` query param for content-negotiation/renderer selection, and
+        an unrecognized value there breaks routing before this view ever
+        runs.) Same tenant scoping as every other action here: a buyer can
+        only ever reach this for their own invoice (get_object() ->
+        get_queryset(), see TenantScopedViewSet)."""
+        invoice = self.get_object()
+        if request.query_params.get("filetype") == "xlsx":
+            content = exports.render_invoice_xlsx(invoice)
+            response = HttpResponse(content, content_type=XLSX_CONTENT_TYPE)
+            filename = exports.invoice_filename(invoice, "xlsx")
+        else:
+            content = exports.render_invoice_pdf(invoice)
+            response = HttpResponse(content, content_type="application/pdf")
+            filename = exports.invoice_filename(invoice, "pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):

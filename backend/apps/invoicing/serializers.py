@@ -16,7 +16,7 @@ class InvoiceLineItemSerializer(serializers.ModelSerializer):
         fields = [
             "id", "invoice", "product", "packingCarton", "description", "brand", "ctn", "qtyPerCtn",
             "totalQty", "unitPrice", "amount", "netWeight", "grossWeight", "cbm", "material",
-            "styleItemCode", "remarks",
+            "styleItemCode", "packingListRef", "remarks",
         ]
         read_only_fields = ["id", "invoice"]
 

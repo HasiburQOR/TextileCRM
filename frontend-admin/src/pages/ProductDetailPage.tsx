@@ -198,7 +198,7 @@ export function ProductDetailPage() {
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
-                    <th className="px-4 py-2 font-medium">Color Breakdown</th>
+                    <th className="px-4 py-2 font-medium">Color</th>
                     <th className="px-4 py-2 font-medium">Pattern No</th>
                     <th className="px-4 py-2 font-medium">Order Qty</th>
                     <th className="px-4 py-2 font-medium">Size Breakdown</th>
@@ -220,17 +220,13 @@ export function ProductDetailPage() {
                   ) : (
                     product.variants.map((v) => (
                       <tr key={v.id} className="border-b border-slate-100 last:border-0">
-                        <td className="px-4 py-2 font-medium text-slate-900">
-                          {Object.entries(v.colorBreakdown).length === 0
-                            ? "—"
-                            : Object.entries(v.colorBreakdown).map(([color, qty]) => `${color}:${qty}`).join(" / ")}
-                        </td>
+                        <td className="px-4 py-2 font-medium text-slate-900">{v.colorName || "—"}</td>
                         <td className="px-4 py-2 text-slate-500">{v.patternNo || "—"}</td>
                         <td className="px-4 py-2 text-slate-500">{v.orderQty}</td>
                         <td className="px-4 py-2 text-slate-500">
-                          {Object.entries(v.sizeBreakdown).length === 0
+                          {v.sizeBreakdown.length === 0
                             ? "—"
-                            : Object.entries(v.sizeBreakdown).map(([size, qty]) => `${size}:${qty}`).join(" / ")}
+                            : v.sizeBreakdown.map((e) => `${e.size_label}:${e.quantity}`).join(" / ")}
                         </td>
                         <td className="px-4 py-2 text-slate-500">{v.pcsPerCarton}</td>
                         <td className="px-4 py-2 text-slate-500">{v.noOfCartons}</td>

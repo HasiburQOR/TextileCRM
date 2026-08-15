@@ -9,12 +9,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ sist
   })
   if (!profile) return NextResponse.json({ error: 'Sister profile not found' }, { status: 404 })
 
-  // Calculate total advance from sourcing trips
-  const trips = await db.sourcingTrip.findMany({
+  // Calculate total advance from sourcing costs
+  const costs = await db.sourcingTrip.findMany({
     where: { request: { sisterProfileId } },
     include: { locations: true },
   })
-  const totalAdvance = trips.reduce((sum, trip) => sum + trip.totalAdvance, 0)
+  const totalAdvance = costs.reduce((sum, cost) => sum + cost.totalAdvance, 0)
 
   // Calculate total expense
   const expenseAgg = await db.expense.aggregate({

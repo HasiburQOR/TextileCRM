@@ -1,6 +1,15 @@
 from django.db import models
 
 from apps.core.models import TimeStampedModel, UUIDModel
+from apps.core.utils import generate_reference_code
+
+
+def generate_buyer_reference_code() -> str:
+    return generate_reference_code("BUY")
+
+
+def generate_sister_profile_reference_code() -> str:
+    return generate_reference_code("SIS")
 
 
 class BuyerProfile(UUIDModel, TimeStampedModel):
@@ -13,6 +22,12 @@ class BuyerProfile(UUIDModel, TimeStampedModel):
     contactInfo = models.TextField(blank=True, default="")
     branding = models.CharField(max_length=255, blank=True, default="")
 
+    # Reference_Numbers_Identifier_System.md: "BUY-0001" — auto-generated,
+    # manually overridable at creation (see BuyerProfileViewSet.perform_create
+    # for the collision-handling story). Distinct from every other
+    # buyer/order-adjacent identifier — see the Identifier Glossary in that doc.
+    referenceCode = models.CharField(max_length=32, unique=True, default=generate_buyer_reference_code)
+
     class Meta:
         ordering = ["name"]
 
@@ -21,7 +36,10 @@ class BuyerProfile(UUIDModel, TimeStampedModel):
 
 
 class AgreementType(models.TextChoices):
-    TYPE_1 = "1", "Type 1 — % of purchase value"
+    # Label matches the actual formula in apps.ledger.services.recompute_settlement:
+    # amountOwed = totalExpense * (percentage_rate / 100) — a percentage of
+    # sourcing expense, not of purchase/goods value (see BRD §4.3).
+    TYPE_1 = "1", "Type 1 — % of sourcing expense"
     TYPE_2 = "2", "Type 2 — fixed rate per unit"
     TYPE_3 = "3", "Type 3 — reimburse + commission"
 
@@ -46,6 +64,11 @@ class SisterProfile(UUIDModel, TimeStampedModel):
     costs, invoices) is scoped to a SisterProfile's buyerProfile_id."""
 
     buyerProfile = models.ForeignKey(BuyerProfile, related_name="sisterProfiles", on_delete=models.CASCADE)
+    # Reference_Numbers_Identifier_System.md: "SIS-0001" — auto-generated,
+    # manually overridable. Deliberately separate from `poReference` below:
+    # this is an internal tracking id, poReference is the buyer's own
+    # real-world PO number — never merge or auto-fill one from the other.
+    referenceCode = models.CharField(max_length=32, unique=True, default=generate_sister_profile_reference_code)
     poReference = models.CharField(max_length=255, blank=True, default="")
     agreementType = models.CharField(max_length=1, choices=AgreementType.choices)
     # e.g. {"percentage_rate": 8} / {"rate_per_unit": 1.5} / {"commission_percentage": 5}

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, KeyRound, Pencil, Plus } from "lucide-react"
+import { AlertTriangle, ArrowLeft, KeyRound, Pencil, Plus, Wallet as WalletIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
@@ -15,6 +16,14 @@ import { extractErrorMessage } from "@/lib/errors"
 import type { Paginated } from "@/types/api"
 import type { BuyerProfile, BuyerProfileCreateInput, SisterProfile } from "@/types/buyers"
 import type { AppUser, UserCreateInput } from "@/types/users"
+import type { BuyerWallet, WalletAdjustInput, WalletTopUpInput, WalletTransaction, WalletTransactionType } from "@/types/wallet"
+
+const WALLET_TXN_TYPE_LABEL: Record<WalletTransactionType, string> = {
+  top_up: "Top-up", deduction: "Deduction", refund: "Refund", adjustment: "Adjustment",
+}
+const WALLET_TXN_TYPE_BADGE: Record<WalletTransactionType, "success" | "danger" | "info" | "default"> = {
+  top_up: "success", deduction: "danger", refund: "info", adjustment: "default",
+}
 
 export function BuyerDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -25,6 +34,12 @@ export function BuyerDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [createLoginOpen, setCreateLoginOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<AppUser | null>(null)
+  const [topUpOpen, setTopUpOpen] = useState(false)
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [txnTypeFilter, setTxnTypeFilter] = useState("")
+  const [txnSisterFilter, setTxnSisterFilter] = useState("")
+  const [txnDateFrom, setTxnDateFrom] = useState("")
+  const [txnDateTo, setTxnDateTo] = useState("")
 
   const buyerQuery = useQuery({
     queryKey: ["buyers", id],
@@ -51,6 +66,46 @@ export function BuyerDetailPage() {
     },
     enabled: isAdmin,
   })
+
+  const walletQuery = useQuery({
+    queryKey: ["buyers", id, "wallet"],
+    queryFn: async () => {
+      const { data } = await api.get<BuyerWallet>(`/buyers/${id}/wallet/`)
+      return data
+    },
+    enabled: !!id,
+  })
+
+  const walletTransactionsQuery = useQuery({
+    queryKey: ["buyers", id, "wallet", "transactions", { txnTypeFilter, txnSisterFilter, txnDateFrom, txnDateTo }],
+    queryFn: async () => {
+      const { data } = await api.get<Paginated<WalletTransaction>>(`/buyers/${id}/wallet/transactions/`, {
+        params: {
+          page_size: 200,
+          type: txnTypeFilter || undefined,
+          sisterProfile: txnSisterFilter || undefined,
+          date_from: txnDateFrom || undefined,
+          date_to: txnDateTo || undefined,
+        },
+      })
+      return data.results
+    },
+    enabled: !!id,
+  })
+
+  const walletTransactionsWithRunningBalance = useMemo(() => {
+    if (!walletTransactionsQuery.data || !walletQuery.data) return []
+    let cumulative = Number(walletQuery.data.balance)
+    return walletTransactionsQuery.data.map((t) => {
+      const runningBalance = cumulative
+      cumulative -= Number(t.amount)
+      return { ...t, runningBalance }
+    })
+  }, [walletTransactionsQuery.data, walletQuery.data])
+
+  function invalidateWallet() {
+    queryClient.invalidateQueries({ queryKey: ["buyers", id, "wallet"] })
+  }
 
   const linkedProfiles = useMemo(
     () => (sisterProfilesQuery.data ?? []).filter((sp) => sp.buyerProfile === id),
@@ -82,7 +137,10 @@ export function BuyerDetailPage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-xl font-semibold text-slate-900">{buyer.name}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold text-slate-900">{buyer.name}</h1>
+            <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{buyer.referenceCode}</code>
+          </div>
           <p className="text-sm text-slate-500">{buyer.contactInfo || "No contact info on file."}</p>
         </div>
         {isAdmin && (
@@ -91,6 +149,108 @@ export function BuyerDetailPage() {
           </Button>
         )}
       </div>
+
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2"><WalletIcon className="h-4 w-4" /> Wallet</CardTitle>
+          {isAdmin && (
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setAdjustOpen(true)}>Adjust Balance</Button>
+              <Button size="sm" onClick={() => setTopUpOpen(true)}><Plus className="h-3.5 w-3.5" /> Add Top-up</Button>
+            </div>
+          )}
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {walletQuery.isLoading ? (
+            <div className="flex justify-center py-4"><Spinner className="text-slate-400" /></div>
+          ) : walletQuery.data ? (
+            <>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className={`text-3xl font-semibold ${Number(walletQuery.data.balance) < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                  {Number(walletQuery.data.balance).toLocaleString()} {walletQuery.data.currency}
+                </span>
+                {walletQuery.data.negativeBalance && <Badge variant="danger">Negative Balance</Badge>}
+                {walletQuery.data.lowBalance && <Badge variant="warning">Low Balance</Badge>}
+              </div>
+              {walletQuery.data.negativeBalance && (
+                <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  This buyer's wallet balance is negative — spend has outrun what they've topped up.
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Type</label>
+                  <Select value={txnTypeFilter} onChange={(e) => setTxnTypeFilter(e.target.value)} className="w-40">
+                    <option value="">All types</option>
+                    <option value="top_up">Top-up</option>
+                    <option value="deduction">Deduction</option>
+                    <option value="refund">Refund</option>
+                    <option value="adjustment">Adjustment</option>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile</label>
+                  <Select value={txnSisterFilter} onChange={(e) => setTxnSisterFilter(e.target.value)} className="w-48">
+                    <option value="">All orders</option>
+                    {linkedProfiles.map((sp) => (
+                      <option key={sp.id} value={sp.id}>{sp.poReference || sp.id}</option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">From</label>
+                  <Input type="date" value={txnDateFrom} onChange={(e) => setTxnDateFrom(e.target.value)} className="w-36" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">To</label>
+                  <Input type="date" value={txnDateTo} onChange={(e) => setTxnDateTo(e.target.value)} className="w-36" />
+                </div>
+              </div>
+
+              {walletTransactionsQuery.isLoading ? (
+                <div className="flex justify-center py-6"><Spinner className="text-slate-400" /></div>
+              ) : walletTransactionsWithRunningBalance.length === 0 ? (
+                <p className="py-6 text-center text-sm text-slate-400">No wallet transactions yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+                        <th className="px-4 py-2 font-medium">Date</th>
+                        <th className="px-4 py-2 font-medium">Type</th>
+                        <th className="px-4 py-2 font-medium">Source</th>
+                        <th className="px-4 py-2 font-medium">Sister Profile</th>
+                        <th className="px-4 py-2 font-medium">Amount</th>
+                        <th className="px-4 py-2 font-medium">Running Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {walletTransactionsWithRunningBalance.map((t) => (
+                        <tr key={t.id} className="border-b border-slate-100 last:border-0">
+                          <td className="px-4 py-2 text-slate-500">{new Date(t.createdAt).toLocaleString()}</td>
+                          <td className="px-4 py-2">
+                            <Badge variant={WALLET_TXN_TYPE_BADGE[t.type]}>{WALLET_TXN_TYPE_LABEL[t.type]}</Badge>
+                          </td>
+                          <td className="px-4 py-2 text-slate-700">{t.description}{t.reason ? ` — ${t.reason}` : ""}</td>
+                          <td className="px-4 py-2 text-slate-500">{t.sisterProfilePoReference || "—"}</td>
+                          <td className={`px-4 py-2 font-medium ${Number(t.amount) < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                            {Number(t.amount) > 0 ? "+" : ""}{Number(t.amount).toLocaleString()} {t.currency}
+                          </td>
+                          <td className="px-4 py-2 text-slate-900">{t.runningBalance.toLocaleString()} {t.currency}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="py-6 text-center text-sm text-slate-400">Unable to load wallet.</p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -179,6 +339,15 @@ export function BuyerDetailPage() {
         <CreatePortalLoginDialog buyerProfileId={id} onClose={() => setCreateLoginOpen(false)} />
       )}
       {resetTarget && <ResetPasswordDialog target={resetTarget} onClose={() => setResetTarget(null)} />}
+      {topUpOpen && id && (
+        <WalletTopUpDialog buyerId={id} onClose={() => setTopUpOpen(false)} onSuccess={() => { invalidateWallet(); setTopUpOpen(false) }} />
+      )}
+      {adjustOpen && id && (
+        <WalletAdjustDialog
+          buyerId={id} sisterProfiles={linkedProfiles}
+          onClose={() => setAdjustOpen(false)} onSuccess={() => { invalidateWallet(); setAdjustOpen(false) }}
+        />
+      )}
     </div>
   )
 
@@ -299,4 +468,87 @@ export function BuyerDetailPage() {
       </Dialog>
     )
   }
+}
+
+function WalletTopUpDialog({ buyerId, onClose, onSuccess }: { buyerId: string; onClose: () => void; onSuccess: () => void }) {
+  const [form, setForm] = useState<WalletTopUpInput>({ amount: 0, currency: "USD", methodReference: "" })
+  const [error, setError] = useState<string | null>(null)
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<WalletTransaction>(`/buyers/${buyerId}/wallet/top-up/`, form)
+      return data
+    },
+    onSuccess,
+    onError: (err: unknown) => setError(extractErrorMessage(err)),
+  })
+  return (
+    <Dialog open onClose={onClose} title="Add Top-up">
+      <form onSubmit={(e) => { e.preventDefault(); mutation.mutate() }} className="flex flex-col gap-4">
+        {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Amount *</label>
+            <Input required type="number" min={0.01} step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} autoFocus />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Currency</label>
+            <Input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} />
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Method / Reference *</label>
+          <Input required value={form.methodReference} onChange={(e) => setForm({ ...form, methodReference: e.target.value })} placeholder="Bank transfer ID, cheque no..." />
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Adding..." : "Add Top-up"}</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+function WalletAdjustDialog({ buyerId, sisterProfiles, onClose, onSuccess }: {
+  buyerId: string; sisterProfiles: SisterProfile[]; onClose: () => void; onSuccess: () => void
+}) {
+  const [form, setForm] = useState<WalletAdjustInput>({ amount: 0, reason: "", sisterProfile: "" })
+  const [error, setError] = useState<string | null>(null)
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const payload = { ...form, sisterProfile: form.sisterProfile || undefined }
+      const { data } = await api.post<WalletTransaction>(`/buyers/${buyerId}/wallet/adjust/`, payload)
+      return data
+    },
+    onSuccess,
+    onError: (err: unknown) => setError(extractErrorMessage(err)),
+  })
+  return (
+    <Dialog open onClose={onClose} title="Adjust Balance">
+      <form onSubmit={(e) => { e.preventDefault(); mutation.mutate() }} className="flex flex-col gap-4">
+        {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+        <p className="text-xs text-slate-400">For corrections that don't map to a specific expense — e.g. a bank fee. Use a negative amount to deduct.</p>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Amount * (use a minus sign to deduct)</label>
+          <Input required type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} autoFocus />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile (optional, for reporting only)</label>
+          <Select value={form.sisterProfile} onChange={(e) => setForm({ ...form, sisterProfile: e.target.value })}>
+            <option value="">Not tied to a specific order</option>
+            {sisterProfiles.map((sp) => (
+              <option key={sp.id} value={sp.id}>{sp.poReference || sp.id}</option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Reason *</label>
+          <Textarea required rows={3} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Saving..." : "Adjust Balance"}</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
 }

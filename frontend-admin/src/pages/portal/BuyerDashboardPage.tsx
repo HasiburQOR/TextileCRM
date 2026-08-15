@@ -32,13 +32,13 @@ export function BuyerDashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Welcome, {d.buyerProfile.name}</h1>
+        <h1 className="text-xl font-semibold text-slate-900">Welcome, {d.buyerProfile?.name ?? "—"}</h1>
         <p className="text-sm text-slate-500">{user?.username} · Buyer Portal</p>
       </div>
 
-      {d.alerts.length > 0 && (
+      {(d.alerts?.length ?? 0) > 0 && (
         <div className="flex flex-col gap-2">
-          {d.alerts.map((a) => (
+          {d.alerts?.map((a) => (
             <div
               key={a.sisterProfileId}
               className="flex cursor-pointer items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 hover:bg-red-100"
@@ -56,21 +56,27 @@ export function BuyerDashboardPage() {
         <StatCard label="Orders In Progress" value={d.kpis.ordersInProgress} />
         <StatCard label="Orders Completed" value={d.kpis.ordersCompleted} />
         <StatCard
-          label="Outstanding Balance"
-          value={Number(d.kpis.outstandingBalance).toLocaleString()}
-          tone={Number(d.kpis.outstandingBalance) > 0 ? "danger" : "success"}
+          label="Invoices Outstanding"
+          value={Number(d.kpis.invoicesOutstanding).toLocaleString()}
+          tone={Number(d.kpis.invoicesOutstanding) > 0 ? "danger" : "success"}
         />
       </div>
+      {Number(d.kpis.negativeSettlementBalance) > 0 && (
+        <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Recorded expense exceeds advance on one or more orders by {Number(d.kpis.negativeSettlementBalance).toLocaleString()} in total — see Settlement Ledger on the order for details.
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Active Sourcing Trips</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Active Sourcing Costs</CardTitle></CardHeader>
           <CardContent className="p-0">
-            {d.activeSourcingTrips.length === 0 ? (
-              <p className="py-8 text-center text-sm text-slate-400">No sourcing trips currently open.</p>
+            {(d.activeSourcingCosts?.length ?? 0) === 0 ? (
+              <p className="py-8 text-center text-sm text-slate-400">No sourcing costs currently open.</p>
             ) : (
               <div className="flex flex-col divide-y divide-slate-100">
-                {d.activeSourcingTrips.map((t) => (
+                {d.activeSourcingCosts?.map((t) => (
                   <div
                     key={t.id}
                     className="flex cursor-pointer items-center justify-between px-4 py-3 hover:bg-slate-50"
@@ -93,11 +99,11 @@ export function BuyerDashboardPage() {
         <Card>
           <CardHeader><CardTitle>Recent Activity</CardTitle></CardHeader>
           <CardContent className="p-0">
-            {d.recentActivity.length === 0 ? (
+            {(d.recentActivity?.length ?? 0) === 0 ? (
               <p className="py-8 text-center text-sm text-slate-400">No recent activity yet.</p>
             ) : (
               <div className="flex flex-col divide-y divide-slate-100">
-                {d.recentActivity.map((n) => (
+                {d.recentActivity?.map((n) => (
                   <div key={n.id} className="px-4 py-3">
                     <p className="text-sm font-medium text-slate-900">{n.title}</p>
                     <p className="text-xs text-slate-500">{n.message}</p>

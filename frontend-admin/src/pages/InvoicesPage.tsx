@@ -180,6 +180,7 @@ function cartonToLine(carton: PackingCarton): LineDraft {
     cbm: carton.totalCbm,
     material: "",
     styleItemCode: carton.styleNumber,
+    packingListRef: carton.packingListReferenceCode,
     remarks: "",
   }
 }
@@ -288,7 +289,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
                 {listsForProfile.map((pl) => (
                   <label key={pl.id} className="flex items-center gap-2 text-sm text-slate-700">
                     <input type="checkbox" checked={selectedLists.has(pl.id)} onChange={() => toggleList(pl)} />
-                    {pl.poNo || pl.id} — {pl.brandName || "no brand"} ({pl.cartons.length} cartons, {pl.totalCartonQty} CTNS)
+                    <code className="text-xs text-indigo-600">{pl.referenceCode}</code> {pl.poNo || pl.sisterProfilePoReference} — {pl.brandName || "no brand"} ({pl.cartons.length} cartons, {pl.totalCartonQty} CTNS)
                   </label>
                 ))}
               </div>
@@ -311,7 +312,9 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
               <tbody>
                 {lines.map((l) => (
                   <tr key={l.tempId} className="border-b border-slate-100 last:border-0">
-                    <td className="p-1 text-slate-700">{l.description} <span className="text-slate-400">({l.styleItemCode})</span></td>
+                    <td className="p-1 text-slate-700">
+                      {l.description} <span className="text-slate-400">({l.styleItemCode}{l.packingListRef ? ` / ${l.packingListRef}` : ""})</span>
+                    </td>
                     <td className="p-1 text-center">{l.ctn}</td>
                     <td className="p-1 text-center">{l.totalQty}</td>
                     <td className="p-1"><Input className="h-7 w-24 text-xs" type="number" min={0} step="0.01" value={l.unitPrice} onChange={(e) => updateLine(l.tempId, { unitPrice: Number(e.target.value) })} /></td>

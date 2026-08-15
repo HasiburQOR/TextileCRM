@@ -16,12 +16,122 @@ def generate_style_number() -> str:
     return f"STY-{ms}-{rand}"
 
 
+class FieldType(models.TextChoices):
+    """Product_Templates_Custom_Fields_Module.md Suggestion #5: "Text,
+    Number, Decimal, Boolean, and Select cover almost everything you'll
+    need... resist the urge to add more types until a real use case forces
+    it." Shared by both the Field Library (TemplateField) and per-product
+    ad hoc Custom Fields."""
+
+    TEXT = "text", "Text"
+    NUMBER = "number", "Number"
+    DECIMAL = "decimal", "Decimal"
+    BOOLEAN = "boolean", "Boolean"
+    SELECT = "select", "Select"
+
+
+# Product_Templates_Custom_Fields_Module.md "Core Fields": always present on
+# every Product/ProductVariant regardless of template, never removable —
+# these are the fixed schema fields already on ProductVariant (see below),
+# not TemplateField rows. Purely descriptive, for the Template Manager UI
+# to show Admin what's always included; there is nothing to "enforce"
+# server-side beyond them simply not being part of the optional-field
+# system at all (see the module doc's own note: enforce server-side, not
+# just by greying out a checkbox — true here by construction, since no API
+# path can ever remove a hardcoded model field).
+CORE_FIELD_DESCRIPTORS = [
+    {"fieldKey": "color", "label": "Color"},
+    {"fieldKey": "pattern_no", "label": "Pattern No"},
+    {"fieldKey": "po_no", "label": "PO No"},
+    {"fieldKey": "order_qty", "label": "Order Qty"},
+    {"fieldKey": "size_breakdown", "label": "Size Breakdown"},
+    {"fieldKey": "inner_bundle", "label": "Inner Bundle"},
+    {"fieldKey": "carton_no_range", "label": "Carton No Range"},
+    {"fieldKey": "weights", "label": "Weights (Gross / Net)"},
+    {"fieldKey": "carton_dimensions", "label": "Carton Dimensions"},
+    {"fieldKey": "cbm", "label": "CBM"},
+]
+
+
+class FieldGroup(UUIDModel):
+    """Product_Templates_Custom_Fields_Module.md "Auto-Select Field
+    Groups": selecting any one field in a group auto-selects the rest at
+    template-save time (see apps.sourcing.services.save_template_fields)."""
+
+    name = models.CharField(max_length=255, unique=True)
+    description = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class TemplateField(UUIDModel):
+    """The Field Library — ONE shared catalog of optional fields any
+    ProductTemplate can turn on (see ProductTemplateField below), not rows
+    duplicated per template. `fieldKey` is unique across the whole library
+    (BR: "prevent two fields with the same machine name existing under
+    different labels")."""
+
+    fieldKey = models.CharField(max_length=100, unique=True)
+    label = models.CharField(max_length=255)
+    fieldType = models.CharField(max_length=16, choices=FieldType.choices, default=FieldType.TEXT)
+    selectOptions = models.JSONField(default=list, blank=True)  # only meaningful when fieldType == SELECT
+    isRequired = models.BooleanField(default=False)
+    fieldGroup = models.ForeignKey(FieldGroup, related_name="fields", null=True, blank=True, on_delete=models.SET_NULL)
+    createdAt = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["label"]
+
+    def __str__(self):
+        return self.label
+
+
+class ProductTemplate(UUIDModel, TimeStampedModel):
+    """A named, reusable set of optional-field choices Admin configures
+    once per product category (Shirt, Pants, Footwear, ...) and reuses on
+    every Sourcing Intake of that category."""
+
+    name = models.CharField(max_length=255, unique=True)
+    description = models.TextField(blank=True, default="")
+    isActive = models.BooleanField(default=True)
+    fields = models.ManyToManyField(TemplateField, through="ProductTemplateField", related_name="templates")
+    createdBy = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="productTemplates", on_delete=models.PROTECT)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class ProductTemplateField(UUIDModel):
+    """Join row: which TemplateField(s) a given ProductTemplate has turned
+    on, plus this template's own render order for it — the same Field
+    Library entry can sit at a different position on two different
+    templates, so `displayOrder` lives here, not on TemplateField itself."""
+
+    template = models.ForeignKey(ProductTemplate, related_name="templateFields", on_delete=models.CASCADE)
+    field = models.ForeignKey(TemplateField, related_name="productTemplateFields", on_delete=models.CASCADE)
+    displayOrder = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["displayOrder"]
+        constraints = [models.UniqueConstraint(fields=["template", "field"], name="unique_template_field")]
+
+    def __str__(self):
+        return f"{self.field.label} on {self.template.name}"
+
+
 class ProductStatus(models.TextChoices):
     """Full lifecycle per SRS §1.3 Definitions + BRD §6/App_Workflow §6.
     REJECTED is not listed in the SRS glossary's terse status list but is
     required by BR-09/FR-06 (Admin can reject with a reason)."""
 
-    SOURCING_TRIP_OPEN = "sourcing_trip_open", "Sourcing Trip Open"
+    SOURCING_TRIP_OPEN = "sourcing_trip_open", "Sourcing Cost Open"
     PENDING_ADMIN_APPROVAL = "pending_admin_approval", "Pending Admin Approval"
     REJECTED = "rejected", "Rejected"
     APPROVED_FOR_QC = "approved_for_qc", "Approved for QC"
@@ -53,6 +163,20 @@ class Product(UUIDModel, TimeStampedModel):
     name = models.CharField(max_length=255)
     brandName = models.CharField(max_length=255, blank=True, default="NA")
     poNo = models.CharField(max_length=255, blank=True, default="")
+
+    # Product_Templates_Custom_Fields_Module.md: null = "Custom / no
+    # template" (core fields only). `resolvedTemplateFields` is a snapshot
+    # of the template's field set taken at creation time — editing the
+    # Template afterward must never retroactively alter already-created
+    # products (BR), so this is a copy, never a live read through `template`.
+    template = models.ForeignKey(
+        ProductTemplate, related_name="products", null=True, blank=True, on_delete=models.SET_NULL
+    )
+    resolvedTemplateFields = models.JSONField(default=list, blank=True)
+    # One-off fields for this specific product only — both ad hoc entries
+    # (via "Add Custom Field") and the actual entered values for whichever
+    # optional fields `resolvedTemplateFields` offered: [{"label", "type", "value"}].
+    customFields = models.JSONField(default=list, blank=True)
 
     status = models.CharField(max_length=32, choices=ProductStatus.choices, default=ProductStatus.SOURCING_TRIP_OPEN)
     rejectionReason = models.TextField(blank=True, default="")
@@ -126,13 +250,15 @@ class ProductImage(UUIDModel):
 
 
 class ProductVariant(UUIDModel, TimeStampedModel):
-    """One row per Color (BR-07 / FR-09), carrying the same packing-detail
-    field set as apps.packing.PackingCarton — per the updated Sourcing
-    Intake spec, this is where the Packing List module's per-color data is
-    first captured, not a separate/duplicated data model (see Module
-    Documentation Pack §4). `sizeBreakdown` is the per-carton size ratio
-    (units of each size that go in one carton), matching PackingCarton
-    exactly; it is NOT a per-size share of `orderQty`.
+    """One row per Color (BR-07 / FR-09) — deliberately exactly ONE color
+    per row, never a bundle of several sharing one size breakdown, so every
+    row's size/weight/carton data is unambiguously that one color's. Carries
+    the same packing-detail field set as apps.packing.PackingCarton — per
+    the updated Sourcing Intake spec, this is where the Packing List
+    module's per-color data is first captured, not a separate/duplicated
+    data model (see Module Documentation Pack §4). `sizeBreakdown` is the
+    per-carton size ratio (units of each size that go in one carton),
+    matching PackingCarton exactly; it is NOT a per-size share of `orderQty`.
 
     Every packing-detail field is nullable/zero-default and optional at
     intake time (business rule: weights/measurements may not be known
@@ -146,16 +272,25 @@ class ProductVariant(UUIDModel, TimeStampedModel):
     """
 
     product = models.ForeignKey(Product, related_name="variants", on_delete=models.CASCADE)
-    # User-defined color names -> quantity, e.g. {"Sky Blue": 40, "Maroon": 60}.
-    # No predefined color list — same free-text-name shape as
-    # apps.packing.PackingCarton.colorBreakdown.
-    colorBreakdown = models.JSONField(default=dict)
+    # Free text, no predefined color list — same convention as
+    # apps.packing.PackingCarton.colorName.
+    colorName = models.CharField(max_length=255, blank=True, default="")
     patternNo = models.CharField(max_length=100, blank=True, default="")
 
     orderQty = models.PositiveIntegerField(default=0)
-    sizeBreakdown = models.JSONField(default=dict, blank=True)  # e.g. {"S": 1, "M": 3, "L": 5}
-    pcsPerCarton = models.PositiveIntegerField(default=0)  # computed: sum(sizeBreakdown.values())
+    # Custom_Size_Breakdown_Feature.md: a per-color, free-form array — not a
+    # fixed S/M/L/XL/XXL dict — e.g. [{"size_label": "S", "quantity": 1}, ...].
+    sizeBreakdown = models.JSONField(default=list, blank=True)
+    pcsPerCarton = models.PositiveIntegerField(default=0)  # computed: sum of sizeBreakdown's quantity values
     innerBundle = models.PositiveIntegerField(default=1)
+
+    # Product_Templates_Custom_Fields_Module.md, redesigned per user
+    # feedback: template-selected (and any ad hoc) optional fields render as
+    # real spreadsheet columns on the grid — Product.resolvedTemplateFields
+    # is the column schema (shared across every row of this product), this
+    # is one row's own values for those columns, aligned by fieldKey:
+    # [{"fieldKey": "waist_size", "label": "Waist Size", "type": "decimal", "value": "32"}].
+    customFieldValues = models.JSONField(default=list, blank=True)
 
     # Carton numbering — a provisional sequential suggestion at intake time;
     # not authoritative until the Packing List module finalizes it.
@@ -179,7 +314,7 @@ class ProductVariant(UUIDModel, TimeStampedModel):
         ordering = ["createdAt"]
 
     def __str__(self):
-        return f"{'/'.join(self.colorBreakdown.keys())} ({self.orderQty})"
+        return f"{self.colorName} ({self.orderQty})"
 
 
 class TripStatus(models.TextChoices):
@@ -187,38 +322,41 @@ class TripStatus(models.TextChoices):
     CLOSED = "closed", "Closed"
 
 
-class SourcingTrip(UUIDModel, TimeStampedModel):
-    """BR-11–15 / FR-68–71: multi-location sourcing for one Product."""
+class SourcingCost(UUIDModel, TimeStampedModel):
+    """Sourcing cost entries for a Sister Profile — supports multiple product
+    references per cost, each with custom cost fields whose amounts are
+    automatically deducted from the buyer's wallet on creation."""
 
-    product = models.ForeignKey(Product, related_name="sourcingTrips", on_delete=models.CASCADE)
+    sisterProfile = models.ForeignKey(SisterProfile, related_name="sourcingCosts", on_delete=models.CASCADE)
     status = models.CharField(max_length=16, choices=TripStatus.choices, default=TripStatus.OPEN)
     fullPaymentConfirmedAt = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-createdAt"]
+        verbose_name = "Sourcing Cost"
+        verbose_name_plural = "Sourcing Costs"
 
     def __str__(self):
-        return f"Sourcing trip for {self.product.name} [{self.status}]"
+        return f"Sourcing cost for {self.sisterProfile.poReference} [{self.status}]"
 
 
-class LocationEntryStatus(models.TextChoices):
-    PENDING = "pending", "Pending"
-    REPORTED = "reported", "Reported"
+class SourcingCostItem(UUIDModel, TimeStampedModel):
+    """One product reference + custom cost fields within a Sourcing Cost.
+    Each custom cost field amount is deducted from the buyer's wallet on
+    creation, adjusted on edit, and refunded on delete."""
 
-
-class SourcingLocationEntry(UUIDModel, TimeStampedModel):
-    """BR-12 / FR-68: one physical location visited within a Sourcing Trip."""
-
-    sourcingTrip = models.ForeignKey(SourcingTrip, related_name="locations", on_delete=models.CASCADE)
+    sourcingCost = models.ForeignKey(SourcingCost, related_name="items", on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, related_name="sourcingCostItems", on_delete=models.CASCADE)
     locationName = models.CharField(max_length=255)
     quantity = models.PositiveIntegerField(default=0)
-    advanceAmount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    status = models.CharField(max_length=16, choices=LocationEntryStatus.choices, default=LocationEntryStatus.PENDING)
+    customCostFields = models.JSONField(default=list, blank=True)  # [{name: "...", amount: 0}]
     date = models.DateTimeField()
-    reportedAt = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["date"]
 
     def __str__(self):
-        return f"{self.locationName} ({self.status})"
+        return f"{self.product.name} @ {self.locationName}"
+
+
+

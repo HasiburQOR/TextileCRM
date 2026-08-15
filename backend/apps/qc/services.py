@@ -67,7 +67,7 @@ def update_qc_report(
     from apps.expenses.services import delete_expenses
 
     product = report.product
-    delete_expenses(product=product, source_types=_QC_SOURCE_TYPES)
+    delete_expenses(product=product, source_types=_QC_SOURCE_TYPES, actor=updated_by)
 
     report.lunchCostFlag = lunch_cost_flag
     report.lunchCost = lunch_cost or 0

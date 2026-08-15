@@ -6,7 +6,7 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import Roles, User
 from apps.buyers.models import AgreementType, BuyerProfile, SisterProfile
-from apps.packing import services
+from apps.packing import exports, services
 from apps.packing.models import PackingCarton, PackingList, PackingRule
 from apps.sourcing.models import Product
 
@@ -34,7 +34,11 @@ SAMPLE_ROWS = [
 ]
 
 # S:1, M:3, L:5, XL:4, XXL:2 -> 15 pcs/carton, constant for the whole sheet.
+# PackingRule.sizeRatio stays dict-shaped (a reusable ratio template, out of
+# scope for Custom_Size_Breakdown_Feature.md); SIZE_BREAKDOWN below is the
+# same ratio in the new per-row array shape, for direct PackingCarton rows.
 SIZE_RATIO = {"S": 1, "M": 3, "L": 5, "XL": 4, "XXL": 2}
+SIZE_BREAKDOWN = [{"size_label": k, "quantity": v} for k, v in SIZE_RATIO.items()]
 
 
 class PackingCalculationTests(APITestCase):
@@ -65,9 +69,9 @@ class PackingCalculationTests(APITestCase):
             product=self.products[style],
             cartonNoFrom=ctn_from,
             cartonNoTo=ctn_to,
-            colorBreakdown={color: order_qty},
+            colorName=color,
             patternNo=pattern,
-            sizeBreakdown=SIZE_RATIO,
+            sizeBreakdown=SIZE_BREAKDOWN,
             orderQty=order_qty,
             grossWeight=Decimal(gross),
             netWeight=Decimal(net),
@@ -161,11 +165,11 @@ class PackingTenantIsolationTests(APITestCase):
         product_b = Product.objects.create(sisterProfile=self.sister_b, name="P-B", createdBy=self.rep)
         self.list_a = services.create_packing_list(
             sister_profile=self.sister_a, created_by=self.rep,
-            cartons=[dict(product=product_a, cartonNoFrom=1, cartonNoTo=1, colorBreakdown={"Black": 15}, sizeBreakdown=SIZE_RATIO, orderQty=15, ctnLength=20, ctnWidth=18, ctnHeight=7.5)],
+            cartons=[dict(product=product_a, cartonNoFrom=1, cartonNoTo=1, colorName="Black", sizeBreakdown=SIZE_BREAKDOWN, orderQty=15, ctnLength=20, ctnWidth=18, ctnHeight=7.5)],
         )
         self.list_b = services.create_packing_list(
             sister_profile=self.sister_b, created_by=self.rep,
-            cartons=[dict(product=product_b, cartonNoFrom=1, cartonNoTo=1, colorBreakdown={"Navy": 15}, sizeBreakdown=SIZE_RATIO, orderQty=15, ctnLength=20, ctnWidth=18, ctnHeight=7.5)],
+            cartons=[dict(product=product_b, cartonNoFrom=1, cartonNoTo=1, colorName="Navy", sizeBreakdown=SIZE_BREAKDOWN, orderQty=15, ctnLength=20, ctnWidth=18, ctnHeight=7.5)],
         )
 
     def test_buyer_cannot_see_another_buyers_packing_list(self):
@@ -184,3 +188,125 @@ class PackingTenantIsolationTests(APITestCase):
         self.client.force_authenticate(user=self.buyer_a_user)
         resp = self.client.post(reverse("packing-list-list"), {"sisterProfile": str(self.sister_a.id)}, format="json")
         self.assertIn(resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_405_METHOD_NOT_ALLOWED))
+
+
+class StyleNoReferenceNotCopyTests(APITestCase):
+    """Reference_Numbers_Identifier_System.md, "Reference, Don't Copy":
+    Style No is generated once at Sourcing Intake and a Packing List row
+    must never be able to independently drift from it — verified with the
+    doc's own prescribed test: edit the Product after a Packing List
+    already references it, confirm the carton's displayed value updates
+    rather than going stale."""
+
+    def setUp(self):
+        self.buyer = BuyerProfile.objects.create(name="Buyer")
+        self.sister = SisterProfile.objects.create(
+            buyerProfile=self.buyer, poReference="PO-1",
+            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+        )
+        self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
+        self.product = Product.objects.create(sisterProfile=self.sister, name="Shirt", styleNumber="STY-ORIGINAL", createdBy=self.rep)
+
+    def test_client_supplied_style_no_override_is_ignored(self):
+        carton = PackingCarton(
+            product=self.product, cartonNoFrom=1, cartonNoTo=1, colorName="Black",
+            sizeBreakdown=SIZE_BREAKDOWN, orderQty=15, ctnLength=20, ctnWidth=18, ctnHeight=7.5,
+            styleNo="SOMETHING-ELSE-ENTIRELY",  # a client trying to set its own value
+        )
+        services.compute_carton_derived(carton)
+        self.assertEqual(carton.styleNo, "STY-ORIGINAL")
+
+    def test_style_no_stays_in_sync_when_product_style_number_changes_later(self):
+        packing_list = services.create_packing_list(
+            sister_profile=self.sister, created_by=self.rep,
+            cartons=[dict(
+                product=self.product, cartonNoFrom=1, cartonNoTo=1, colorName="Black",
+                sizeBreakdown=SIZE_BREAKDOWN, orderQty=15, ctnLength=20, ctnWidth=18, ctnHeight=7.5,
+            )],
+        )
+        carton = packing_list.cartons.get()
+        self.assertEqual(carton.styleNo, "STY-ORIGINAL")
+
+        self.product.styleNumber = "STY-CORRECTED"
+        self.product.save(update_fields=["styleNumber"])
+
+        # Re-deriving (any subsequent save path) picks up the corrected value —
+        # never silently stale, per the doc's explicit acceptance test.
+        services.add_carton(
+            packing_list, product=self.product, cartonNoFrom=2, cartonNoTo=2, colorName="Navy",
+            sizeBreakdown=SIZE_BREAKDOWN, orderQty=15, ctnLength=20, ctnWidth=18, ctnHeight=7.5,
+        )
+        new_carton = packing_list.cartons.get(cartonNoFrom=2)
+        self.assertEqual(new_carton.styleNo, "STY-CORRECTED")
+
+
+class PoNoAndExportGroupingTests(APITestCase):
+    """Packing_List_Module_Instructions.md §3.1 (per-row PO No, defaulting
+    from the Style level) and §6 (export merged-cell grouping)."""
+
+    def setUp(self):
+        self.buyer = BuyerProfile.objects.create(name="Buyer")
+        self.sister = SisterProfile.objects.create(
+            buyerProfile=self.buyer, poReference="PO-1",
+            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+        )
+        self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
+        self.product_a = Product.objects.create(sisterProfile=self.sister, name="Shirt", poNo="002F25BV", createdBy=self.rep)
+        self.product_b = Product.objects.create(sisterProfile=self.sister, name="Pants", poNo="003F25BV", createdBy=self.rep)
+
+    def _kwargs(self, product, ctn_from, ctn_to, po_no=""):
+        return dict(
+            product=product, cartonNoFrom=ctn_from, cartonNoTo=ctn_to, colorName="Black",
+            sizeBreakdown=SIZE_BREAKDOWN, orderQty=15, ctnLength=20, ctnWidth=18, ctnHeight=7.5, poNo=po_no,
+        )
+
+    def test_po_no_defaults_from_product_when_blank(self):
+        carton = PackingCarton(**self._kwargs(self.product_a, 1, 1))
+        services.compute_carton_derived(carton)
+        self.assertEqual(carton.poNo, "002F25BV")
+
+    def test_po_no_explicit_value_is_not_overwritten(self):
+        carton = PackingCarton(**self._kwargs(self.product_a, 1, 1, po_no="SPLIT-SHIPMENT-PO"))
+        services.compute_carton_derived(carton)
+        self.assertEqual(carton.poNo, "SPLIT-SHIPMENT-PO")
+
+    def test_xlsx_export_merges_style_product_pono_across_consecutive_same_product_rows(self):
+        packing_list = services.create_packing_list(
+            sister_profile=self.sister, created_by=self.rep, poNo="002F25BV",
+            cartons=[
+                self._kwargs(self.product_a, 1, 1),
+                self._kwargs(self.product_a, 2, 2),  # same product, consecutive -> should merge
+                self._kwargs(self.product_b, 3, 3),  # different product -> its own (unmerged) row
+            ],
+        )
+        wb_bytes = exports.render_packing_list_xlsx(packing_list)
+        self.assertGreater(len(wb_bytes), 0)
+
+        import io as _io
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(_io.BytesIO(wb_bytes))
+        ws = wb.active
+        merged_ranges = [str(r) for r in ws.merged_cells.ranges]
+        # Exactly one merge per style-level column (A=Style No, B=Product,
+        # C=PO No) spanning the two product_a rows; the title bar's own
+        # A1:H1 merge and product_b's single row (no merge needed) excluded.
+        style_col_merges = [r for r in merged_ranges if r.startswith(("A", "B", "C")) and not r.startswith("A1:H1")]
+        self.assertEqual(len(style_col_merges), 3)  # one per column (Style No, Product, PO No)
+        for merge_range in style_col_merges:
+            start, end = merge_range.split(":")
+            self.assertNotEqual(start[1:], end[1:])  # spans more than one row
+
+    def test_pdf_export_renders_without_error_for_multiple_groups(self):
+        packing_list = services.create_packing_list(
+            sister_profile=self.sister, created_by=self.rep, poNo="002F25BV",
+            cartons=[
+                self._kwargs(self.product_a, 1, 1),
+                self._kwargs(self.product_a, 2, 2),
+                self._kwargs(self.product_b, 3, 3),
+            ],
+        )
+        pdf_bytes = exports.render_packing_list_pdf(packing_list)
+        self.assertGreater(len(pdf_bytes), 0)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))

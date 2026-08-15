@@ -54,28 +54,6 @@ services:
       db:
         condition: service_healthy
 
-  # ─── Django Web App (HTMX templates + API) ───────────────────
-  django-app:
-    build: ./django_app
-    restart: unless-stopped
-    environment:
-      DB_ENGINE: postgres
-      POSTGRES_HOST: db
-      POSTGRES_DB: django_app_db
-      POSTGRES_USER: ${POSTGRES_USER:-app_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-local-dev-secret-key-change-me}
-      DJANGO_DEBUG: ${DJANGO_APP_DEBUG:-true}
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      DJANGO_SEED_DATA: "true"
-    ports:
-      - "${DJANGO_PORT:-8000}:8000"
-    volumes:
-      - django_media:/app/media
-    depends_on:
-      db:
-        condition: service_healthy
-
   # ─── React Admin Panel (Vite build + nginx) ──────────────────
   frontend-admin:
     build:
@@ -90,4 +68,3 @@ services:
 
 volumes:
   postgres_data:
-  django_media:

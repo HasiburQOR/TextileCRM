@@ -42,7 +42,12 @@ class ExpenseViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        for param, field in (("sisterProfile", "sisterProfile_id"), ("product", "product_id"), ("sourceType", "sourceType")):
+        for param, field in (
+            ("sisterProfile", "sisterProfile_id"),
+            ("buyerProfile", "sisterProfile__buyerProfile_id"),
+            ("product", "product_id"),
+            ("sourceType", "sourceType"),
+        ):
             value = self.request.query_params.get(param)
             if value:
                 qs = qs.filter(**{field: value})

@@ -13,18 +13,21 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.models import Roles
-from apps.accounts.permissions import IsAdmin, IsQCOrAdmin, IsRole
+from apps.accounts.permissions import IsAdmin, IsQCOrAdmin, IsRole, IsSupplierStaff
 from apps.core.tenancy import TenantScopedViewSet
 from apps.sourcing import services
-from apps.sourcing.models import Product, SourcingLocationEntry, SourcingTrip
+from apps.sourcing.models import FieldGroup, FieldType, Product, ProductTemplate, SourcingCost, SourcingCostItem, TemplateField
 from apps.sourcing.serializers import (
+    FieldGroupSerializer,
     ProductImageSerializer,
     ProductSelfSerializer,
     ProductSerializer,
+    ProductTemplateSerializer,
     RejectProductSerializer,
-    SourcingLocationEntrySerializer,
-    SourcingTripSelfSerializer,
-    SourcingTripSerializer,
+    SourcingCostItemSerializer,
+    SourcingCostSelfSerializer,
+    SourcingCostSerializer,
+    TemplateFieldSerializer,
 )
 
 WRITE_ACTIONS = ("update", "partial_update", "destroy")
@@ -61,7 +64,7 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         return ProductSerializer
 
     def get_permissions(self):
-        if self.action in ("create", "submit_for_approval", "upload_image", "upload_factory_packing_list"):
+        if self.action in ("create", "submit_for_approval", "upload_image", "upload_factory_packing_list", "custom_fields"):
             return [IsRole()]
         if self.action in WRITE_ACTIONS or self.action in ("approve", "reject"):
             return [IsAdmin()]
@@ -184,18 +187,81 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
             raise DRFValidationError("Carton QR has not been generated yet.")
         return _qr_png_response(product.cartonQrPayload, f"{product.styleNumber}-carton-qr.png")
 
+    @action(detail=True, methods=["post"], url_path="custom-fields")
+    def custom_fields(self, request, pk=None):
+        """Product_Templates_Custom_Fields_Module.md: 'A per-product "Add
+        Custom Field" option should also be available even when a template
+        is selected — for the rare one-off attribute on an otherwise-normal
+        shirt, without having to edit the shared Shirt template.' Appends
+        one field; private to this product — never written back to the
+        shared Field Library or any Template (BR: 'Custom Fields added at
+        the product level are private to that product')."""
+        product = self.get_object()
+        data = request.data
+        label = (data.get("label") or "").strip()
+        field_type = data.get("type") or FieldType.TEXT
+        if not label:
+            raise DRFValidationError({"label": "Required."})
+        if field_type not in FieldType.values:
+            raise DRFValidationError({"type": f"Must be one of {FieldType.values}."})
+        product.customFields = [*product.customFields, {"label": label, "type": field_type, "value": data.get("value", "")}]
+        product.save(update_fields=["customFields", "updatedAt"])
+        return Response(self.get_serializer(product).data, status=status.HTTP_201_CREATED)
 
-class SourcingTripViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
-    """BR-11–15 / FR-68–71."""
 
-    queryset = SourcingTrip.objects.select_related("product__sisterProfile__buyerProfile").prefetch_related("locations")
-    tenant_lookup = "product__sisterProfile__buyerProfile_id"
+class ProductTemplateViewSet(viewsets.ModelViewSet):
+    """Product_Templates_Custom_Fields_Module.md — Template Manager.
+    Not part of the Buyer Portal's read surface (an internal sourcing-config
+    concept the buyer never needs to see)."""
+
+    queryset = ProductTemplate.objects.prefetch_related("templateFields__field__fieldGroup")
+    serializer_class = ProductTemplateSerializer
+
+    def get_permissions(self):
+        if self.action in ("create", *WRITE_ACTIONS):
+            return [IsAdmin()]
+        return [IsSupplierStaff()]
+
+
+class FieldGroupViewSet(viewsets.ModelViewSet):
+    """Product_Templates_Custom_Fields_Module.md 'Auto-Select Field
+    Groups' — Admin can define new groups as new product categories get added."""
+
+    queryset = FieldGroup.objects.all()
+    serializer_class = FieldGroupSerializer
+
+    def get_permissions(self):
+        if self.action in ("create", *WRITE_ACTIONS):
+            return [IsAdmin()]
+        return [IsSupplierStaff()]
+
+
+class TemplateFieldViewSet(viewsets.ModelViewSet):
+    """The Field Library — GET/POST /api/v1/field-library/. A field defined
+    once here can be toggled on by any ProductTemplate (see
+    ProductTemplateSerializer's `fieldIds`)."""
+
+    queryset = TemplateField.objects.select_related("fieldGroup")
+    serializer_class = TemplateFieldSerializer
+
+    def get_permissions(self):
+        if self.action in ("create", *WRITE_ACTIONS):
+            return [IsAdmin()]
+        return [IsSupplierStaff()]
+
+
+class SourcingCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
+    """Sourcing Costs — multi-product per cost with custom cost fields
+    that auto-deduct from the buyer's wallet."""
+
+    queryset = SourcingCost.objects.select_related("sisterProfile__buyerProfile").prefetch_related("items__product")
+    tenant_lookup = "sisterProfile__buyerProfile_id"
     allowed_roles = [Roles.COMPANY_REP]
 
     def get_serializer_class(self):
         if self.request.user.role == Roles.BUYER:
-            return SourcingTripSelfSerializer
-        return SourcingTripSerializer
+            return SourcingCostSelfSerializer
+        return SourcingCostSerializer
 
     def get_permissions(self):
         if self.action in ("create", "close"):
@@ -205,64 +271,65 @@ class SourcingTripViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         return [IsAuthenticated()]
 
     def destroy(self, request, *args, **kwargs):
-        trip = self.get_object()
-        if trip.locations.filter(status="reported").exists():
-            raise DRFValidationError(
-                "Cannot delete — this trip has reported locations with advances already recorded as expenses."
-            )
-        trip.delete()
+        cost = self.get_object()
+        if cost.status == "closed":
+            raise DRFValidationError("Cannot delete a closed Sourcing Cost.")
+        # Refund all items' wallet deductions before deleting
+        for item in cost.items.all():
+            services.refund_cost_item(item, request.user)
+        cost.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["post"])
     def close(self, request, pk=None):
-        trip = self.get_object()
+        cost = self.get_object()
         try:
-            services.close_sourcing_trip(trip)
+            services.close_sourcing_cost(cost)
         except DjangoValidationError as exc:
             _raise_from(exc)
-        return Response(self.get_serializer(trip).data)
+        return Response(self.get_serializer(cost).data)
 
 
-class SourcingLocationEntryViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
-    """Nested under a trip: /sourcing-trips/<trip_pk>/locations/."""
+class SourcingCostItemViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
+    """Nested under a cost: /sourcing-costs/<cost_pk>/items/."""
 
-    queryset = SourcingLocationEntry.objects.select_related("sourcingTrip__product__sisterProfile__buyerProfile")
-    serializer_class = SourcingLocationEntrySerializer
-    tenant_lookup = "sourcingTrip__product__sisterProfile__buyerProfile_id"
+    queryset = SourcingCostItem.objects.select_related("sourcingCost__sisterProfile__buyerProfile", "product")
+    serializer_class = SourcingCostItemSerializer
+    tenant_lookup = "sourcingCost__sisterProfile__buyerProfile_id"
     allowed_roles = [Roles.COMPANY_REP]
 
     def get_queryset(self):
         qs = super().get_queryset()
-        trip_id = self.kwargs.get("trip_pk")
-        if trip_id:
-            qs = qs.filter(sourcingTrip_id=trip_id)
+        cost_id = self.kwargs.get("cost_pk")
+        if cost_id:
+            qs = qs.filter(sourcingCost_id=cost_id)
         return qs
 
     def get_permissions(self):
-        if self.action in ("create", "report"):
+        if self.action in ("create",):
             return [IsRole()]
         if self.action in WRITE_ACTIONS:
             return [IsAdmin()]
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):
-        trip = SourcingTrip.objects.get(pk=self.kwargs["trip_pk"])
-        if trip.status == "closed":
-            raise DRFValidationError("Cannot add locations to a closed Sourcing Trip.")
-        serializer.save(sourcingTrip=trip)
+        cost = SourcingCost.objects.get(pk=self.kwargs["cost_pk"])
+        if cost.status == "closed":
+            raise DRFValidationError("Cannot add items to a closed Sourcing Cost.")
+        item = serializer.save(sourcingCost=cost)
+        # Auto-deduct wallet for each custom cost field
+        services.deduct_cost_item(item, self.request.user)
+
+    def perform_update(self, serializer):
+        old_item = self.get_object()
+        old_custom_costs = list(old_item.customCostFields) if old_item.customCostFields else []
+        item = serializer.save()
+        # Adjust wallet: refund old, deduct new
+        services.adjust_cost_item(item, old_custom_costs, self.request.user)
 
     def destroy(self, request, *args, **kwargs):
-        location = self.get_object()
-        if location.status == "reported":
-            raise DRFValidationError("Cannot delete a location that has already been reported.")
-        location.delete()
+        item = self.get_object()
+        # Refund wallet before deleting
+        services.refund_cost_item(item, request.user)
+        item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(detail=True, methods=["post"])
-    def report(self, request, pk=None, trip_pk=None):
-        location = self.get_object()
-        try:
-            services.report_location(location, request.user)
-        except DjangoValidationError as exc:
-            _raise_from(exc)
-        return Response(self.get_serializer(location).data)

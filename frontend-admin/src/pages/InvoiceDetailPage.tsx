@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Ban, CheckCircle2, Download, Plus, XCircle } from "lucide-react"
+import { Ban, CheckCircle2, Download, FileSpreadsheet, Plus, Trash2, XCircle, ArrowLeft } from "lucide-react"
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { API_BASE_URL } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,12 +11,19 @@ import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
+import { downloadFile } from "@/lib/download"
 import { extractErrorMessage } from "@/lib/errors"
 import type { Invoice, InvoiceStatus } from "@/types/invoicing"
 
 const STATUS_BADGE: Record<InvoiceStatus, "warning" | "success" | "danger" | "default"> = {
   pending_approval: "warning", issued: "success", rejected: "danger", void: "default",
 }
+// BR-46: an Issued/Void invoice is never edited or hard-deleted — Void
+// (above) is its only lifecycle exit. Pending/Rejected invoices never took
+// effect, so those alone may be deleted (mirrors InvoicesPage.tsx's list-row
+// delete — surfaced here too so "why can't I edit/delete this" has an answer
+// on the page a user actually lands on).
+const DELETABLE_STATUSES: InvoiceStatus[] = ["pending_approval", "rejected"]
 
 export function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -28,6 +34,8 @@ export function InvoiceDetailPage() {
   const [rejectOpen, setRejectOpen] = useState(false)
   const [voidOpen, setVoidOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null)
 
   const invoiceQuery = useQuery({
     queryKey: ["invoices", id],
@@ -48,10 +56,34 @@ export function InvoiceDetailPage() {
     onError: (err: unknown) => setActionError(extractErrorMessage(err)),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: async () => { await api.delete(`/invoices/${id}/`) },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invoices", "all"] })
+      navigate("/invoices")
+    },
+    onError: (err: unknown) => setActionError(extractErrorMessage(err)),
+  })
+
   if (invoiceQuery.isLoading) return <div className="flex justify-center py-16"><Spinner className="text-slate-400" /></div>
   if (!invoiceQuery.data) return <p className="py-16 text-center text-sm text-slate-400">Invoice not found.</p>
 
   const inv = invoiceQuery.data
+
+  async function handleExport(kind: "pdf" | "xlsx") {
+    setExporting(kind)
+    setActionError(null)
+    try {
+      await downloadFile(
+        `/invoices/${id}/export/${kind === "xlsx" ? "?filetype=xlsx" : ""}`,
+        `${inv.invoiceNo}.${kind}`,
+      )
+    } catch (err) {
+      setActionError(extractErrorMessage(err))
+    } finally {
+      setExporting(null)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -66,11 +98,11 @@ export function InvoiceDetailPage() {
           </div>
           <p className="text-sm text-slate-500">{inv.sisterProfilePoReference} · {inv.buyerName}</p>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => window.open(`${API_BASE_URL}/invoices/${id}/export/?lang=en`, "_blank")}
-        >
-          <Download className="h-4 w-4" /> Export PDF
+        <Button variant="outline" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
+          <Download className="h-4 w-4" /> {exporting === "pdf" ? "Downloading…" : "Export PDF"}
+        </Button>
+        <Button variant="outline" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
+          <FileSpreadsheet className="h-4 w-4" /> {exporting === "xlsx" ? "Downloading…" : "Export Excel"}
         </Button>
         {isAdmin && inv.status === "pending_approval" && (
           <>
@@ -87,6 +119,11 @@ export function InvoiceDetailPage() {
             <Ban className="h-4 w-4" /> Void
           </Button>
         )}
+        {isAdmin && DELETABLE_STATUSES.includes(inv.status) && (
+          <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+            <Trash2 className="h-4 w-4" /> Delete
+          </Button>
+        )}
       </div>
 
       {actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
@@ -96,12 +133,24 @@ export function InvoiceDetailPage() {
       {inv.status === "void" && inv.voidReason && (
         <div className="rounded-md bg-slate-100 px-4 py-3 text-sm text-slate-600">Void reason: {inv.voidReason}</div>
       )}
+      {(inv.status === "issued" || inv.status === "void") && (
+        <p className="text-xs text-slate-400">
+          An {inv.status} invoice can't be edited or deleted (Void, above, is its only lifecycle exit) — that keeps
+          every number a buyer has already seen permanent and auditable.
+        </p>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Line Total" value={Number(inv.totalValue).toLocaleString()} />
         <StatCard label="Commission" value={Number(inv.commissionAmount).toLocaleString()} />
         <StatCard label="Grand Total" value={Number(inv.grandTotal).toLocaleString()} />
         <StatCard label="Outstanding" value={Number(inv.outstandingBalance).toLocaleString()} tone={Number(inv.outstandingBalance) > 0 ? "warning" : "success"} />
+        {inv.targetCurrency && (
+          <StatCard
+            label={`Converted (@ ${Number(inv.exchangeRateValueLocked).toLocaleString(undefined, { maximumFractionDigits: 6 })} → ${inv.targetCurrency})`}
+            value={`${Number(inv.convertedTotal).toLocaleString()} ${inv.targetCurrency}`}
+          />
+        )}
       </div>
 
       <Card>
@@ -112,6 +161,7 @@ export function InvoiceDetailPage() {
               <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                 <th className="px-4 py-2 font-medium">Description</th>
                 <th className="px-4 py-2 font-medium">Style/Item</th>
+                <th className="px-4 py-2 font-medium">Packing List</th>
                 <th className="px-4 py-2 font-medium">CTN</th>
                 <th className="px-4 py-2 font-medium">Qty</th>
                 <th className="px-4 py-2 font-medium">Unit Price</th>
@@ -123,6 +173,7 @@ export function InvoiceDetailPage() {
                   <tr key={li.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-2 font-medium text-slate-900">{li.description}</td>
                     <td className="px-4 py-2 text-slate-500">{li.styleItemCode}</td>
+                    <td className="px-4 py-2 text-slate-500">{li.packingListRef || "—"}</td>
                     <td className="px-4 py-2 text-slate-500">{li.ctn}</td>
                     <td className="px-4 py-2 text-slate-500">{li.totalQty}</td>
                     <td className="px-4 py-2 text-slate-500">{Number(li.unitPrice).toLocaleString()}</td>
@@ -167,6 +218,24 @@ export function InvoiceDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {deleteOpen && (
+        <Dialog open onClose={() => setDeleteOpen(false)} title={`Delete "${inv.invoiceNo}"?`}>
+          <div className="flex flex-col gap-4">
+            {actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
+            <p className="text-sm text-slate-600">
+              This permanently removes the invoice — it never took effect (no payments possible against a
+              {" "}{inv.status.replace(/_/g, " ")} invoice). This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+              <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
+                {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
 
       {rejectOpen && (
         <ReasonDialog

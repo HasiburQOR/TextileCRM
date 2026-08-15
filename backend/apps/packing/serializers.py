@@ -19,19 +19,24 @@ class PackingRuleSerializer(serializers.ModelSerializer):
 class PackingCartonSerializer(serializers.ModelSerializer):
     styleNumber = serializers.CharField(source="product.styleNumber", read_only=True)
     productName = serializers.CharField(source="product.name", read_only=True)
+    # Denormalized for invoice line-item generation, which needs both the
+    # Product's own style code (styleNumber, "PRO-...") and the Packing
+    # List's code ("PKG-...") without a second round trip.
+    packingListReferenceCode = serializers.CharField(source="packingList.referenceCode", read_only=True)
 
     class Meta:
         model = PackingCarton
         fields = [
-            "id", "packingList", "product", "styleNo", "styleNumber", "productName",
-            "cartonNoFrom", "cartonNoTo", "noOfCartons", "colorBreakdown", "patternNo", "assortId",
-            "sizeBreakdown", "totalPcsPerCarton", "innerBundle",
+            "id", "packingList", "product", "styleNo", "poNo", "styleNumber", "productName",
+            "packingListReferenceCode",
+            "cartonNoFrom", "cartonNoTo", "noOfCartons", "colorName", "patternNo", "assortId",
+            "sizeBreakdown", "totalPcsPerCarton", "innerBundle", "customFieldValues",
             "orderQty", "shipQty", "shortExcessQty", "shortExcessPct",
             "grossWeight", "netWeight", "totalGrossWeight", "totalNetWeight",
             "ctnLength", "ctnWidth", "ctnHeight", "ctnCbm", "totalCbm",
         ]
         read_only_fields = [
-            "id", "noOfCartons", "totalPcsPerCarton", "shipQty", "shortExcessQty", "shortExcessPct",
+            "id", "styleNo", "noOfCartons", "totalPcsPerCarton", "shipQty", "shortExcessQty", "shortExcessPct",
             "totalGrossWeight", "totalNetWeight", "ctnCbm", "totalCbm",
         ]
 
@@ -45,14 +50,15 @@ class PackingListSerializer(serializers.ModelSerializer):
     class Meta:
         model = PackingList
         fields = [
-            "id", "sisterProfile", "sisterProfilePoReference", "packingRule", "poNo", "brandName", "date",
-            "frontMark", "sideMark", "totalOrderQty", "totalShipQty", "shortExcessQty", "shortExcessPct",
-            "totalCartonQty", "totalGrossWeight", "totalNetWeight", "totalCbm", "cartons",
+            "id", "sisterProfile", "sisterProfilePoReference", "referenceCode", "packingRule", "poNo",
+            "brandName", "date", "frontMark", "sideMark", "totalOrderQty", "totalShipQty", "shortExcessQty",
+            "shortExcessPct", "totalCartonQty", "totalGrossWeight", "totalNetWeight", "totalCbm", "cartons",
             "createdBy", "createdAt", "updatedAt",
         ]
         read_only_fields = [
-            "id", "totalOrderQty", "totalShipQty", "shortExcessQty", "shortExcessPct", "totalCartonQty",
-            "totalGrossWeight", "totalNetWeight", "totalCbm", "createdBy", "createdAt", "updatedAt",
+            "id", "referenceCode", "totalOrderQty", "totalShipQty", "shortExcessQty", "shortExcessPct",
+            "totalCartonQty", "totalGrossWeight", "totalNetWeight", "totalCbm", "createdBy", "createdAt",
+            "updatedAt",
         ]
 
     def update(self, instance, validated_data):
@@ -84,7 +90,7 @@ class PackingListSelfSerializer(serializers.ModelSerializer):
     class Meta:
         model = PackingList
         fields = [
-            "id", "poNo", "brandName", "date", "totalOrderQty", "totalShipQty",
+            "id", "referenceCode", "poNo", "brandName", "date", "totalOrderQty", "totalShipQty",
             "shortExcessQty", "shortExcessPct", "totalCartonQty", "totalGrossWeight",
             "totalNetWeight", "totalCbm", "cartons", "createdAt",
         ]

@@ -83,6 +83,7 @@ def create_invoice(*, sister_profile, created_by, line_items: list, exchange_rat
             cbm=li.get("cbm") or 0,
             material=li.get("material", ""),
             styleItemCode=li.get("styleItemCode", ""),
+            packingListRef=li.get("packingListRef", ""),
             remarks=li.get("remarks", ""),
         )
 

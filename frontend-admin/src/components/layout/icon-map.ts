@@ -5,6 +5,7 @@ import {
   GitBranch,
   History,
   LayoutDashboard,
+  LayoutTemplate,
   MapPin,
   PackageCheck,
   PackagePlus,
@@ -37,4 +38,5 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   History,
   UserCog,
   QrCode,
+  LayoutTemplate,
 }
