@@ -14,12 +14,21 @@ Wallet can never drift apart.
 from apps.expenses.models import Expense
 
 
-def delete_expenses(*, product, source_types: list[str], actor=None) -> None:
+def delete_expenses(*, product, source_types: list[str], warehouse_cost=None, actor=None) -> None:
     """Reverses record_expense() for a product's specific source types —
     used when a QC/warehouse cost report is edited or deleted, so the old
     line items don't linger in the Central Expense Table after the report
     they came from no longer reflects them. Recomputes the Settlement
     Ledger afterward, same as record_expense() does on write.
+
+    `product` keeps its original meaning, including `product=None` as a
+    deliberate filter (e.g. "expenses with no product tie") — existing
+    callers rely on that. `warehouse_cost`, when given, narrows the filter
+    further: WarehouseCost isn't 1:1 with anything the way a QC report is
+    with a Product (several WarehouseCost records can exist per Sister
+    Profile), so `product` alone can't disambiguate which record's rows to
+    touch — this is what lets editing or deleting one WarehouseCost leave
+    a sibling record's Expense rows alone.
 
     WF-05: before the Expense rows are hard-deleted, writes a `refund`
     WalletTransaction reversing each one's original `deduction` — the
@@ -30,6 +39,8 @@ def delete_expenses(*, product, source_types: list[str], actor=None) -> None:
     "who's deleting this" parameter today).
     """
     qs = Expense.objects.filter(product=product, sourceType__in=source_types)
+    if warehouse_cost is not None:
+        qs = qs.filter(warehouseCost=warehouse_cost)
     expenses = list(qs)
     sister_profile = expenses[0].sisterProfile if expenses else None
 
@@ -57,7 +68,7 @@ def delete_expenses(*, product, source_types: list[str], actor=None) -> None:
         recompute_settlement(sister_profile)
 
 
-def record_expense(*, sister_profile, source_type, amount, created_by, product=None, currency="BDT", remarks="", field_name="") -> Expense | None:
+def record_expense(*, sister_profile, source_type, amount, created_by, product=None, warehouse_cost=None, currency="BDT", remarks="", field_name="") -> Expense | None:
     """Skips recording when amount is falsy (0/None) — matches every
     cost-entry form in the spec (e.g. an unchecked warehouse packaging
     checkbox has no amount and shouldn't leave a zero-value audit row)."""
@@ -66,6 +77,7 @@ def record_expense(*, sister_profile, source_type, amount, created_by, product=N
     expense = Expense.objects.create(
         sisterProfile=sister_profile,
         product=product,
+        warehouseCost=warehouse_cost,
         sourceType=source_type,
         amount=amount,
         currency=currency,

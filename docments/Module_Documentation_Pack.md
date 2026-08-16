@@ -369,9 +369,16 @@ Because several similarly-named codes now exist across modules, here is the one 
 | Created By / Created At | |
 
 **UI Requirements:**
-- Filterable, sortable table — by Sister Profile, Source Type, date range.
-- Totals row/summary at the top or bottom reflecting current filter.
+- Filterable, sortable table — by Buyer Profile, Sister Profile, Source Type, date range, currency, recorded-by, free-text search. Filtering is server-side (`GET /expenses/` query params), so the table isn't limited to the rows one page happened to fetch.
+- Totals row/summary at the top or bottom reflecting current filter, **per currency** — Expense rows carry their own `currency`, so a single blended total would be meaningless.
 - Drill-through link from each row back to its originating record (e.g. click a `qc_lunch` row to open that QC Report).
+
+**Download (`GET /expenses/export/`):**
+- Takes the same query params as the list, plus `filetype` (`xlsx` default / `csv` / `pdf`) and `groupBy` (`none`, `buyer`, `sisterProfile`, `product`, `sourceType`, `recordedBy`, `month`, `currency`). `sourceType` accepts a comma-separated list so one file can cover several categories.
+- `filetype`, not `format` — DRF reserves `format` for renderer selection and an unrecognized value there breaks routing before the view runs.
+- xlsx: Summary sheet (resolved filter block + per-currency grand total + per-group breakdown) and Expenses sheet (all rows, subtotal row per group per currency). pdf: same content, landscape A4. csv: plain header + data rows with a UTF-8 BOM, no meta block, so it imports cleanly.
+- Refuses over `MAX_EXPORT_ROWS` (20,000) with a "narrow your filters" 400 rather than building a document that won't fit in memory.
+- Supplier-side roles only (`IsSupplierStaff`): every format carries columns the buyer-facing `ExpenseSelfSerializer` withholds. Each download writes an `EXPORT_EXPENSES` audit entry (FR-82).
 
 **API Endpoints:**
 - `GET /api/v1/expenses/?sister_profile=&source_type=&date_from=&date_to=`
@@ -445,7 +452,26 @@ Because several similarly-named codes now exist across modules, here is the one 
 - Builder screen: select Sister Profile → select approved Packing List(s) → line items pre-fill, editable remarks per line → select published exchange rate → set commission → submit for approval.
 - Once Issued, line items and totals render read-only; a visible "Void" action (with required reason) is the only lifecycle action available.
 - Payment recording as a separate simple sub-form on the invoice detail screen, updating Outstanding Balance live.
-- Export button producing bilingual (EN/KA) PDF matching the business's existing invoice layout.
+- Export button producing a PDF matching the business's existing invoice layout.
+
+**Document layout (implemented — `apps/invoicing/exports.py`):**
+The export is a combined **Commercial Invoice / Packing List**, in both PDF (landscape A4) and Excel, carrying the same content:
+1. Company letterhead from `CompanyProfile` — the uploaded banner image, or a typeset name/tagline/address block when no logo is set. The banner *replaces* the text block rather than stacking above it, since a real letterhead already carries the address.
+2. Consignee block (buyer name, branding, contact info, PO / Sister Profile) and invoice meta (No, date, status).
+3. Line table: Mark, **Foto**, Description, Brand, Color/Size, CTN, QTY/CTN, T.QTY, Unit Price, Amount, N.W, T/N.W, G.W, T/G.W, Size (L×W×H cm), CBM/ctn, CBM, Composition, HS Code. CBM/ctn and HS Code are dropped from the PDF only — nineteen columns don't fit landscape A4 at a readable size.
+4. Totals block: value and converted value, commission, paid, outstanding, exchange rate, total qty / cartons / cube / net weight / gross weight.
+5. Bank details footer from `CompanyProfile`.
+
+- **Photos** come from the line's source `Product.images.first()`, thumbnailed to 220px. A missing, unreadable or deleted image degrades to an empty cell — never a failed download. The letterhead is thumbnailed at 1400px since it prints ~180mm wide.
+- Excel writes amounts as **numbers**, not preformatted strings, with a live `SUM()` totals row.
+
+**Calculation (all server-side, `services.compute_line_item`):**
+`totalQty = ctn × qtyPerCtn`, `amount = totalQty × unitPrice`, `cbmPerCtn = L×W×H ÷ 1,000,000` (cm), `cbm = ctn × cbmPerCtn`, `netWeight/grossWeight = ctn × per-carton`. **A value supplied by the caller always wins** — short/excess cartons are real and the packing list is the authority. Carton dimensions arrive in inches from `PackingCarton` and are converted to cm on the way in (`dimensionsInCm: false`); no packing data is migrated.
+
+**Currency:**
+- `sourceCurrency` prices the lines; `targetCurrency` + `exchangeRateValueLocked` give the conversion.
+- `rateQuote` records which way the locked rate reads: `multiply` (target = source × rate — what a published `ExchangeRate` means, and the default so pre-existing invoices are unaffected) or `divide` (`1 target = rate source`, i.e. "1 USD = 120 BDT" as typed by hand). Storing the direction keeps the printed figure identical to the one entered and avoids rounding a financial document through a 1/120 reciprocal.
+- A published rate wins over a typed one when both are given: it's the auditable one.
 
 **API Endpoints:**
 - `POST /api/v1/invoices/`

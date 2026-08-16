@@ -76,6 +76,10 @@ def _round4(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
 
+def _round2(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def compute_variant_derived(variant: ProductVariant) -> None:
     """Mirrors apps.packing.services.compute_carton_derived — every color
     row here carries the same packing-detail shape as a PackingCarton, so
@@ -92,6 +96,9 @@ def compute_variant_derived(variant: ProductVariant) -> None:
     variant.totalPcs = variant.pcsPerCarton * variant.noOfCartons
     variant.totalGrossWeight = _dec(variant.grossWeight) * variant.noOfCartons
     variant.totalNetWeight = _dec(variant.netWeight) * variant.noOfCartons
+    # Buy price is per piece, flat across every size in the color — Amount
+    # is always TTL PCS x Unit Price, never a per-size price.
+    variant.totalAmount = _round2(_dec(variant.unitPrice) * variant.totalPcs)
 
     cubic_inches = _dec(variant.ctnLength) * _dec(variant.ctnWidth) * _dec(variant.ctnHeight)
     per_carton_cbm = cubic_inches / Decimal(str(CUBIC_INCHES_PER_CBM)) if cubic_inches else Decimal("0")

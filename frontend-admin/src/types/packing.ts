@@ -15,7 +15,7 @@ export interface PackingCarton {
   // Packing_List_Module_Instructions.md §3.1: defaults from the Product's
   // PO No but independently editable/stored per row.
   poNo: string
-  styleNumber: string; productName: string; packingListReferenceCode: string
+  styleNumber: string; productName: string; productMaterial: string; packingListReferenceCode: string
   cartonNoFrom: number; cartonNoTo: number; noOfCartons: number
   colorName: string; patternNo: string; assortId: string
   sizeBreakdown: SizeBreakdownEntry[]
@@ -23,6 +23,9 @@ export interface PackingCarton {
   totalPcsPerCarton: number; innerBundle: number
   orderQty: number; shipQty: number
   shortExcessQty: number; shortExcessPct: number
+  // Unit price per piece, flat across the row's sizes (pre-filled from the
+  // Sourcing Intake variant); computed Amount = shipQty x unitPrice.
+  unitPrice: number | null; totalAmount: number
   grossWeight: number; netWeight: number
   totalGrossWeight: number; totalNetWeight: number
   ctnLength: number; ctnWidth: number; ctnHeight: number
@@ -48,7 +51,7 @@ export interface CartonInput {
   colorName: string; patternNo: string; assortId: string
   sizeBreakdown: SizeBreakdownEntry[]; customFieldValues: CustomFieldEntry[]
   innerBundle: number
-  orderQty: number; grossWeight: number; netWeight: number
+  orderQty: number; unitPrice: number | null; grossWeight: number; netWeight: number
   ctnLength: number; ctnWidth: number; ctnHeight: number
 }
 

@@ -494,6 +494,79 @@ class CustomSizeBreakdownTests(APITestCase):
         services.compute_variant_derived(variant)
         self.assertEqual(variant.pcsPerCarton, 0)
 
+    # ── Unit price x quantity (buy price captured at intake) ────────────
+
+    def test_total_amount_is_total_pcs_times_unit_price(self):
+        """One price per color row, flat across all sizes in the row:
+        45 pcs/carton x 10 cartons x 2.50 = 1,125.00."""
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(
+            reverse("product-list"),
+            {
+                "sisterProfile": str(self.sister.id), "name": "Priced Tee", "brandName": "NA",
+                "variants": [{
+                    "colorName": "Navy", "orderQty": 450, "unitPrice": "2.50",
+                    "sizeBreakdown": [
+                        {"size_label": "S", "quantity": 15},
+                        {"size_label": "M", "quantity": 15},
+                        {"size_label": "L", "quantity": 15},
+                    ],
+                    "cartonNoFrom": 1, "cartonNoTo": 10,
+                }],
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        variant = resp.data["variants"][0]
+        self.assertEqual(variant["pcsPerCarton"], 45)
+        self.assertEqual(variant["noOfCartons"], 10)
+        self.assertEqual(variant["totalPcs"], 450)
+        self.assertEqual(Decimal(variant["totalAmount"]), Decimal("1125.00"))
+
+    def test_missing_unit_price_yields_zero_amount(self):
+        """Price is optional at intake — blank simply computes a zero Amount."""
+        product = Product.objects.create(sisterProfile=self.sister, name="Unpriced", createdBy=self.admin)
+        variant = product.variants.create(
+            colorName="White",
+            sizeBreakdown=[{"size_label": "M", "quantity": 10}],
+            cartonNoFrom=1, cartonNoTo=3,
+        )
+        services.compute_variant_derived(variant)
+        self.assertEqual(variant.totalPcs, 30)
+        self.assertEqual(variant.totalAmount, Decimal("0"))
+
+    def test_editing_variants_replaces_rows_and_recomputes_amount(self):
+        """Edit is delete-and-recreate (ProductSerializer.update) — a new
+        price on the edited row recomputes, and the old row is gone."""
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(
+            reverse("product-list"),
+            {
+                "sisterProfile": str(self.sister.id), "name": "Edit Me", "brandName": "NA",
+                "variants": [{
+                    "colorName": "Red", "orderQty": 20, "unitPrice": "1.00",
+                    "sizeBreakdown": [{"size_label": "Free Size", "quantity": 10}],
+                    "cartonNoFrom": 1, "cartonNoTo": 2,
+                }],
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        resp = self.client.patch(
+            reverse("product-detail", args=[resp.data["id"]]),
+            {"variants": [{
+                "colorName": "Red", "orderQty": 20, "unitPrice": "3.00",
+                "sizeBreakdown": [{"size_label": "Free Size", "quantity": 10}],
+                "cartonNoFrom": 1, "cartonNoTo": 2,
+            }]},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data["variants"]), 1)
+        variant = resp.data["variants"][0]
+        self.assertEqual(variant["totalPcs"], 20)
+        self.assertEqual(Decimal(variant["totalAmount"]), Decimal("60.00"))
+
     def test_product_qr_payload_collects_size_labels_from_array(self):
         product = Product.objects.create(
             sisterProfile=self.sister, name="Shirt", createdBy=self.admin,
@@ -636,3 +709,51 @@ class ProductTemplateTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(resp.data["template"])
         self.assertEqual(resp.data["resolvedTemplateFields"], [])
+
+
+class ProductMaterialFieldTests(APITestCase):
+    """Product.material is captured at Sourcing Intake and is the upstream
+    source of truth for the invoice line's Material column (see
+    apps.invoicing.services.create_invoice). Verified here as a plain
+    create / read / update roundtrip through the products API."""
+
+    def setUp(self):
+        self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
+        self.sister = SisterProfile.objects.create(
+            buyerProfile=self.buyer, poReference="PO-001",
+            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+        )
+        self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
+        # Edits (PATCH) are Admin-only per ProductViewSet.get_permissions -
+        # "the edit form lets Admin correct any field".
+        self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
+
+    def _create(self, **extra):
+        self.client.force_authenticate(user=self.rep)
+        payload = {
+            "sisterProfile": str(self.sister.id),
+            "name": "Heavy Cotton Crewneck",
+            "variants": [{"colorName": "Ecru", "orderQty": 10, "sizeBreakdown": []}],
+        }
+        payload.update(extra)
+        return self.client.post(reverse("product-list"), payload, format="json")
+
+    def test_material_roundtrips_through_create_and_read(self):
+        resp = self._create(material="100% Cotton")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data["material"], "100% Cotton")
+
+        resp = self.client.get(reverse("product-detail", args=[resp.data["id"]]))
+        self.assertEqual(resp.data["material"], "100% Cotton")
+
+    def test_material_is_optional_and_patchable(self):
+        resp = self._create()
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data["material"], "")
+
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.patch(
+            reverse("product-detail", args=[resp.data["id"]]), {"material": "Cotton-Poly 60/40"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["material"], "Cotton-Poly 60/40")

@@ -19,6 +19,7 @@ from apps.buyers.portal_views import (
     PortalWalletView,
 )
 from apps.buyers.views import BuyerProfileViewSet, SisterProfileViewSet
+from apps.core.views import CompanyProfileView
 from apps.documents.views import DocumentVaultItemViewSet
 from apps.expenses.views import ExpenseViewSet
 from apps.invoicing.views import ExchangeRateViewSet, InvoiceViewSet
@@ -68,6 +69,7 @@ urlpatterns = [
     path("auth/token/", TokenObtainPairWithClaimsView.as_view(), name="token_obtain_pair"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", MeView.as_view(), name="me"),
+    path("company-profile/", CompanyProfileView.as_view(), name="company-profile"),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
     path("sourcing-costs/<uuid:cost_pk>/items/", cost_items_list, name="sourcing-cost-items-list"),

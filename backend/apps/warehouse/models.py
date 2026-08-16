@@ -3,8 +3,9 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import models
 
+from apps.buyers.models import SisterProfile
 from apps.core.models import UUIDModel
-from apps.qc.models import QCReport
+from apps.packing.models import PackingList
 
 # BR-28 / FR-32: six checkbox-driven packaging cost fields.
 PACKAGING_COST_FIELDS = ["labelsCost", "htakeCost", "stickersCost", "cartonsCost", "polyBagsCost", "gamtapeCost"]
@@ -19,9 +20,24 @@ PACKAGING_COST_LABELS = {
 
 
 class WarehouseCost(UUIDModel):
-    """BR-27–31 / FR-30–33: one per QC Report."""
+    """BR-27–31 / FR-30–33: loading, packaging and extra costs for a
+    shipment. Recorded directly against a Sister Profile — optionally tied
+    to the specific Packing List it was incurred for — rather than gated
+    behind a QC Report the way this used to work. The QC step this
+    originally chained off of isn't part of the live workflow right now, and
+    warehouse costs are a shipment-level expense, not something that should
+    wait on a per-product QC pipeline that may never run. Any number of
+    these can exist per Sister Profile (e.g. one per shipment/Packing List),
+    unlike the old one-per-QC-report constraint."""
 
-    qcReport = models.OneToOneField(QCReport, related_name="warehouseCost", on_delete=models.PROTECT)
+    sisterProfile = models.ForeignKey(SisterProfile, related_name="warehouseCosts", on_delete=models.PROTECT)
+    # Optional: a cost can be recorded against the Sister Profile generally,
+    # before or without a specific Packing List. SET_NULL (not PROTECT/CASCADE)
+    # so deleting a Packing List later never takes a recorded cost with it —
+    # same reasoning as InvoiceLineItem.packingCarton.
+    packingList = models.ForeignKey(
+        PackingList, related_name="warehouseCosts", null=True, blank=True, on_delete=models.SET_NULL
+    )
 
     loaderCost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     extraWorkerCost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -50,7 +66,7 @@ class WarehouseCost(UUIDModel):
         ordering = ["-createdAt"]
 
     def __str__(self):
-        return f"Warehouse costs for {self.qcReport.reportId}"
+        return f"Warehouse costs for {self.sisterProfile.poReference or self.sisterProfile_id}"
 
     def compute_total(self) -> None:
         fixed_total = self.loaderCost + self.extraWorkerCost + sum(

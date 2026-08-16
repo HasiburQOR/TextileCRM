@@ -33,6 +33,15 @@ class Expense(UUIDModel):
     product = models.ForeignKey(
         "sourcing.Product", related_name="expenses", null=True, blank=True, on_delete=models.SET_NULL
     )
+    # Correlates a row back to the specific WarehouseCost that produced it —
+    # WarehouseCost isn't 1:1 with anything (several can exist per Sister
+    # Profile), so unlike `product` above it can't double as the "which
+    # record wrote this" key on its own; this is what delete_expenses()
+    # scopes a correction/deletion to, so editing one WarehouseCost entry
+    # never touches another's rows for the same Sister Profile.
+    warehouseCost = models.ForeignKey(
+        "warehouse.WarehouseCost", related_name="expenses", null=True, blank=True, on_delete=models.SET_NULL
+    )
     sourceType = models.CharField(max_length=32, choices=SourceType.choices)
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     currency = models.CharField(max_length=8, default="BDT")

@@ -4,13 +4,14 @@ from apps.warehouse.models import WarehouseCost
 
 
 class WarehouseCostSerializer(serializers.ModelSerializer):
-    reportId = serializers.CharField(source="qcReport.reportId", read_only=True)
-    productName = serializers.CharField(source="qcReport.product.name", read_only=True)
+    sisterProfilePoReference = serializers.CharField(source="sisterProfile.poReference", read_only=True)
+    packingListReferenceCode = serializers.CharField(source="packingList.referenceCode", read_only=True, default="")
 
     class Meta:
         model = WarehouseCost
         fields = [
-            "id", "qcReport", "reportId", "productName", "loaderCost", "extraWorkerCost",
+            "id", "sisterProfile", "sisterProfilePoReference", "packingList", "packingListReferenceCode",
+            "loaderCost", "extraWorkerCost",
             "labelsCost", "htakeCost", "stickersCost", "cartonsCost", "polyBagsCost", "gamtapeCost",
             "customCosts", "extraCost", "extraCostRemarks", "totalCost", "createdBy", "createdAt",
         ]
@@ -20,9 +21,10 @@ class WarehouseCostSerializer(serializers.ModelSerializer):
 class WarehouseCostSelfSerializer(serializers.ModelSerializer):
     """Buyer-facing — totals only."""
 
-    productName = serializers.CharField(source="qcReport.product.name", read_only=True)
+    sisterProfilePoReference = serializers.CharField(source="sisterProfile.poReference", read_only=True)
+    packingListReferenceCode = serializers.CharField(source="packingList.referenceCode", read_only=True, default="")
 
     class Meta:
         model = WarehouseCost
-        fields = ["id", "productName", "totalCost", "createdAt"]
+        fields = ["id", "sisterProfilePoReference", "packingListReferenceCode", "totalCost", "createdAt"]
         read_only_fields = fields

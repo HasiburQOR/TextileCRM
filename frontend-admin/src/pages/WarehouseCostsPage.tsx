@@ -11,22 +11,9 @@ import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { extractErrorMessage } from "@/lib/errors"
 import type { Paginated } from "@/types/api"
-
-interface QCReportOption {
-  id: string; reportId: string; productName: string; hasWarehouseCost: boolean
-}
-
-interface CustomCost { fieldName: string; amount: number; remarks?: string }
-
-interface WarehouseCost {
-  id: string; qcReport: string; reportId: string; productName: string
-  loaderCost: string; extraWorkerCost: string
-  labelsCost: string; htakeCost: string; stickersCost: string
-  cartonsCost: string; polyBagsCost: string; gamtapeCost: string
-  customCosts: CustomCost[]
-  extraCost: string; extraCostRemarks: string
-  totalCost: string; createdAt: string
-}
+import type { PackingList } from "@/types/packing"
+import type { SisterProfile } from "@/types/sourcing"
+import type { WarehouseCost, WarehouseCostCustomCost } from "@/types/warehouse"
 
 const PACKAGING_ITEMS: { field: keyof typeof EMPTY_PACKAGING; label: string }[] = [
   { field: "labelsCost", label: "Labels" },
@@ -66,7 +53,6 @@ export function WarehouseCostsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["warehouse-costs"] })
       queryClient.invalidateQueries({ queryKey: ["expenses"] })
-      queryClient.invalidateQueries({ queryKey: ["qc-reports"] })
       setDeleteTarget(null)
       setDeleteError(null)
     },
@@ -81,7 +67,7 @@ export function WarehouseCostsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Warehouse Costs</h1>
-          <p className="text-sm text-slate-500">Loading, packaging, and extra costs per QC report.</p>
+          <p className="text-sm text-slate-500">Loading, packaging, and extra costs per shipment — recorded against a Sister Profile and, optionally, one of its Packing Lists.</p>
         </div>
         {canCreate && (
           <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New Warehouse Cost</Button>
@@ -98,8 +84,8 @@ export function WarehouseCostsPage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
-                  <th className="px-4 py-3 font-medium">Report ID</th>
-                  <th className="px-4 py-3 font-medium">Product</th>
+                  <th className="px-4 py-3 font-medium">Sister Profile</th>
+                  <th className="px-4 py-3 font-medium">Packing List</th>
                   <th className="px-4 py-3 font-medium">Loader</th>
                   <th className="px-4 py-3 font-medium">Total Cost</th>
                   <th className="px-4 py-3 font-medium">Created</th>
@@ -109,8 +95,8 @@ export function WarehouseCostsPage() {
               <tbody className="divide-y divide-slate-100">
                 {costsQuery.data.map((wc) => (
                   <tr key={wc.id}>
-                    <td className="px-4 py-3 font-medium text-slate-900">{wc.reportId}</td>
-                    <td className="px-4 py-3 text-slate-500">{wc.productName}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{wc.sisterProfilePoReference || "—"}</td>
+                    <td className="px-4 py-3 text-slate-500">{wc.packingListReferenceCode || "—"}</td>
                     <td className="px-4 py-3 text-slate-500">{Number(wc.loaderCost).toLocaleString()}</td>
                     <td className="px-4 py-3 font-medium text-slate-900">{Number(wc.totalCost).toLocaleString()}</td>
                     <td className="px-4 py-3 text-slate-400">{new Date(wc.createdAt).toLocaleDateString()}</td>
@@ -145,7 +131,7 @@ export function WarehouseCostsPage() {
       {createOpen && (
         <WarehouseCostFormDialog
           onClose={() => setCreateOpen(false)}
-          onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["warehouse-costs"] }); queryClient.invalidateQueries({ queryKey: ["expenses"] }); queryClient.invalidateQueries({ queryKey: ["qc-reports"] }); setCreateOpen(false) }}
+          onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["warehouse-costs"] }); queryClient.invalidateQueries({ queryKey: ["expenses"] }); setCreateOpen(false) }}
         />
       )}
 
@@ -158,9 +144,10 @@ export function WarehouseCostsPage() {
       )}
 
       {viewTarget && (
-        <Dialog open onClose={() => setViewTarget(null)} title={`Warehouse Cost — ${viewTarget.reportId}`}>
+        <Dialog open onClose={() => setViewTarget(null)} title={`Warehouse Cost — ${viewTarget.sisterProfilePoReference || viewTarget.id}`}>
           <div className="flex flex-col gap-3 text-sm">
-            <Field label="Product" value={viewTarget.productName} />
+            <Field label="Sister Profile" value={viewTarget.sisterProfilePoReference || "—"} />
+            <Field label="Packing List" value={viewTarget.packingListReferenceCode || "—"} />
             <Field label="Loader Cost" value={Number(viewTarget.loaderCost).toLocaleString()} />
             <Field label="Extra Worker Cost" value={Number(viewTarget.extraWorkerCost).toLocaleString()} />
             {PACKAGING_ITEMS.filter((item) => Number(viewTarget[item.field]) > 0).map((item) => (
@@ -189,12 +176,11 @@ export function WarehouseCostsPage() {
       )}
 
       {deleteTarget && (
-        <Dialog open onClose={() => setDeleteTarget(null)} title={`Delete "${deleteTarget.reportId}"?`}>
+        <Dialog open onClose={() => setDeleteTarget(null)} title="Delete this warehouse cost?">
           <div className="flex flex-col gap-4">
             {deleteError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{deleteError}</div>}
             <p className="text-sm text-slate-600">
-              This removes the warehouse cost and its lines from the Central Expense Table, and moves the product back to
-              "In Warehouse" status. This cannot be undone.
+              This removes the warehouse cost and its lines from the Central Expense Table. This cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
@@ -222,7 +208,8 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
   existing?: WarehouseCost; onClose: () => void; onSuccess: () => void
 }) {
   const isEdit = !!existing
-  const [qcReport, setQcReport] = useState(existing?.qcReport ?? "")
+  const [sisterProfile, setSisterProfile] = useState(existing?.sisterProfile ?? "")
+  const [packingList, setPackingList] = useState(existing?.packingList ?? "")
   const [loaderCost, setLoaderCost] = useState(Number(existing?.loaderCost ?? 0))
   const [extraWorkerCost, setExtraWorkerCost] = useState(Number(existing?.extraWorkerCost ?? 0))
   const [checked, setChecked] = useState<Record<string, boolean>>(() => {
@@ -235,24 +222,26 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
     for (const item of PACKAGING_ITEMS) init[item.field] = Number(existing?.[item.field] ?? 0)
     return init
   })
-  const [customCosts, setCustomCosts] = useState<{ fieldName: string; amount: number; remarks: string }[]>(
+  const [customCosts, setCustomCosts] = useState<WarehouseCostCustomCost[]>(
     existing?.customCosts.map((c) => ({ fieldName: c.fieldName, amount: c.amount, remarks: c.remarks ?? "" })) ?? [],
   )
   const [extraCost, setExtraCost] = useState(Number(existing?.extraCost ?? 0))
   const [extraCostRemarks, setExtraCostRemarks] = useState(existing?.extraCostRemarks ?? "")
   const [error, setError] = useState<string | null>(null)
 
-  const reportsQuery = useQuery({
-    queryKey: ["qc-reports", "eligible-for-warehouse"],
-    queryFn: async () => {
-      const { data } = await api.get<Paginated<QCReportOption>>("/qc-reports/", { params: { page_size: 200 } })
-      return data.results
-    },
+  const profilesQuery = useQuery({
+    queryKey: ["sister-profiles", "all"],
+    queryFn: async () => { const { data } = await api.get<Paginated<SisterProfile>>("/sister-profiles/", { params: { page_size: 200 } }); return data.results },
     enabled: !isEdit,
   })
-  const eligibleReports = useMemo(
-    () => (reportsQuery.data ?? []).filter((r) => !r.hasWarehouseCost),
-    [reportsQuery.data],
+  const packingListsQuery = useQuery({
+    queryKey: ["packing-lists", "all"],
+    queryFn: async () => { const { data } = await api.get<Paginated<PackingList>>("/packing-lists/", { params: { page_size: 200 } }); return data.results },
+    enabled: !isEdit,
+  })
+  const listsForProfile = useMemo(
+    () => (packingListsQuery.data ?? []).filter((pl) => pl.sisterProfile === sisterProfile),
+    [packingListsQuery.data, sisterProfile],
   )
 
   const packagingTotal = PACKAGING_ITEMS.reduce((sum, item) => sum + (checked[item.field] ? amounts[item.field] : 0), 0)
@@ -262,7 +251,10 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
   const mutation = useMutation({
     mutationFn: async () => {
       const payload: Record<string, unknown> = { loaderCost, extraWorkerCost, extraCost, extraCostRemarks }
-      if (!isEdit) payload.qcReport = qcReport
+      if (!isEdit) {
+        payload.sisterProfile = sisterProfile
+        payload.packingList = packingList || null
+      }
       for (const item of PACKAGING_ITEMS) payload[item.field] = checked[item.field] ? amounts[item.field] : 0
       payload.customCosts = customCosts.filter((c) => c.fieldName.trim()).map((c) => ({ fieldName: c.fieldName, amount: c.amount, remarks: c.remarks }))
       if (isEdit) {
@@ -278,7 +270,7 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!isEdit && !qcReport) { setError("Select a QC report."); return }
+    if (!isEdit && !sisterProfile) { setError("Select a Sister Profile."); return }
     setError(null)
     mutation.mutate()
   }
@@ -286,7 +278,7 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
   function addCustomCost() {
     setCustomCosts((prev) => [...prev, { fieldName: "", amount: 0, remarks: "" }])
   }
-  function updateCustomCost(i: number, patch: Partial<{ fieldName: string; amount: number; remarks: string }>) {
+  function updateCustomCost(i: number, patch: Partial<WarehouseCostCustomCost>) {
     setCustomCosts((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)))
   }
   function removeCustomCost(i: number) {
@@ -294,19 +286,33 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
   }
 
   return (
-    <Dialog open onClose={onClose} title={isEdit ? `Edit Warehouse Cost — ${existing!.reportId}` : "New Warehouse Cost"} className="max-w-2xl">
+    <Dialog open onClose={onClose} title={isEdit ? `Edit Warehouse Cost — ${existing!.sisterProfilePoReference || existing!.id}` : "New Warehouse Cost"} className="max-w-2xl">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
         {isEdit ? (
-          <Field label="QC Report" value={`${existing!.reportId} — ${existing!.productName}`} />
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Sister Profile" value={existing!.sisterProfilePoReference || "—"} />
+            <Field label="Packing List" value={existing!.packingListReferenceCode || "—"} />
+          </div>
         ) : (
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">QC Report *</label>
-            <Select required value={qcReport} onChange={(e) => setQcReport(e.target.value)}>
-              <option value="">Select by Report ID...</option>
-              {eligibleReports.map((r) => (<option key={r.id} value={r.id}>{r.reportId} — {r.productName}</option>))}
-            </Select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile *</label>
+              <Select required value={sisterProfile} onChange={(e) => { setSisterProfile(e.target.value); setPackingList("") }}>
+                <option value="">Select...</option>
+                {profilesQuery.data?.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id} — {sp.buyerProfileName}</option>))}
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Packing List (optional)</label>
+              <Select value={packingList} onChange={(e) => setPackingList(e.target.value)} disabled={!sisterProfile}>
+                <option value="">None — against the Sister Profile generally</option>
+                {listsForProfile.map((pl) => (
+                  <option key={pl.id} value={pl.id}>{pl.referenceCode} — {pl.poNo || "no PO"} ({pl.brandName || "no brand"})</option>
+                ))}
+              </Select>
+            </div>
           </div>
         )}
 

@@ -23,6 +23,7 @@ export interface InvoiceLineItem {
   invoice: string
   product: string | null
   packingCarton: string | null
+  warehouseCost: string | null
   description: string
   brand: string
   ctn: number
@@ -42,6 +43,7 @@ export interface InvoiceLineItem {
 export interface InvoiceLineItemInput {
   product?: string | null
   packingCarton?: string | null
+  warehouseCost?: string | null
   description: string
   brand: string
   ctn: number
@@ -56,6 +58,20 @@ export interface InvoiceLineItemInput {
   styleItemCode: string
   packingListRef: string
   remarks: string
+  // ── Commercial Invoice / Packing List columns ──────────────────────
+  colorSizeNote: string
+  markRef: string
+  hsCode: string
+  netWeightPerCtn: number
+  grossWeightPerCtn: number
+  cbmPerCtn: number
+  ctnLengthCm: number
+  ctnWidthCm: number
+  ctnHeightCm: number
+  /** Tells the server whether the three dimensions above are already in
+   * centimetres. Packing cartons store inches, so lines built from them
+   * send false and the server converts on the way in. */
+  dimensionsInCm?: boolean
 }
 
 export interface InvoicePayment {
@@ -81,6 +97,11 @@ export interface Invoice {
   exchangeRate: string | null
   exchangeRateValueLocked: string
   targetCurrency: string
+  sourceCurrency: string
+  /** Which way `exchangeRateValueLocked` reads: "multiply" (a published
+   * rate: target = source × rate) or "divide" ("1 target = rate source",
+   * how hand-typed rates are written on the document). */
+  rateQuote: "multiply" | "divide"
   commissionType: CommissionType
   commissionValue: string
   commissionAmount: string

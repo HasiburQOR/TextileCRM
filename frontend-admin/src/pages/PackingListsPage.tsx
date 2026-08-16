@@ -35,6 +35,7 @@ export interface CartonRowDraft {
   colorName: string; patternNo: string; assortId: string
   sizeBreakdown: SizeBreakdownEntry[]; customFieldValues: CustomFieldEntry[]
   orderQty: number; innerBundle: number
+  unitPrice: number | null
   grossWeight: number; netWeight: number
   ctnLength: number; ctnWidth: number; ctnHeight: number
 }
@@ -47,6 +48,7 @@ function emptyCartonRow(prevProduct?: string): CartonRowDraft {
     colorName: "", patternNo: "", assortId: "",
     sizeBreakdown: emptySizeBreakdownRows(), customFieldValues: [],
     orderQty: 0, innerBundle: 1,
+    unitPrice: null,
     grossWeight: 0, netWeight: 0, ctnLength: 0, ctnWidth: 0, ctnHeight: 0,
   }
 }
@@ -65,6 +67,7 @@ function cartonToDraft(c: PackingCarton): CartonRowDraft {
     customFieldValues: c.customFieldValues.map((e) => ({ ...e })),
     orderQty: c.orderQty,
     innerBundle: c.innerBundle,
+    unitPrice: c.unitPrice,
     grossWeight: c.grossWeight,
     netWeight: c.netWeight,
     ctnLength: c.ctnLength,
@@ -100,6 +103,9 @@ function rowsFromProduct(product: Product, baseRow: CartonRowDraft): CartonRowDr
       customFieldValues: v.customFieldValues.map((e) => ({ ...e })),
       orderQty: v.orderQty,
       innerBundle: v.innerBundle || 1,
+      // Same convention as Sourcing Intake: one price per color row, flat
+      // across its sizes — the variant's intake price is the default here.
+      unitPrice: v.unitPrice ?? null,
       cartonNoFrom, cartonNoTo,
       grossWeight: v.grossWeight ?? 0,
       netWeight: v.netWeight ?? 0,
@@ -121,7 +127,8 @@ function computeRowDerived(row: CartonRowDraft) {
   const cubicInches = row.ctnLength * row.ctnWidth * row.ctnHeight
   const ctnCbm = cubicInches > 0 ? cubicInches / 61023.7441 : 0
   const totalCbm = ctnCbm * noOfCartons
-  return { orderQty: row.orderQty, noOfCartons, totalPcsPerCarton, shipQty, shortExcessQty, shortExcessPct, totalGrossWeight, totalNetWeight, ctnCbm, totalCbm }
+  const totalAmount = Math.round((row.unitPrice ?? 0) * shipQty * 100) / 100
+  return { orderQty: row.orderQty, noOfCartons, totalPcsPerCarton, shipQty, shortExcessQty, shortExcessPct, unitPrice: row.unitPrice, totalAmount, totalGrossWeight, totalNetWeight, ctnCbm, totalCbm }
 }
 
 function SummaryField({ label, value, unit, decimals = 0, warn }: { label: string; value: number; unit: string; decimals?: number; warn?: boolean }) {
@@ -336,7 +343,7 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
 
   const grandTotals = useMemo(() => {
     const d = rows.map(computeRowDerived)
-    return { cartons: d.reduce((s, r) => s + r.noOfCartons, 0), pcs: d.reduce((s, r) => s + r.shipQty, 0), grossWeight: d.reduce((s, r) => s + r.totalGrossWeight, 0), netWeight: d.reduce((s, r) => s + r.totalNetWeight, 0), cbm: d.reduce((s, r) => s + r.totalCbm, 0), orderQty: d.reduce((s, r) => s + r.orderQty, 0) }
+    return { cartons: d.reduce((s, r) => s + r.noOfCartons, 0), pcs: d.reduce((s, r) => s + r.shipQty, 0), grossWeight: d.reduce((s, r) => s + r.totalGrossWeight, 0), netWeight: d.reduce((s, r) => s + r.totalNetWeight, 0), cbm: d.reduce((s, r) => s + r.totalCbm, 0), orderQty: d.reduce((s, r) => s + r.orderQty, 0), totalAmount: d.reduce((s, r) => s + r.totalAmount, 0) }
   }, [rows])
   const summaryShipQty = grandTotals.pcs
   const summaryShortQty = grandTotals.orderQty - summaryShipQty
@@ -405,6 +412,8 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
             <th className="px-2 py-1.5 font-medium">PC/CTN</th>
             <th className="px-2 py-1.5 font-medium">Inner Bdl</th>
             <th className="px-2 py-1.5 font-medium">TTL PCS</th>
+            <th className="px-2 py-1.5 font-medium">Unit Price</th>
+            <th className="px-2 py-1.5 font-medium">Amount</th>
             <th className="px-2 py-1.5 font-medium">G.W(kg)</th>
             <th className="px-2 py-1.5 font-medium">N.W(kg)</th>
             <th className="px-2 py-1.5 font-medium">TTL G.W</th>
@@ -473,6 +482,15 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
                     <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalPcsPerCarton}</td>
                     <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" min={1} value={row.innerBundle} onChange={(e) => updateRow(i, { innerBundle: Number(e.target.value) })} /></td>
                     <td className="p-1 text-center text-xs font-medium text-slate-600">{d.shipQty}</td>
+                    <td className="p-1">
+                      <Input
+                        className="h-7 w-20 text-xs" type="number" step="0.01" min={0} placeholder="—"
+                        value={row.unitPrice ?? ""}
+                        onChange={(e) => updateRow(i, { unitPrice: e.target.value === "" ? null : Number(e.target.value) })}
+                        title="Unit price per piece for this color row — pre-filled from Sourcing Intake; Amount = TTL PCS × Unit Price."
+                      />
+                    </td>
+                    <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalAmount.toFixed(2)}</td>
                     <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" step="0.01" min={0} max={999999} value={row.grossWeight} onChange={(e) => updateRow(i, { grossWeight: Number(e.target.value) })} /></td>
                     <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" step="0.01" min={0} max={999999} value={row.netWeight} onChange={(e) => updateRow(i, { netWeight: Number(e.target.value) })} /></td>
                     <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalGrossWeight.toFixed(2)}</td>
@@ -498,6 +516,7 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
                 <td className="px-2 py-1.5 text-center">{grandTotals.cartons}</td>
                 <td className="px-2 py-1.5 text-center">{grandTotals.orderQty}</td>
                 <td colSpan={3} /><td className="px-2 py-1.5 text-center">{grandTotals.pcs}</td>
+                <td /><td className="px-2 py-1.5 text-center">{grandTotals.totalAmount.toFixed(2)}</td>
                 <td colSpan={2} /><td className="px-2 py-1.5 text-center">{grandTotals.grossWeight.toFixed(2)}</td>
                 <td className="px-2 py-1.5 text-center">{grandTotals.netWeight.toFixed(2)}</td>
                 <td colSpan={3} /><td className="px-2 py-1.5 text-center">{grandTotals.cbm.toFixed(4)}</td>
@@ -515,6 +534,7 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
         <SummaryField label="Total Gross Weight" value={grandTotals.grossWeight} unit="KGS" decimals={2} />
         <SummaryField label="Total Net Weight" value={grandTotals.netWeight} unit="KGS" decimals={2} />
         <SummaryField label="Total CBM" value={grandTotals.cbm} unit="CBM" decimals={4} />
+        <SummaryField label="Total Amount" value={grandTotals.totalAmount} unit="" decimals={2} />
       </div>
 
       {photoLightbox && (
@@ -699,6 +719,8 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
                 <th className="px-2 py-1.5 font-medium">CTNS</th>
                 <th className="px-2 py-1.5 font-medium">Order Qty</th>
                 <th className="px-2 py-1.5 font-medium">Ship Qty</th>
+                <th className="px-2 py-1.5 font-medium">Unit Price</th>
+                <th className="px-2 py-1.5 font-medium">Amount</th>
                 <th className="px-2 py-1.5 font-medium">TTL G.W</th>
                 <th className="px-2 py-1.5 font-medium">TTL N.W</th>
                 <th className="px-2 py-1.5 font-medium">CBM</th>
@@ -707,7 +729,7 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
             </thead>
             <tbody>
               {packingList.cartons.length === 0 ? (
-                <tr><td colSpan={14 + columns.length} className="px-2 py-6 text-center text-slate-400">No carton rows recorded.</td></tr>
+                <tr><td colSpan={16 + columns.length} className="px-2 py-6 text-center text-slate-400">No carton rows recorded.</td></tr>
               ) : (
                 packingList.cartons.map((c) => (
                   <tr key={c.id} className="border-b border-slate-100 last:border-0">
@@ -724,6 +746,8 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
                     <td className="px-2 py-2 text-slate-500">{c.noOfCartons}</td>
                     <td className="px-2 py-2 text-slate-500">{c.orderQty}</td>
                     <td className="px-2 py-2 text-slate-500">{c.shipQty}</td>
+                    <td className="px-2 py-2 text-slate-500">{c.unitPrice != null ? Number(c.unitPrice).toFixed(2) : "—"}</td>
+                    <td className="px-2 py-2 text-slate-500">{Number(c.totalAmount).toFixed(2)}</td>
                     <td className="px-2 py-2 text-slate-500">{Number(c.totalGrossWeight).toFixed(2)}</td>
                     <td className="px-2 py-2 text-slate-500">{Number(c.totalNetWeight).toFixed(2)}</td>
                     <td className="px-2 py-2 text-slate-500">{Number(c.totalCbm).toFixed(4)}</td>

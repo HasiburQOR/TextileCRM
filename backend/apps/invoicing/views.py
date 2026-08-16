@@ -44,10 +44,13 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
     ).prefetch_related("lineItems", "payments")
     tenant_lookup = "sisterProfile__buyerProfile_id"
     allowed_roles = [Roles.EMPLOYEE]
-    # PUT/PATCH excluded deliberately — BR-46: an invoice is never edited in
-    # place, only advanced through its status actions or (for Pending/
-    # Rejected only) deleted outright below.
-    http_method_names = ["get", "post", "delete", "head", "options"]
+    # PUT stays excluded — BR-46: an invoice is never wholesale rewritten.
+    # PATCH exists for exactly one purpose (partial_update below): fixing
+    # the payment options on a still-Pending invoice, because a wrong rate
+    # or commission at generation time otherwise meant delete-and-recreate.
+    # Everything else still only advances through the status actions, and
+    # once approved the door closes for good.
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     # No filterset_fields — get_queryset() below already filters on both
     # params by hand, and it treats status=all as "no filter" (the
     # frontend's default). A DjangoFilterBackend-generated FilterSet would
@@ -60,7 +63,7 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         return InvoiceSerializer
 
     def get_permissions(self):
-        if self.action in ("create", "payments"):
+        if self.action in ("create", "payments", "payment_detail", "partial_update"):
             return [IsRole()]
         if self.action in ("approve", "reject", "void", "destroy"):
             return [IsAdmin()]
@@ -87,6 +90,7 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         from apps.buyers.models import SisterProfile
         from apps.packing.models import PackingCarton
+        from apps.warehouse.models import WarehouseCost
 
         data = request.data
         sister_profile = SisterProfile.objects.filter(pk=data.get("sisterProfile")).first()
@@ -101,6 +105,8 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
                 row["product"] = Product.objects.filter(pk=row["product"]).first()
             if row.get("packingCarton"):
                 row["packingCarton"] = PackingCarton.objects.filter(pk=row["packingCarton"]).first()
+            if row.get("warehouseCost"):
+                row["warehouseCost"] = WarehouseCost.objects.filter(pk=row["warehouseCost"]).first()
             line_items.append(row)
 
         try:
@@ -111,10 +117,46 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
                 exchange_rate=exchange_rate,
                 commission_type=data.get("commissionType", "none"),
                 commission_value=data.get("commissionValue") or 0,
+                source_currency=data.get("sourceCurrency", ""),
+                target_currency=data.get("targetCurrency", ""),
+                manual_rate=data.get("manualRate"),
+                rate_quote=data.get("rateQuote"),
             )
         except DjangoValidationError as exc:
             raise DRFValidationError(exc.messages if hasattr(exc, "messages") else str(exc))
         return Response(self.get_serializer(invoice).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Edit-before-approve: fix the payment configuration (commission,
+        rate, currencies) on a still-pending invoice before an Admin
+        approves it. Every other field — status, invoiceNo, line items,
+        totals — remains service-owned, and the service itself refuses
+        anything not in Pending Approval."""
+        invoice = self.get_object()
+        data = request.data
+        payload = {}
+        if "exchangeRate" in data:
+            # Present-but-empty means an explicit switch to the manual rate
+            # below; absent means "leave whatever rate is already locked".
+            if data["exchangeRate"]:
+                rate = ExchangeRate.objects.filter(pk=data["exchangeRate"]).first()
+                if rate is None:
+                    raise DRFValidationError({"exchangeRate": "Unknown exchange rate."})
+                payload["exchange_rate"] = rate
+            else:
+                payload["exchange_rate"] = None
+        for key, kwarg in (
+            ("commissionType", "commission_type"), ("commissionValue", "commission_value"),
+            ("sourceCurrency", "source_currency"), ("targetCurrency", "target_currency"),
+            ("manualRate", "manual_rate"), ("rateQuote", "rate_quote"),
+        ):
+            if key in data:
+                payload[kwarg] = data[key]
+        try:
+            invoice = services.update_invoice_payment_details(invoice, actor=request.user, **payload)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages if hasattr(exc, "messages") else str(exc))
+        return Response(self.get_serializer(invoice).data)
 
     @action(detail=True, methods=["get"])
     def export(self, request, pk=None):
@@ -126,12 +168,18 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         only ever reach this for their own invoice (get_object() ->
         get_queryset(), see TenantScopedViewSet)."""
         invoice = self.get_object()
+        # FR-60-63: bilingual export. `lang` defaults to English; the PDF
+        # renderer itself degrades `ka` to `en` when no Georgian-capable
+        # font is available, so an unsupported value here can simply be
+        # normalized the same way rather than 400-ing the download.
+        lang = request.query_params.get("lang", "en")
+        lang = "ka" if lang == "ka" else "en"
         if request.query_params.get("filetype") == "xlsx":
-            content = exports.render_invoice_xlsx(invoice)
+            content = exports.render_invoice_xlsx(invoice, lang=lang)
             response = HttpResponse(content, content_type=XLSX_CONTENT_TYPE)
             filename = exports.invoice_filename(invoice, "xlsx")
         else:
-            content = exports.render_invoice_pdf(invoice)
+            content = exports.render_invoice_pdf(invoice, lang=lang)
             response = HttpResponse(content, content_type="application/pdf")
             filename = exports.invoice_filename(invoice, "pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -181,3 +229,37 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         # response's `payments` list would silently omit it otherwise.
         invoice.refresh_from_db()
         return Response(self.get_serializer(invoice).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["patch", "delete"], url_path=r"payments/(?P<payment_id>[^/.]+)", url_name="payment-detail")
+    def payment_detail(self, request, pk=None, payment_id=None):
+        """Correct or remove a payment recorded in error — record_payment()
+        above only ever appends; until now a wrong amount or date was
+        permanent. Same tenant scoping as every other action here (a buyer
+        can only reach this for their own invoice), and the service layer
+        itself refuses anything on a non-Issued invoice (BR-46: a Void
+        invoice's payment history is part of the closed record)."""
+        invoice = self.get_object()
+        payment = invoice.payments.filter(pk=payment_id).first()
+        if not payment:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            if request.method == "DELETE":
+                services.delete_payment(payment, actor=request.user)
+            else:
+                data = request.data
+                payload = {}
+                for key, kwarg in (
+                    ("amount", "amount"), ("currency", "currency"),
+                    ("paymentDate", "payment_date"), ("bankReference", "bank_reference"),
+                ):
+                    if key in data:
+                        payload[kwarg] = data[key]
+                services.update_payment(payment, actor=request.user, **payload)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages if hasattr(exc, "messages") else str(exc))
+
+        # Same staleness concern as the create action above — the prefetched
+        # "payments" cache on this instance predates the edit/delete.
+        invoice.refresh_from_db()
+        return Response(self.get_serializer(invoice).data)

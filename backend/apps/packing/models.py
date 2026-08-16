@@ -149,6 +149,15 @@ class PackingCarton(UUIDModel):
     shortExcessQty = models.IntegerField(default=0)  # negative = excess over order
     shortExcessPct = models.DecimalField(max_digits=6, decimal_places=2, default=0)
 
+    # Unit price per piece for this color row — one price per color, flat
+    # across every size in the row, same convention as
+    # apps.sourcing.ProductVariant.unitPrice (pre-filled from it when a carton
+    # row is generated from a Product's intake rows). Optional: blank simply
+    # computes a zero totalAmount. Plain decimal in the deal's working
+    # currency, same convention as Product.finalPrice.
+    unitPrice = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    totalAmount = models.DecimalField(max_digits=14, decimal_places=2, default=0)  # computed: shipQty * unitPrice
+
     # "G.W" / "N.W" (per carton) and "TTL G.W" / "TTL N.W" (row total), kg
     grossWeight = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     netWeight = models.DecimalField(max_digits=8, decimal_places=2, default=0)

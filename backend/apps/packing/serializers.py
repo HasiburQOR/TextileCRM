@@ -19,6 +19,11 @@ class PackingRuleSerializer(serializers.ModelSerializer):
 class PackingCartonSerializer(serializers.ModelSerializer):
     styleNumber = serializers.CharField(source="product.styleNumber", read_only=True)
     productName = serializers.CharField(source="product.name", read_only=True)
+    # Product.material as captured at Sourcing Intake - the invoice builder
+    # pre-fills each line's Material column from this (see
+    # frontend-admin InvoicesPage cartonToLine), keeping intake as the single
+    # place the value is typed.
+    productMaterial = serializers.CharField(source="product.material", read_only=True)
     # Denormalized for invoice line-item generation, which needs both the
     # Product's own style code (styleNumber, "PRO-...") and the Packing
     # List's code ("PKG-...") without a second round trip.
@@ -27,16 +32,18 @@ class PackingCartonSerializer(serializers.ModelSerializer):
     class Meta:
         model = PackingCarton
         fields = [
-            "id", "packingList", "product", "styleNo", "poNo", "styleNumber", "productName",
+            "id", "packingList", "product", "styleNo", "poNo", "styleNumber", "productName", "productMaterial",
             "packingListReferenceCode",
             "cartonNoFrom", "cartonNoTo", "noOfCartons", "colorName", "patternNo", "assortId",
             "sizeBreakdown", "totalPcsPerCarton", "innerBundle", "customFieldValues",
             "orderQty", "shipQty", "shortExcessQty", "shortExcessPct",
+            "unitPrice", "totalAmount",
             "grossWeight", "netWeight", "totalGrossWeight", "totalNetWeight",
             "ctnLength", "ctnWidth", "ctnHeight", "ctnCbm", "totalCbm",
         ]
         read_only_fields = [
             "id", "styleNo", "noOfCartons", "totalPcsPerCarton", "shipQty", "shortExcessQty", "shortExcessPct",
+            "totalAmount",
             "totalGrossWeight", "totalNetWeight", "ctnCbm", "totalCbm",
         ]
 

@@ -48,6 +48,16 @@ services:
       # at the reverse proxy in front of frontend-admin, so this service
       # forcing its own https redirect would break that internal hop.
       DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-false}
+    # Every uploaded file lives under MEDIA_ROOT (/app/media): the company
+    # letterhead and seal/signature printed on each invoice, product photos
+    # (the invoice's Foto column), factory packing lists, Document Vault
+    # items. Without this volume that directory is part of the container's
+    # writable layer, so a `docker compose up --build` silently destroys
+    # every upload while the database rows keep pointing at the now-missing
+    # files — the export then degrades to a document with no letterhead and
+    # no seal, which is exactly how this was found.
+    volumes:
+      - media_data:/app/media
     ports:
       - "${BACKEND_PORT:-8020}:8000"
     depends_on:
@@ -68,3 +78,6 @@ services:
 
 volumes:
   postgres_data:
+  # Uploaded files (company letterhead + seal, product photos, documents).
+  # Survives image rebuilds; `docker compose down -v` still clears it.
+  media_data:

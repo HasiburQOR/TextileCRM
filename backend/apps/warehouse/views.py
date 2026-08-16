@@ -6,8 +6,9 @@ from rest_framework.response import Response
 
 from apps.accounts.models import Roles
 from apps.accounts.permissions import IsAdmin, IsRole
+from apps.buyers.models import SisterProfile
 from apps.core.tenancy import TenantScopedViewSet
-from apps.qc.models import QCReport
+from apps.packing.models import PackingList
 from apps.warehouse import services
 from apps.warehouse.models import PACKAGING_COST_FIELDS, WarehouseCost
 from apps.warehouse.serializers import WarehouseCostSelfSerializer, WarehouseCostSerializer
@@ -16,8 +17,8 @@ WRITE_ACTIONS = ("update", "partial_update", "destroy")
 
 
 class WarehouseCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
-    queryset = WarehouseCost.objects.select_related("qcReport__product__sisterProfile__buyerProfile", "createdBy")
-    tenant_lookup = "qcReport__product__sisterProfile__buyerProfile_id"
+    queryset = WarehouseCost.objects.select_related("sisterProfile__buyerProfile", "packingList", "createdBy")
+    tenant_lookup = "sisterProfile__buyerProfile_id"
     allowed_roles = [Roles.WAREHOUSE]
     # PUT excluded deliberately — see QCReportViewSet for the same note.
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
@@ -36,20 +37,29 @@ class WarehouseCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        qc_report_id = self.request.query_params.get("qcReport")
-        if qc_report_id:
-            qs = qs.filter(qcReport_id=qc_report_id)
+        sister_profile_id = self.request.query_params.get("sisterProfile")
+        if sister_profile_id:
+            qs = qs.filter(sisterProfile_id=sister_profile_id)
+        packing_list_id = self.request.query_params.get("packingList")
+        if packing_list_id:
+            qs = qs.filter(packingList_id=packing_list_id)
         return qs
 
     def create(self, request, *args, **kwargs):
         data = request.data
-        qc_report = QCReport.objects.filter(pk=data.get("qcReport")).first()
-        if not qc_report:
-            raise DRFValidationError({"qcReport": "Not found."})
+        sister_profile = SisterProfile.objects.filter(pk=data.get("sisterProfile")).first()
+        if not sister_profile:
+            raise DRFValidationError({"sisterProfile": "Not found."})
+        packing_list = None
+        if data.get("packingList"):
+            packing_list = PackingList.objects.filter(pk=data["packingList"]).first()
+            if not packing_list:
+                raise DRFValidationError({"packingList": "Not found."})
         cost_fields = {f: data.get(f) or 0 for f in ["loaderCost", "extraWorkerCost", *PACKAGING_COST_FIELDS]}
         try:
             wc = services.create_warehouse_cost(
-                qc_report=qc_report,
+                sister_profile=sister_profile,
+                packing_list=packing_list,
                 created_by=request.user,
                 custom_costs=data.get("customCosts") or [],
                 extra_cost=data.get("extraCost") or 0,
@@ -79,5 +89,5 @@ class WarehouseCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         wc = self.get_object()
-        services.delete_warehouse_cost(wc)
+        services.delete_warehouse_cost(wc, actor=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)

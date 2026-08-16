@@ -75,6 +75,7 @@ def compute_carton_derived(carton: PackingCarton) -> None:
 
     carton.totalGrossWeight = _round2(_dec(carton.grossWeight) * carton.noOfCartons)
     carton.totalNetWeight = _round2(_dec(carton.netWeight) * carton.noOfCartons)
+    carton.totalAmount = _round2(_dec(carton.unitPrice) * carton.shipQty)
 
     # Round only once, at the end — rounding the per-carton figure first and
     # then multiplying compounds error across many cartons (verified against
@@ -173,6 +174,10 @@ def generate_cartons_from_rule(
                 # carton is generated from it.
                 "sizeBreakdown": [{"size_label": k, "quantity": v} for k, v in packing_rule.sizeRatio.items()],
                 "innerBundle": entry.get("innerBundle", 1),
+                # Carry the Sourcing Intake price (if the caller passed one,
+                # typically the variant's unitPrice) onto the draft row —
+                # still just a default; editable before the row is committed.
+                "unitPrice": entry.get("unitPrice"),
                 "orderQty": order_qty,
                 "grossWeight": packing_rule.cartonGrossWeight,
                 "netWeight": packing_rule.cartonNetWeight,

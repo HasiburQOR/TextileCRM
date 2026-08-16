@@ -32,6 +32,7 @@ import { ExchangeRatesPage } from "@/pages/ExchangeRatesPage"
 import { DocumentVaultPage } from "@/pages/DocumentVaultPage"
 import { AuditLogPage } from "@/pages/AuditLogPage"
 import { UsersPage } from "@/pages/UsersPage"
+import { CompanyProfilePage } from "@/pages/CompanyProfilePage"
 import { NotificationsPage } from "@/pages/NotificationsPage"
 import { ProtectedRoute } from "@/routes/ProtectedRoute"
 
@@ -90,6 +91,7 @@ function ProtectedApp() {
         <Route path="/documents" element={<DocumentVaultPage />} />
         <Route path="/audit-log" element={<AuditLogPage />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/company-profile" element={<CompanyProfilePage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

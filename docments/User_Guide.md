@@ -118,7 +118,7 @@ Nothing in the Buyer Portal has a create/edit/delete button anywhere — it is d
 | **Company Representative** | Sourcing Intake, Sourcing Trips, Packing Lists, Expenses |
 | **QC Person** | Packing Lists, Final QC & QR, QC Costs, Expenses |
 | **Warehouse Manager** | Warehouse Costs, Expenses |
-| **Employee** | Sourcing Intake, Packing Lists, Invoices, Expenses |
+| **Employee** | Sourcing Intake, Packing Lists, Invoices, Expenses, Company Profile (read-only) |
 | **Buyer** | Buyer Portal only (separate app, see Section 3) |
 
 A handful of modules (Admin Approval, Exchange Rates, Audit Log, Users) have no `roles` restriction visible to non-admins at all — Admin is the only role that ever sees them in the sidebar.
@@ -160,13 +160,22 @@ One cost report per approved product: lunch cost (toggle), goods carrying cost, 
 Loader cost, extra worker cost, six packaging checkboxes (each revealing its own cost field when checked — labels, hangtags, stickers, cartons, poly bags, gum tape), plus repeatable Custom Cost Fields and Extra Costs (two deliberately separate entry patterns). Unchecked items never create an expense row. Full View/Edit/Delete.
 
 ### Expenses *(QC, Warehouse, Company Rep, Employee, Management)*
-The read-only ledger every cost above feeds into. Filter by Sister Profile, source type, or date range; totals stay in sync with whatever's currently filtered. Click any row to jump back to the report that created it. Nothing is ever created or edited directly here — that would break the single-source-of-truth rule the whole costing system depends on.
+The read-only ledger every cost above feeds into. Filter by Buyer Profile, Sister Profile, source type, date range, currency, who recorded it, or a free-text search across remarks/product/PO; totals stay in sync with whatever's currently filtered, shown per currency (BDT and USD are never added together). Click any row to jump back to the report that created it. Nothing is ever created or edited directly here — that would break the single-source-of-truth rule the whole costing system depends on.
+
+**Download** opens a dialog that exports exactly the rows the current filters produce — as Excel, CSV, or PDF. The dialog edits the same filters as the toolbar (so the row count it quotes is what you'll get), adds multi-select source types, and offers a *Group & subtotal by* choice: Buyer, Sister Profile / PO, Product, Source Type, Recorded By, Month, or Currency. Excel gets a Summary sheet (the filters used, per-currency grand total, per-group breakdown) plus an Expenses sheet with subtotal rows; PDF mirrors it in landscape; CSV is plain data for accounting software. The filters are written into the filename and into the file itself, so a saved copy still explains what it contains. Buyer-portal users can't download this — it carries internal columns their own screens deliberately hide.
 
 ### Settlement Ledger *(Management)*
 The live balance for a Sister Profile: total advance received, total expense recorded, amount owed (computed from the order's Agreement Type), and net position — shown in green if positive, red with an alert if negative. Recalculates immediately on every new expense, no delay.
 
 ### Invoices *(Employee, Management)*
-Build an invoice by picking a Sister Profile and its finalized packing list(s); line items pre-fill from that data. Lock in a published exchange rate and set commission, then submit for Admin approval. **Once Issued, an invoice can never be edited** — the only lifecycle action left is Void (with a required reason), which preserves the original data rather than deleting it. Record payments against an invoice and watch the outstanding balance update live. Export as a bilingual PDF (English/Georgian). Delete is only available for invoices that were never issued (Pending Approval or Rejected).
+Build an invoice by picking a Sister Profile and its finalized packing list(s); line items pre-fill from that data — including carton counts, per-carton and total weights, carton dimensions and CBM. Set the line currency, the currency to convert to, and the exchange rate the way you'd write it on the document ("1 USD = 120 BDT"), or pick a published rate instead. Set commission, then submit for Admin approval.
+
+**Every derived number is computed for you** and never typed twice: total qty = cartons × qty per carton, amount = total qty × unit price, total net/gross weight = cartons × per-carton weight, CBM/ctn = L×W×H ÷ 1,000,000 and CBM = cartons × CBM/ctn. Where the packing list disagrees with the arithmetic (short or excess cartons), the packing list wins — the formulas only fill blanks.
+
+The **downloaded invoice is a combined Commercial Invoice / Packing List**: your letterhead at the top, the consignee block, a full line table carrying a **photo of each product**, then the totals block (value and converted value, commission, payments, outstanding, total qty/cartons/CBM/net and gross weight) and your bank details in the footer. Both PDF and Excel carry the same content; the Excel version puts amounts in as real numbers with live SUM totals so you can re-total it yourself. **Once Issued, an invoice can never be edited** — the only lifecycle action left is Void (with a required reason), which preserves the original data rather than deleting it. Record payments against an invoice and watch the outstanding balance update live. Export as a bilingual PDF (English/Georgian). Delete is only available for invoices that were never issued (Pending Approval or Rejected).
+
+### Company Profile *(Admin to edit, Employee/Management read)*
+Your own company's identity and bank details — the exporter side of every invoice. Upload a letterhead banner (it replaces the typed name/address block at the top of the document, so make sure it carries everything you want printed), and fill in the bank name, account title, account number, SWIFT code and bank address that buyers wire against. **Start here on a new install:** the page lists exactly which fields are still missing, and until they're filled in your invoices print with gaps in the header and footer. Only an Admin can change these — it's the account money arrives in — and every change is written to the Audit Log.
 
 ### Exchange Rates *(Admin to publish, everyone else reads)*
 Admin-only screen to publish manual exchange rates (not a live feed) with an effective date. Older rates are never deleted, only superseded — so historical invoices always keep the rate they were actually generated with. Employees building an invoice see a simple read-only picker of currently published rates.

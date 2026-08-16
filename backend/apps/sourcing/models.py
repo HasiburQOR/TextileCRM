@@ -163,6 +163,13 @@ class Product(UUIDModel, TimeStampedModel):
     name = models.CharField(max_length=255)
     brandName = models.CharField(max_length=255, blank=True, default="NA")
     poNo = models.CharField(max_length=255, blank=True, default="")
+    # Free-text goods composition ("100% Cotton", "Nylon-Spandex Blend", ...).
+    # Captured once at Sourcing Intake and carried onto every invoice line
+    # generated from this product: pre-filled client-side via
+    # PackingCarton.productMaterial, with a server-side fallback in
+    # apps.invoicing.services.create_invoice. Product-level like brandName -
+    # one style is one material; colorways share it.
+    material = models.CharField(max_length=255, blank=True, default="")
 
     # Product_Templates_Custom_Fields_Module.md: null = "Custom / no
     # template" (core fields only). `resolvedTemplateFields` is a snapshot
@@ -303,6 +310,14 @@ class ProductVariant(UUIDModel, TimeStampedModel):
     netWeight = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # per carton, kg
     totalGrossWeight = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # computed
     totalNetWeight = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # computed
+
+    # Buy unit price per piece for this color row — flat across every size
+    # in its size breakdown (price never varies by size; if it ever must,
+    # split the color into two grid rows). Optional at intake: blank simply
+    # computes a zero Amount. No currency stored — plain decimal in the
+    # deal's working currency, same convention as Product.finalPrice.
+    unitPrice = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    totalAmount = models.DecimalField(max_digits=14, decimal_places=2, default=0)  # computed: totalPcs * unitPrice
 
     ctnLength = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # inches
     ctnWidth = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # inches

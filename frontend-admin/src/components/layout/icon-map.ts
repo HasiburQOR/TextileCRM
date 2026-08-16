@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  Building2,
   ClipboardCheck,
   Folder,
   GitBranch,
@@ -39,4 +40,5 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   UserCog,
   QrCode,
   LayoutTemplate,
+  Building2,
 }

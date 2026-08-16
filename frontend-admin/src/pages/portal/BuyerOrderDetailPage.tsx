@@ -295,7 +295,7 @@ export function BuyerOrderDetailPage() {
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
               <th className="px-4 py-2 font-medium">Invoice No</th><th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 font-medium">Grand Total</th><th className="px-4 py-2 font-medium">Outstanding</th>
+              <th className="px-4 py-2 font-medium">Total Value</th>
               <th className="px-4 py-2 font-medium">Converted</th>
               <th className="px-4 py-2 font-medium" />
             </tr></thead>
@@ -305,7 +305,6 @@ export function BuyerOrderDetailPage() {
                   <td className="px-4 py-2 font-medium text-slate-900">{inv.invoiceNo}</td>
                   <td className="px-4 py-2 text-slate-500">{inv.status.replace(/_/g, " ")}</td>
                   <td className="px-4 py-2 text-slate-500">{Number(inv.grandTotal).toLocaleString()}</td>
-                  <td className="px-4 py-2 text-slate-500">{Number(inv.outstandingBalance).toLocaleString()}</td>
                   <td className="px-4 py-2 text-slate-500">
                     {inv.targetCurrency ? `${Number(inv.convertedTotal).toLocaleString()} ${inv.targetCurrency}` : "—"}
                   </td>

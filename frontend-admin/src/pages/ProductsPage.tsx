@@ -33,12 +33,15 @@ function computeVariantDerived(row: VariantRowDraft) {
       ? row.cartonNoTo - row.cartonNoFrom + 1
       : 0
   const totalPcs = pcsPerCarton * noOfCartons
+  // Buy price is per piece, flat across the color's sizes — Amount is
+  // always TTL PCS x Unit Price (mirrors compute_variant_derived).
+  const totalAmount = totalPcs * (row.unitPrice ?? 0)
   const totalGrossWeight = (row.grossWeight ?? 0) * noOfCartons
   const totalNetWeight = (row.netWeight ?? 0) * noOfCartons
   const cubicInches = (row.ctnLength ?? 0) * (row.ctnWidth ?? 0) * (row.ctnHeight ?? 0)
   const cbm = cubicInches > 0 ? cubicInches / CUBIC_INCHES_PER_CBM : 0
   const totalCbm = cbm * noOfCartons
-  return { pcsPerCarton, noOfCartons, totalPcs, totalGrossWeight, totalNetWeight, cbm, totalCbm }
+  return { pcsPerCarton, noOfCartons, totalPcs, totalAmount, totalGrossWeight, totalNetWeight, cbm, totalCbm }
 }
 
 const STATUS_FILTER_OPTIONS: { value: ProductStatus | "all"; label: string }[] = [
@@ -62,6 +65,7 @@ function emptyVariant(prevCartonTo: number | null | undefined, columns: ProductT
     customFieldValues: blankValuesForColumns(columns),
     innerBundle: 1,
     cartonNoFrom: nextFrom, cartonNoTo: nextFrom,
+    unitPrice: null,
     grossWeight: null, netWeight: null, ctnLength: null, ctnWidth: null, ctnHeight: null,
   }
 }
@@ -77,6 +81,7 @@ function variantToDraft(v: Product["variants"][number]): VariantRowDraft {
     innerBundle: v.innerBundle,
     cartonNoFrom: v.cartonNoFrom,
     cartonNoTo: v.cartonNoTo,
+    unitPrice: v.unitPrice != null ? Number(v.unitPrice) : null,
     grossWeight: v.grossWeight,
     netWeight: v.netWeight,
     ctnLength: v.ctnLength,
@@ -299,6 +304,7 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
   const [sisterProfile, setSisterProfile] = useState("")
   const [name, setName] = useState("")
   const [brandName, setBrandName] = useState("")
+  const [material, setMaterial] = useState("")
   const [poNo, setPoNo] = useState("")
   const [templateId, setTemplateId] = useState("")
   const [columns, setColumns] = useState<ProductTemplateFieldEntry[]>([])
@@ -368,6 +374,7 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
       name,
       brandName: brandName || "NA",
       poNo,
+      material,
       template: templateId || null,
       resolvedTemplateFields: columns,
       variants: cleanVariants,
@@ -423,6 +430,15 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col gap-1.5 lg:col-span-2">
             <label className="text-xs font-medium text-slate-600">Brand Name</label>
             <Input value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="NA" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-slate-600">Material</label>
+            <Input
+              value={material}
+              onChange={(e) => setMaterial(e.target.value)}
+              placeholder="e.g. 100% Cotton"
+              title="Goods composition - pre-fills the Material column on invoices generated from this product."
+            />
           </div>
         </div>
 
@@ -515,6 +531,8 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow 
               <th className="px-2 py-1.5 font-medium">CTN To</th>
               <th className="px-2 py-1.5 font-medium">CTNS</th>
               <th className="px-2 py-1.5 font-medium">TTL PCS</th>
+              <th className="px-2 py-1.5 font-medium">Unit Price</th>
+              <th className="px-2 py-1.5 font-medium">Amount</th>
               <th className="px-2 py-1.5 font-medium">G.W(kg)</th>
               <th className="px-2 py-1.5 font-medium">N.W(kg)</th>
               <th className="px-2 py-1.5 font-medium">TTL G.W</th>
@@ -563,6 +581,16 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow 
                   <td className="p-1 text-center text-xs font-medium text-slate-600">{d.noOfCartons}</td>
                   <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalPcs}</td>
                   <td className="p-1">
+                    <Input
+                      className="h-7 w-20 text-xs" type="number" step="0.01" min={0} max={99999999}
+                      placeholder="—"
+                      title="Buy unit price per piece — same for every size in this color. Amount = TTL PCS × Unit Price."
+                      value={row.unitPrice ?? ""}
+                      onChange={(e) => updateVariant(i, { unitPrice: e.target.value ? Number(e.target.value) : null })}
+                    />
+                  </td>
+                  <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalAmount.toFixed(2)}</td>
+                  <td className="p-1">
                     <Input className="h-7 w-14 text-xs" type="number" step="0.01" min={0} max={999999} value={row.grossWeight ?? ""} onChange={(e) => updateVariant(i, { grossWeight: e.target.value ? Number(e.target.value) : null })} />
                   </td>
                   <td className="p-1">
@@ -607,6 +635,7 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow 
         <span>Total Order Qty: <strong>{variants.reduce((s, v) => s + v.orderQty, 0)}</strong></span>
         <span>Total Cartons: <strong>{variants.reduce((s, v) => s + computeVariantDerived(v).noOfCartons, 0)}</strong></span>
         <span>Total CBM: <strong>{variants.reduce((s, v) => s + computeVariantDerived(v).totalCbm, 0).toFixed(4)}</strong></span>
+        <span>Total Amount: <strong>{variants.reduce((s, v) => s + computeVariantDerived(v).totalAmount, 0).toFixed(2)}</strong></span>
       </div>
       {addColumnOpen && (
         <AddColumnDialog
@@ -651,6 +680,7 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
           <Field label="Sister Profile PO" value={product.sisterProfilePoReference} />
           <Field label="Brand Name" value={product.brandName} />
           <Field label="PO No" value={product.poNo || "—"} />
+          <Field label="Material" value={product.material || "—"} />
           <Field label="Goods Name" value={product.goodsName || "—"} />
           <Field label="Fabric Details" value={product.fabricDetails || "—"} />
           <Field label="Final Price" value={product.finalPrice ?? "—"} />
@@ -681,6 +711,8 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
                   <th className="px-3 py-2 font-medium">PC/CTN</th>
                   <th className="px-3 py-2 font-medium">Cartons</th>
                   <th className="px-3 py-2 font-medium">TTL PCS</th>
+                  <th className="px-3 py-2 font-medium">Unit Price</th>
+                  <th className="px-3 py-2 font-medium">Amount</th>
                   <th className="px-3 py-2 font-medium">TTL G.W</th>
                   <th className="px-3 py-2 font-medium">TTL N.W</th>
                   <th className="px-3 py-2 font-medium">CBM</th>
@@ -692,7 +724,7 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
               <tbody>
                 {product.variants.length === 0 ? (
                   <tr>
-                    <td colSpan={10 + columns.length} className="px-3 py-6 text-center text-sm text-slate-400">
+                    <td colSpan={12 + columns.length} className="px-3 py-6 text-center text-sm text-slate-400">
                       No color rows recorded.
                     </td>
                   </tr>
@@ -710,6 +742,8 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
                       <td className="px-3 py-2 text-slate-500">{v.pcsPerCarton}</td>
                       <td className="px-3 py-2 text-slate-500">{v.noOfCartons}</td>
                       <td className="px-3 py-2 text-slate-500">{v.totalPcs}</td>
+                      <td className="px-3 py-2 text-slate-500">{v.unitPrice != null ? Number(v.unitPrice).toFixed(2) : "—"}</td>
+                      <td className="px-3 py-2 text-slate-500">{Number(v.totalAmount).toFixed(2)}</td>
                       <td className="px-3 py-2 text-slate-500">{Number(v.totalGrossWeight).toFixed(2)}</td>
                       <td className="px-3 py-2 text-slate-500">{Number(v.totalNetWeight).toFixed(2)}</td>
                       <td className="px-3 py-2 text-slate-500">{Number(v.totalCbm).toFixed(4)}</td>
@@ -818,6 +852,7 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
     name: product.name,
     brandName: product.brandName,
     poNo: product.poNo,
+    material: product.material,
   })
   const [columns, setColumns] = useState<ProductTemplateFieldEntry[]>(product.resolvedTemplateFields)
   const [variants, setVariants] = useState<VariantRowDraft[]>(
@@ -891,6 +926,10 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
           <div className="flex flex-col gap-1.5 lg:col-span-2">
             <label className="text-xs font-medium text-slate-600">Brand Name</label>
             <Input value={form.brandName} onChange={(e) => setForm({ ...form, brandName: e.target.value })} placeholder="NA" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-slate-600">Material</label>
+            <Input value={form.material} onChange={(e) => setForm({ ...form, material: e.target.value })} placeholder="e.g. 100% Cotton" />
           </div>
         </div>
 

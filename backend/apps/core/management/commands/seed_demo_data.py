@@ -72,14 +72,14 @@ SISTER_PROFILES = [
 ]
 
 # ── Products ────────────────────────────────────────────────────────
-# (sister-profile index, styleNo, name, brand, poNo, status, template?, colors)
+# (sister-profile index, styleNo, name, brand, material, poNo, status, template?, colors)
 # colors: (colorName, patternNo, orderQty, sizeRatio, ctnFrom, ctnTo, gw, nw, L, W, H, templateValues)
 _KNIT_SIZES = [("S", 1), ("M", 3), ("L", 5), ("XL", 4), ("XXL", 2)]
 _DENIM_SIZES = [("30", 2), ("32", 4), ("34", 4), ("36", 3), ("38", 2)]
 
 PRODUCTS = [
     (
-        0, "PRO-0001", "Heavy Cotton Crewneck", "NORDVIK", "NRG-PO-2026-014",
+        0, "PRO-0001", "Heavy Cotton Crewneck", "NORDVIK", "100% Cotton", "NRG-PO-2026-014",
         "approved_for_qc", True,
         [
             ("Ecru Herringbone", "MR12528", 900, _KNIT_SIZES, 1, 60, "6.90", "6.10", 24, 18, 14,
@@ -91,7 +91,7 @@ PRODUCTS = [
         ],
     ),
     (
-        1, "PRO-0002", "Merino Half-Zip", "NORDVIK", "NRG-PO-2026-021",
+        1, "PRO-0002", "Merino Half-Zip", "NORDVIK", "Merino Wool Blend", "NRG-PO-2026-021",
         "in_warehouse", True,
         [
             ("Forest Green", "MZ4410", 480, _KNIT_SIZES, 1, 32, "5.40", "4.80", 22, 17, 13,
@@ -101,7 +101,7 @@ PRODUCTS = [
         ],
     ),
     (
-        2, "PRO-0003", "Straight-Leg Denim", "LIMONTA", "CL-4471",
+        2, "PRO-0003", "Straight-Leg Denim", "LIMONTA", "98% Cotton / 2% Elastane", "CL-4471",
         "sourcing_trip_open", False,
         [
             ("Raw Indigo", "DN2201", 1200, _DENIM_SIZES, 1, 80, "9.20", "8.40", 26, 20, 16, {}),
@@ -109,7 +109,7 @@ PRODUCTS = [
         ],
     ),
     (
-        3, "PRO-0004", "Oxford Button-Down", "BRAMBLE", "BRM-2026-A9",
+        3, "PRO-0004", "Oxford Button-Down", "BRAMBLE", "Cotton Oxford", "BRM-2026-A9",
         "pending_admin_approval", True,
         [
             ("White", "OX880", 640, _KNIT_SIZES, 1, 40, "4.80", "4.20", 21, 16, 12,
@@ -119,7 +119,7 @@ PRODUCTS = [
         ],
     ),
     (
-        4, "PRO-0005", "Fleece Jogger", "AURORA", "AUR-88213",
+        4, "PRO-0005", "Fleece Jogger", "AURORA", "Polyester Fleece", "AUR-88213",
         "approved_for_qc", True,
         [
             ("Heather Grey", "FJ7100", 880, _KNIT_SIZES, 1, 55, "7.30", "6.60", 25, 19, 15,
@@ -129,14 +129,14 @@ PRODUCTS = [
         ],
     ),
     (
-        6, "PRO-0006", "Linen Camp Shirt", "MERIDIAN", "MTX-0117",
+        6, "PRO-0006", "Linen Camp Shirt", "MERIDIAN", "100% Linen", "MTX-0117",
         "completed", False,
         [
             ("Sand", "LC3300", 400, _KNIT_SIZES, 1, 26, "3.90", "3.40", 20, 15, 11, {}),
         ],
     ),
     (
-        8, "PRO-0007", "Quilted Overshirt", "ATLAS", "ATG-PO-7712",
+        8, "PRO-0007", "Quilted Overshirt", "ATLAS", "Cotton Ripstop", "ATG-PO-7712",
         "ready_for_final_qc", False,
         [
             ("Olive", "QO5501", 520, _KNIT_SIZES, 1, 34, "8.10", "7.30", 27, 21, 17, {}),
@@ -325,12 +325,13 @@ class Command(BaseCommand):
 
         # Products + per-color variant rows.
         products = []
-        for sister_index, style_no, name, brand, po_no, status, use_template, colors in PRODUCTS:
+        for sister_index, style_no, name, brand, material, po_no, status, use_template, colors in PRODUCTS:
             product = Product.objects.create(
                 sisterProfile=sisters[sister_index],
                 styleNumber=style_no,
                 name=name,
                 brandName=brand,
+                material=material,
                 poNo=po_no,
                 status=status,
                 template=template if (use_template and template) else None,
@@ -427,8 +428,16 @@ class Command(BaseCommand):
                     "netWeight": carton.totalNetWeight,
                     "grossWeight": carton.totalGrossWeight,
                     "cbm": carton.totalCbm,
-                    "material": "100% Cotton",
+                    # From the Product itself (captured at Sourcing Intake) -
+                    # no longer a hardcoded string.
+                    "material": carton.product.material,
                     "styleItemCode": carton.styleNo,
+                    "patternNo": carton.patternNo,
+                    # The Details column: a readable rollup of this color's
+                    # size breakdown, e.g. "S-5+M-8+L-5+XL-4".
+                    "colorSizeNote": "+".join(
+                        f"{entry.get('size_label', '')}-{entry.get('quantity', 0)}" for entry in carton.sizeBreakdown
+                    ),
                     "packingListRef": packing_list.referenceCode,
                     "remarks": "",
                 }

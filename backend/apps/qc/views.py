@@ -16,7 +16,7 @@ WRITE_ACTIONS = ("update", "partial_update", "destroy")
 
 
 class QCReportViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
-    queryset = QCReport.objects.select_related("product__sisterProfile__buyerProfile", "createdBy").prefetch_related("warehouseCost")
+    queryset = QCReport.objects.select_related("product__sisterProfile__buyerProfile", "createdBy")
     tenant_lookup = "product__sisterProfile__buyerProfile_id"
     allowed_roles = [Roles.QC]
     # PUT excluded deliberately — edits go through partial_update (PATCH)

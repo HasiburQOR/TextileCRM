@@ -89,10 +89,14 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "id", "colorName", "patternNo", "orderQty", "sizeBreakdown", "pcsPerCarton", "innerBundle",
             "customFieldValues",
             "cartonNoFrom", "cartonNoTo", "noOfCartons", "totalPcs",
+            "unitPrice", "totalAmount",
             "grossWeight", "netWeight", "totalGrossWeight", "totalNetWeight",
             "ctnLength", "ctnWidth", "ctnHeight", "cbm", "totalCbm",
         ]
-        read_only_fields = ["id", "pcsPerCarton", "noOfCartons", "totalPcs", "totalGrossWeight", "totalNetWeight", "cbm", "totalCbm"]
+        read_only_fields = [
+            "id", "pcsPerCarton", "noOfCartons", "totalPcs", "totalAmount",
+            "totalGrossWeight", "totalNetWeight", "cbm", "totalCbm",
+        ]
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -134,7 +138,7 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
-            "id", "sisterProfile", "sisterProfilePoReference", "styleNumber", "name", "brandName", "poNo",
+            "id", "sisterProfile", "sisterProfilePoReference", "styleNumber", "name", "brandName", "poNo", "material",
             "template", "templateName", "resolvedTemplateFields", "customFields",
             "status", "rejectionReason", "goodsName", "finalPrice", "fabricDetails", "factoryPackingList",
             "packingCartonCount",
@@ -215,7 +219,7 @@ class ProductSelfSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
-            "id", "styleNumber", "name", "brandName", "poNo", "status",
+            "id", "styleNumber", "name", "brandName", "poNo", "material", "status",
             "goodsName", "fabricDetails", "variants", "images", "totalOrderQty", "createdAt",
         ]
         read_only_fields = fields

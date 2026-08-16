@@ -14,9 +14,12 @@ class InvoiceLineItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceLineItem
         fields = [
-            "id", "invoice", "product", "packingCarton", "description", "brand", "ctn", "qtyPerCtn",
+            "id", "invoice", "product", "packingCarton", "warehouseCost", "description", "brand", "ctn", "qtyPerCtn",
             "totalQty", "unitPrice", "amount", "netWeight", "grossWeight", "cbm", "material",
-            "styleItemCode", "packingListRef", "remarks",
+            "styleItemCode", "patternNo", "packingListRef", "remarks",
+            "colorSizeNote", "markRef", "hsCode",
+            "netWeightPerCtn", "grossWeightPerCtn", "cbmPerCtn",
+            "ctnLengthCm", "ctnWidthCm", "ctnHeightCm",
         ]
         read_only_fields = ["id", "invoice"]
 
@@ -37,20 +40,23 @@ class InvoiceSerializer(serializers.ModelSerializer):
     buyerName = serializers.CharField(source="sisterProfile.buyerProfile.name", read_only=True)
     commissionAmount = serializers.DecimalField(source="commission_amount", max_digits=14, decimal_places=2, read_only=True)
     grandTotal = serializers.DecimalField(source="grand_total", max_digits=14, decimal_places=2, read_only=True)
+    rateLabel = serializers.CharField(source="rate_label", read_only=True)
+    documentTotals = serializers.DictField(source="document_totals", read_only=True)
 
     class Meta:
         model = Invoice
         fields = [
             "id", "sisterProfile", "sisterProfilePoReference", "buyerName", "invoiceNo", "status",
             "rejectionReason", "voidReason", "exchangeRate", "exchangeRateValueLocked", "targetCurrency",
+            "sourceCurrency", "rateQuote", "rateLabel",
             "commissionType", "commissionValue", "commissionAmount", "totalValue", "grandTotal",
             "convertedTotal", "outstandingBalance", "createdBy", "approvedBy", "approvedAt",
-            "lineItems", "payments", "createdAt", "updatedAt",
+            "lineItems", "payments", "documentTotals", "createdAt", "updatedAt",
         ]
         read_only_fields = [
             "id", "invoiceNo", "status", "rejectionReason", "voidReason", "exchangeRateValueLocked",
-            "targetCurrency", "totalValue", "convertedTotal", "outstandingBalance", "createdBy",
-            "approvedBy", "approvedAt", "createdAt", "updatedAt",
+            "targetCurrency", "sourceCurrency", "rateQuote", "totalValue", "convertedTotal",
+            "outstandingBalance", "createdBy", "approvedBy", "approvedAt", "createdAt", "updatedAt",
         ]
 
 

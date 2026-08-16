@@ -118,6 +118,71 @@ class PackingCalculationTests(APITestCase):
         self.assertEqual(excess_carton.shipQty, 90)
         self.assertEqual(excess_carton.shortExcessQty, -10)  # negative = excess
 
+    # ── Unit price x ship qty (same convention as Sourcing Intake) ──────
+
+    def test_total_amount_is_ship_qty_times_unit_price(self):
+        """One price per color row, flat across every size in the row:
+        SAMPLE_ROWS[0] is cartons 1-4 x 15 pcs/ctn = 60 shipped x 2.50 = 150.00."""
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(
+            reverse("packing-list-list"),
+            {
+                "sisterProfile": str(self.sister.id),
+                "poNo": "002F25BV",
+                "cartons": [{
+                    "product": str(self.products["MRF25"].id),
+                    "cartonNoFrom": 1, "cartonNoTo": 4,
+                    "colorName": "ECRU HERRINGBONE",
+                    "sizeBreakdown": SIZE_BREAKDOWN,
+                    "orderQty": 60, "unitPrice": "2.50",
+                    "grossWeight": "6.90", "netWeight": "5.00",
+                    "ctnLength": "20", "ctnWidth": "18", "ctnHeight": "7.5",
+                }],
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        carton = resp.data["cartons"][0]
+        self.assertEqual(carton["shipQty"], 60)
+        self.assertEqual(carton["unitPrice"], "2.50")
+        self.assertEqual(Decimal(carton["totalAmount"]), Decimal("150.00"))
+
+    def test_missing_unit_price_yields_zero_amount(self):
+        """Price is optional — a row without one simply computes a zero Amount."""
+        carton = PackingCarton(**self._carton_kwargs(SAMPLE_ROWS[0]))
+        services.compute_carton_derived(carton)
+        self.assertEqual(carton.shipQty, 60)
+        self.assertEqual(carton.totalAmount, Decimal("0"))
+
+    def test_editing_cartons_replaces_rows_and_recomputes_amount(self):
+        """Edit replaces cartons (PackingListSerializer.update) — a new price
+        on the edited row recomputes its Amount."""
+        self.client.force_authenticate(user=self.admin)
+        carton_payload = {
+            "product": str(self.products["MRF25"].id),
+            "cartonNoFrom": 1, "cartonNoTo": 4,
+            "colorName": "ECRU HERRINGBONE",
+            "sizeBreakdown": SIZE_BREAKDOWN,
+            "orderQty": 60,
+            "grossWeight": "6.90", "netWeight": "5.00",
+            "ctnLength": "20", "ctnWidth": "18", "ctnHeight": "7.5",
+        }
+        resp = self.client.post(
+            reverse("packing-list-list"),
+            {"sisterProfile": str(self.sister.id), "poNo": "002F25BV",
+             "cartons": [{**carton_payload, "unitPrice": "1.00"}]},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        resp = self.client.patch(
+            reverse("packing-list-detail", args=[resp.data["id"]]),
+            {"cartons": [{**carton_payload, "unitPrice": "3.00"}]},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data["cartons"]), 1)
+        self.assertEqual(Decimal(resp.data["cartons"][0]["totalAmount"]), Decimal("180.00"))
+
     def test_generate_cartons_from_rule_rounds_up_partial_carton(self):
         rule = PackingRule.objects.create(name="Standard 15pc", sizeRatio=SIZE_RATIO)
         cartons = services.generate_cartons_from_rule(

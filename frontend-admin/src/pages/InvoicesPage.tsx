@@ -16,6 +16,7 @@ import type { Paginated } from "@/types/api"
 import type { CommissionType, ExchangeRate, Invoice, InvoiceLineItemInput, InvoiceStatus } from "@/types/invoicing"
 import type { PackingCarton, PackingList } from "@/types/packing"
 import type { SisterProfile } from "@/types/sourcing"
+import type { WarehouseCost } from "@/types/warehouse"
 
 const STATUS_BADGE: Record<InvoiceStatus, "warning" | "success" | "danger" | "default"> = {
   pending_approval: "warning", issued: "success", rejected: "danger", void: "default",
@@ -88,8 +89,7 @@ export function InvoicesPage() {
                   <th className="px-4 py-3 font-medium">Invoice No</th>
                   <th className="px-4 py-3 font-medium">Sister Profile</th>
                   <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Grand Total</th>
-                  <th className="px-4 py-3 font-medium">Outstanding</th>
+                  <th className="px-4 py-3 font-medium">Total Value</th>
                   <th className="px-4 py-3 font-medium">Created</th>
                   <th className="px-4 py-3 font-medium" />
                 </tr>
@@ -103,7 +103,6 @@ export function InvoicesPage() {
                       <td className="px-4 py-3 text-slate-500">{inv.sisterProfilePoReference} · {inv.buyerName}</td>
                       <td className="px-4 py-3"><Badge variant={STATUS_BADGE[inv.status]}>{inv.status.replace(/_/g, " ")}</Badge></td>
                       <td className="px-4 py-3 font-medium text-slate-900">{Number(inv.grandTotal).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-slate-500">{Number(inv.outstandingBalance).toLocaleString()}</td>
                       <td className="px-4 py-3 text-slate-400">{new Date(inv.createdAt).toLocaleDateString()}</td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-1">
@@ -164,35 +163,116 @@ interface LineDraft extends InvoiceLineItemInput {
   tempId: string
 }
 
-function cartonToLine(carton: PackingCarton): LineDraft {
+function cartonToLine(carton: PackingCarton, packingList?: PackingList): LineDraft {
   return {
     tempId: crypto.randomUUID(),
     packingCarton: carton.id,
+    // Carried through so the invoice line knows which Product it came from.
+    // Without it the document has no way back to the product's photo
+    // gallery, and the Foto column renders empty for every line.
+    product: carton.product,
     description: carton.productName || carton.styleNumber,
-    brand: "",
+    brand: packingList?.brandName ?? "",
     ctn: carton.noOfCartons,
     qtyPerCtn: carton.totalPcsPerCarton,
     totalQty: carton.shipQty,
-    unitPrice: 0,
-    amount: 0,
-    netWeight: carton.totalNetWeight,
-    grossWeight: carton.totalGrossWeight,
-    cbm: carton.totalCbm,
-    material: "",
+    // Priced at Packing - one price per carton (color) row, pre-filled from
+    // the product variant at intake. The amount mirrors the carton's own
+    // totalAmount (shipQty x unitPrice) and stays editable per line here.
+    // Number(...) on every decimal: DRF serializes DecimalField as a STRING
+    // ("265.00"), so these arrive as strings however the TS types read. An
+    // un-coerced `amount` crashes the line table outright (`amount.toFixed`
+    // is not a function) and makes the Line Total a concatenation rather
+    // than a sum — and it only bites once a carton actually carries a
+    // price, so an unpriced packing list hides it.
+    unitPrice: Number(carton.unitPrice ?? 0),
+    amount: Number(carton.totalAmount ?? 0),
+    netWeight: Number(carton.totalNetWeight ?? 0),
+    grossWeight: Number(carton.totalGrossWeight ?? 0),
+    cbm: Number(carton.totalCbm ?? 0),
+    // Captured at Sourcing Intake (Product.material) - a starting point the
+    // invoice editor can still override per line.
+    material: carton.productMaterial ?? "",
     styleItemCode: carton.styleNumber,
     packingListRef: carton.packingListReferenceCode,
     remarks: "",
+    // Commercial Invoice / Packing List columns. Carton dimensions are
+    // stored in inches here and converted to cm server-side — hence
+    // dimensionsInCm: false, which is what makes the printed L×W×H and the
+    // CBM derived from it come out in the units the buyer expects.
+    colorSizeNote: [carton.colorName, carton.assortId].filter(Boolean).join(", "),
+    markRef: packingList?.frontMark?.split("\n")[0] ?? "",
+    hsCode: "",
+    netWeightPerCtn: Number(carton.netWeight ?? 0),
+    grossWeightPerCtn: Number(carton.grossWeight ?? 0),
+    cbmPerCtn: Number(carton.ctnCbm ?? 0),
+    ctnLengthCm: Number(carton.ctnLength ?? 0),
+    ctnWidthCm: Number(carton.ctnWidth ?? 0),
+    ctnHeightCm: Number(carton.ctnHeight ?? 0),
+    dimensionsInCm: false,
+  }
+}
+
+function warehouseCostToLine(wc: WarehouseCost): LineDraft {
+  // One pickable row per recorded Warehouse Cost, same flow as a Packing
+  // Carton — it becomes a single line item on the invoice, not a product
+  // line. `unitPrice`/`amount` start pre-filled from the cost itself
+  // (unlike a carton line, which is priced by hand) since there's no
+  // separate "quantity" to multiply here.
+  //
+  // ctn/qty are deliberately ZERO, not 1: this line is a cost, not goods.
+  // A carton count of 1 here lands in the document's TOTAL CTNS and TOTAL
+  // QTY, so a 1,000 pc / 28 ctn shipment printed as 1,001 pcs in 29
+  // cartons — a figure a customs broker reads off the packing list and
+  // one that contradicts the Packing List it was generated from.
+  const label = wc.packingListReferenceCode || wc.sisterProfilePoReference || "Warehouse Cost"
+  const total = Number(wc.totalCost)
+  return {
+    tempId: crypto.randomUUID(),
+    warehouseCost: wc.id,
+    product: null,
+    description: `Warehouse Cost — ${label}`,
+    brand: "",
+    ctn: 0,
+    qtyPerCtn: 0,
+    totalQty: 0,
+    unitPrice: total,
+    amount: total,
+    netWeight: 0,
+    grossWeight: 0,
+    cbm: 0,
+    material: "",
+    styleItemCode: "",
+    packingListRef: wc.packingListReferenceCode || "",
+    remarks: "",
+    colorSizeNote: "",
+    markRef: "",
+    hsCode: "",
+    netWeightPerCtn: 0,
+    grossWeightPerCtn: 0,
+    cbmPerCtn: 0,
+    ctnLengthCm: 0,
+    ctnWidthCm: 0,
+    ctnHeightCm: 0,
+    dimensionsInCm: true,
   }
 }
 
 function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: (id: string) => void }) {
   const [sisterProfile, setSisterProfile] = useState("")
   const [selectedLists, setSelectedLists] = useState<Set<string>>(new Set())
+  const [selectedWarehouseCosts, setSelectedWarehouseCosts] = useState<Set<string>>(new Set())
   const [lines, setLines] = useState<LineDraft[]>([])
   const [exchangeRate, setExchangeRate] = useState("")
   const [commissionType, setCommissionType] = useState<CommissionType>("none")
   const [commissionValue, setCommissionValue] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // Currency + rate typed by hand, the way it's written on the document:
+  // lines are priced in `sourceCurrency`, converted to `targetCurrency` at
+  // "1 target = manualRate source". A published rate, when picked, wins.
+  const [sourceCurrency, setSourceCurrency] = useState("BDT")
+  const [targetCurrency, setTargetCurrency] = useState("USD")
+  const [manualRate, setManualRate] = useState("")
 
   const profilesQuery = useQuery({
     queryKey: ["sister-profiles", "all"],
@@ -201,6 +281,14 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
   const packingListsQuery = useQuery({
     queryKey: ["packing-lists", "all"],
     queryFn: async () => { const { data } = await api.get<Paginated<PackingList>>("/packing-lists/", { params: { page_size: 200 } }); return data.results },
+  })
+  const warehouseCostsQuery = useQuery({
+    queryKey: ["warehouse-costs", "for-sister-profile", sisterProfile],
+    queryFn: async () => {
+      const { data } = await api.get<Paginated<WarehouseCost>>("/warehouse-costs/", { params: { sisterProfile, page_size: 200 } })
+      return data.results
+    },
+    enabled: !!sisterProfile,
   })
   const ratesQuery = useQuery({
     queryKey: ["exchange-rates", "all"],
@@ -220,7 +308,23 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
         setLines((ls) => ls.filter((l) => !pl.cartons.some((c) => c.id === l.packingCarton)))
       } else {
         next.add(pl.id)
-        setLines((ls) => [...ls, ...pl.cartons.map(cartonToLine)])
+        // Explicit arrow, not a bare reference: Array.map passes the index
+        // as the second argument, which would land in `packingList`.
+        setLines((ls) => [...ls, ...pl.cartons.map((carton) => cartonToLine(carton, pl))])
+      }
+      return next
+    })
+  }
+
+  function toggleWarehouseCost(wc: WarehouseCost) {
+    setSelectedWarehouseCosts((prev) => {
+      const next = new Set(prev)
+      if (next.has(wc.id)) {
+        next.delete(wc.id)
+        setLines((ls) => ls.filter((l) => l.warehouseCost !== wc.id))
+      } else {
+        next.add(wc.id)
+        setLines((ls) => [...ls, warehouseCostToLine(wc)])
       }
       return next
     })
@@ -230,7 +334,13 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
     setLines((prev) => prev.map((l) => {
       if (l.tempId !== tempId) return l
       const merged = { ...l, ...patch }
-      merged.amount = Number((merged.unitPrice * merged.totalQty).toFixed(2))
+      // A cost line (warehouse cost) carries no quantity — its price IS its
+      // amount. Multiplying by a zero qty would silently wipe it the moment
+      // someone corrected the figure.
+      const price = Number(merged.unitPrice) || 0
+      merged.amount = merged.totalQty > 0
+        ? Number((price * merged.totalQty).toFixed(2))
+        : Number(price.toFixed(2))
       return merged
     }))
   }
@@ -238,15 +348,28 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
     setLines((prev) => prev.filter((l) => l.tempId !== tempId))
   }
 
-  const totalValue = lines.reduce((sum, l) => sum + l.amount, 0)
+  const totalValue = lines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0)
   const commissionAmount = commissionType === "percentage" ? (totalValue * commissionValue) / 100 : commissionType === "flat" ? commissionValue : 0
   const grandTotal = totalValue + commissionAmount
+
+  // Mirrors Invoice.convert() on the server: a published rate multiplies,
+  // a hand-typed "1 USD = 120 BDT" divides. Preview only — the server
+  // recomputes and locks the real figure at generation time.
+  const convertedTotal = useMemo(() => {
+    const published = ratesQuery.data?.find((r) => r.id === exchangeRate)
+    if (published) return grandTotal * Number(published.rate)
+    const rate = Number(manualRate)
+    return manualRate && rate > 0 ? grandTotal / rate : null
+  }, [ratesQuery.data, exchangeRate, manualRate, grandTotal])
 
   const createMutation = useMutation({
     mutationFn: async () => {
       const payload = {
         sisterProfile,
         exchangeRate: exchangeRate || null,
+        sourceCurrency,
+        targetCurrency,
+        manualRate: manualRate || null,
         commissionType,
         commissionValue,
         lineItems: lines.map(({ tempId: _tempId, ...rest }) => rest),
@@ -261,7 +384,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!sisterProfile) { setError("Select a Sister Profile."); return }
-    if (lines.length === 0) { setError("Select at least one Packing List to pull line items from."); return }
+    if (lines.length === 0) { setError("Select at least one Packing List or Warehouse Cost to pull line items from."); return }
     setError(null)
     createMutation.mutate()
   }
@@ -273,7 +396,10 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
 
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile *</label>
-          <Select required value={sisterProfile} onChange={(e) => { setSisterProfile(e.target.value); setSelectedLists(new Set()); setLines([]) }}>
+          <Select
+            required value={sisterProfile}
+            onChange={(e) => { setSisterProfile(e.target.value); setSelectedLists(new Set()); setSelectedWarehouseCosts(new Set()); setLines([]) }}
+          >
             <option value="">Select...</option>
             {profilesQuery.data?.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id} — {sp.buyerProfileName}</option>))}
           </Select>
@@ -290,6 +416,31 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
                   <label key={pl.id} className="flex items-center gap-2 text-sm text-slate-700">
                     <input type="checkbox" checked={selectedLists.has(pl.id)} onChange={() => toggleList(pl)} />
                     <code className="text-xs text-indigo-600">{pl.referenceCode}</code> {pl.poNo || pl.sisterProfilePoReference} — {pl.brandName || "no brand"} ({pl.cartons.length} cartons, {pl.totalCartonQty} CTNS)
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {sisterProfile && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Warehouse Costs (optional)</label>
+            {warehouseCostsQuery.isLoading ? (
+              <p className="text-xs text-slate-400">Loading...</p>
+            ) : !warehouseCostsQuery.data?.length ? (
+              <p className="text-xs text-slate-400">No warehouse costs recorded yet for this Sister Profile.</p>
+            ) : (
+              <div className="flex flex-col gap-1.5 rounded-md border border-slate-200 p-2">
+                {warehouseCostsQuery.data.map((wc) => (
+                  <label key={wc.id} className="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" checked={selectedWarehouseCosts.has(wc.id)} onChange={() => toggleWarehouseCost(wc)} />
+                    {wc.packingListReferenceCode ? (
+                      <code className="text-xs text-indigo-600">{wc.packingListReferenceCode}</code>
+                    ) : (
+                      <span className="text-xs text-slate-400">(no packing list)</span>
+                    )}
+                    {" "}Total {Number(wc.totalCost).toLocaleString()}
                   </label>
                 ))}
               </div>
@@ -318,7 +469,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
                     <td className="p-1 text-center">{l.ctn}</td>
                     <td className="p-1 text-center">{l.totalQty}</td>
                     <td className="p-1"><Input className="h-7 w-24 text-xs" type="number" min={0} step="0.01" value={l.unitPrice} onChange={(e) => updateLine(l.tempId, { unitPrice: Number(e.target.value) })} /></td>
-                    <td className="p-1 text-center font-medium text-slate-700">{l.amount.toFixed(2)}</td>
+                    <td className="p-1 text-center font-medium text-slate-700">{(Number(l.amount) || 0).toFixed(2)}</td>
                     <td className="p-1"><Input className="h-7 w-32 text-xs" value={l.remarks} onChange={(e) => updateLine(l.tempId, { remarks: e.target.value })} /></td>
                     <td className="p-1 text-center"><button type="button" onClick={() => removeLine(l.tempId)} className="text-slate-400 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
@@ -328,11 +479,38 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
           </div>
         )}
 
+        <div className="grid grid-cols-4 gap-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Line Currency</label>
+            <Input
+              value={sourceCurrency} maxLength={8} placeholder="BDT"
+              onChange={(e) => setSourceCurrency(e.target.value.toUpperCase())}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Convert To</label>
+            <Input
+              value={targetCurrency} maxLength={8} placeholder="USD"
+              onChange={(e) => setTargetCurrency(e.target.value.toUpperCase())}
+            />
+          </div>
+          <div className="col-span-2">
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              Exchange Rate — 1 {targetCurrency || "target"} = ? {sourceCurrency || "source"}
+            </label>
+            <Input
+              type="number" min={0} step="0.000001" placeholder="120"
+              disabled={Boolean(exchangeRate)}
+              value={manualRate} onChange={(e) => setManualRate(e.target.value)}
+            />
+          </div>
+        </div>
+
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Exchange Rate</label>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Or use a published rate</label>
             <Select value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)}>
-              <option value="">None</option>
+              <option value="">None — use the rate typed above</option>
               {ratesQuery.data?.map((r) => (<option key={r.id} value={r.id}>{r.sourceCurrency}→{r.targetCurrency} @ {r.rate}</option>))}
             </Select>
           </div>
@@ -350,10 +528,16 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 rounded-md bg-slate-50 px-4 py-3 text-sm">
-          <div><span className="text-slate-500">Line Total</span><div className="font-semibold text-slate-900">{totalValue.toFixed(2)}</div></div>
+        <div className="grid grid-cols-4 gap-4 rounded-md bg-slate-50 px-4 py-3 text-sm">
+          <div><span className="text-slate-500">Line Total</span><div className="font-semibold text-slate-900">{totalValue.toFixed(2)} {sourceCurrency}</div></div>
           <div><span className="text-slate-500">Commission</span><div className="font-semibold text-slate-900">{commissionAmount.toFixed(2)}</div></div>
-          <div><span className="text-slate-500">Grand Total</span><div className="font-semibold text-slate-900">{grandTotal.toFixed(2)}</div></div>
+          <div><span className="text-slate-500">Total Value</span><div className="font-semibold text-slate-900">{grandTotal.toFixed(2)} {sourceCurrency}</div></div>
+          <div>
+            <span className="text-slate-500">Converted</span>
+            <div className="font-semibold text-slate-900">
+              {convertedTotal === null ? "—" : `${convertedTotal.toFixed(2)} ${targetCurrency}`}
+            </div>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

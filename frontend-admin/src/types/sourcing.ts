@@ -23,6 +23,10 @@ export interface ProductVariant {
   cartonNoTo: number | null
   noOfCartons: number
   totalPcs: number
+  // Buy unit price per piece for this color (flat across its sizes) and the
+  // computed Amount = totalPcs x unitPrice.
+  unitPrice: number | null
+  totalAmount: number
   grossWeight: number | null
   netWeight: number | null
   totalGrossWeight: number
@@ -55,6 +59,8 @@ export interface Product {
   name: string
   brandName: string
   poNo: string
+  // Captured at intake; pre-fills the invoice line Material column.
+  material: string
   // Product_Templates_Custom_Fields_Module.md
   template: string | null
   templateName: string | null
@@ -92,6 +98,7 @@ export interface ProductVariantInput {
   innerBundle: number
   cartonNoFrom: number | null
   cartonNoTo: number | null
+  unitPrice: number | null
   grossWeight: number | null
   netWeight: number | null
   ctnLength: number | null
@@ -105,6 +112,7 @@ export interface ProductCreateInput {
   name: string
   brandName: string
   poNo: string
+  material?: string
   template?: string | null
   resolvedTemplateFields?: ProductTemplateFieldEntry[]
   variants: ProductVariantInput[]
