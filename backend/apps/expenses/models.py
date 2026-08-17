@@ -43,8 +43,25 @@ class Expense(UUIDModel):
         "warehouse.WarehouseCost", related_name="expenses", null=True, blank=True, on_delete=models.SET_NULL
     )
     sourceType = models.CharField(max_length=32, choices=SourceType.choices)
+    # The cost as it was actually incurred, in the supplier's currency —
+    # `currency` defaults to the Sister Profile's supplierCurrency when the
+    # caller doesn't name one (see record_expense).
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     currency = models.CharField(max_length=8, default="BDT")
+
+    # ── The same cost in the buyer's currency ─────────────────────────────
+    # The Buyer Wallet is denominated in the buyer's currency, so every
+    # supplier-currency cost is converted on its way in. The rate is copied
+    # here and never re-read: re-negotiating the Sister Profile's rate must
+    # not silently rewrite what a buyer was already charged, and a refund
+    # has to reverse at the rate the original deduction used (see
+    # _refund_for_expenses). A NULL rate means no conversion happened —
+    # either the profile has no rate yet, or the caller named a currency of
+    # its own — in which case the two amounts are equal.
+    buyerCurrency = models.CharField(max_length=8, blank=True, default="")
+    amountInBuyerCurrency = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    exchangeRateUsed = models.DecimalField(max_digits=14, decimal_places=6, null=True, blank=True)
+
     remarks = models.CharField(max_length=255, blank=True, default="")
     fieldName = models.CharField(max_length=100, blank=True, default="")  # e.g. which packaging item / custom field name
     createdBy = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="expenses", on_delete=models.PROTECT)

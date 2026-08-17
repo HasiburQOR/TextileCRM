@@ -14,8 +14,6 @@ from apps.expenses.models import Expense
 from apps.expenses.serializers import ExpenseSelfSerializer
 from apps.invoicing.models import Invoice, InvoiceStatus
 from apps.invoicing.serializers import InvoiceSelfSerializer
-from apps.ledger.models import SettlementLedger
-from apps.ledger.serializers import SettlementLedgerSerializer
 from apps.notifications.models import Notification
 from apps.notifications.serializers import NotificationSerializer
 from apps.packing.models import PackingList
@@ -44,7 +42,6 @@ class BuyerPortalDashboardView(APIView):
 
         rows = []
         for sister in sister_profiles:
-            ledger = SettlementLedger.objects.filter(sisterProfile=sister).first()
             invoice_agg = Invoice.objects.filter(sisterProfile=sister).aggregate(
                 total=Count("id"),
                 pending=Count("id", filter=Q(status=InvoiceStatus.PENDING_APPROVAL)),
@@ -62,11 +59,6 @@ class BuyerPortalDashboardView(APIView):
                     "status": sister.status,
                     "productCount": sister.products.count(),
                     "latestCostStatus": latest_cost.status if latest_cost else None,
-                    "settlement": {
-                        "totalAdvance": ledger.totalAdvance, "totalExpense": ledger.totalExpense,
-                        "amountOwed": ledger.amountOwed, "netPosition": ledger.netPosition,
-                        "negativeBalance": ledger.negativeBalance,
-                    } if ledger else None,
                     "invoices": {
                         "total": invoice_agg["total"], "pending": invoice_agg["pending"],
                         "issued": invoice_agg["issued"], "totalOutstanding": invoice_agg["outstanding"] or 0,
@@ -113,8 +105,11 @@ def _owned_order_or_none(request, order_id):
 
 
 class PortalDashboardView(APIView):
-    """§17.1: KPI tiles, active trips, recent activity, negative-balance
-    alerts — the full replacement for the old bare 4-tile dashboard."""
+    """§17.1: KPI tiles, active trips, recent activity — the full
+    replacement for the old bare 4-tile dashboard. (The settlement-ledger
+    negative-balance alert this view used to carry went away with the
+    Settlement Ledger; outstanding invoice totals below are the figure a
+    buyer means by "what I still owe".)"""
 
     permission_classes = [BuyerPortalPermission]
 
@@ -123,18 +118,7 @@ class PortalDashboardView(APIView):
         sister_profiles = list(buyer_profile.sisterProfiles.all())
         sister_ids = [s.id for s in sister_profiles]
 
-        ledgers = {l.sisterProfile_id: l for l in SettlementLedger.objects.filter(sisterProfile_id__in=sister_ids)}
-        # Negative settlement balance (expense has outrun the advance) — a
-        # different thing from unpaid invoices, so it's labeled distinctly
-        # from `invoices_outstanding` below rather than merged with it.
-        negative_settlement_balance = sum(
-            (max(Decimal("0"), -l.netPosition) for l in ledgers.values()), Decimal("0")
-        )
-        # What the buyer actually still owes against issued invoices — the
-        # figure a buyer means by "Outstanding Balance". Previously this KPI
-        # was silently sourced from the settlement balance above instead,
-        # which reads 0 whenever the net position is positive even if a real
-        # invoice sits unpaid (as it does for a freshly issued/part-paid one).
+        # What the buyer actually still owes against issued invoices.
         invoices_outstanding = Invoice.objects.filter(
             sisterProfile_id__in=sister_ids, status=InvoiceStatus.ISSUED,
         ).aggregate(total=Sum("outstandingBalance"))["total"] or Decimal("0")
@@ -161,16 +145,6 @@ class PortalDashboardView(APIView):
 
         recent_activity = Notification.objects.filter(user=request.user).order_by("-createdAt")[:10]
 
-        alerts = [
-            {
-                "sisterProfileId": str(s.id),
-                "poReference": s.poReference,
-                "netPosition": ledgers[s.id].netPosition,
-            }
-            for s in sister_profiles
-            if s.id in ledgers and ledgers[s.id].negativeBalance
-        ]
-
         return Response(
             {
                 "buyerProfile": BuyerProfileSelfSerializer(buyer_profile).data,
@@ -179,11 +153,9 @@ class PortalDashboardView(APIView):
                     "ordersInProgress": sum(1 for s in sister_profiles if s.status == "active"),
                     "ordersCompleted": sum(1 for s in sister_profiles if s.status == "completed"),
                     "invoicesOutstanding": invoices_outstanding,
-                    "negativeSettlementBalance": negative_settlement_balance,
                 },
                 "activeSourcingCosts": active_costs_data,
                 "recentActivity": NotificationSerializer(recent_activity, many=True).data,
-                "alerts": alerts,
             }
         )
 
@@ -195,17 +167,7 @@ class PortalOrdersListView(APIView):
 
     def get(self, request):
         sister_profiles = request.user.buyer_profile.sisterProfiles.all()
-        ledgers = {
-            l.sisterProfile_id: l.netPosition
-            for l in SettlementLedger.objects.filter(sisterProfile__in=sister_profiles)
-        }
-        rows = [
-            {
-                **SisterProfileSelfSerializer(s).data,
-                "currentBalance": ledgers.get(s.id, Decimal("0")),
-            }
-            for s in sister_profiles
-        ]
+        rows = [SisterProfileSelfSerializer(s).data for s in sister_profiles]
         return Response(rows)
 
 
@@ -278,19 +240,6 @@ class PortalOrderCostsView(APIView):
                 "items": ExpenseSelfSerializer(expenses, many=True).data,
             }
         )
-
-
-class PortalOrderLedgerView(APIView):
-    """§17.6: the single most important buyer-facing screen — net position."""
-
-    permission_classes = [BuyerPortalPermission]
-
-    def get(self, request, order_id):
-        sister = _owned_order_or_none(request, order_id)
-        if not sister:
-            return Response({"detail": "Not found."}, status=404)
-        ledger = SettlementLedger.objects.filter(sisterProfile=sister).first()
-        return Response(SettlementLedgerSerializer(ledger).data if ledger else None)
 
 
 class PortalOrderPackingListView(APIView):

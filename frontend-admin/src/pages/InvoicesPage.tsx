@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Eye, Plus, Trash2 } from "lucide-react"
+import { Eye, Plus, Trash2, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
@@ -13,9 +13,10 @@ import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { extractErrorMessage } from "@/lib/errors"
 import type { Paginated } from "@/types/api"
-import type { CommissionType, ExchangeRate, Invoice, InvoiceLineItemInput, InvoiceStatus } from "@/types/invoicing"
+import type { Invoice, InvoiceLineItemInput, InvoiceStatus } from "@/types/invoicing"
 import type { PackingCarton, PackingList } from "@/types/packing"
-import type { SisterProfile } from "@/types/sourcing"
+import type { CostBreakdown, SisterProfile } from "@/types/buyers"
+import { AGREEMENTS } from "@/types/buyers"
 import type { WarehouseCost } from "@/types/warehouse"
 
 const STATUS_BADGE: Record<InvoiceStatus, "warning" | "success" | "danger" | "default"> = {
@@ -263,16 +264,22 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
   const [selectedLists, setSelectedLists] = useState<Set<string>>(new Set())
   const [selectedWarehouseCosts, setSelectedWarehouseCosts] = useState<Set<string>>(new Set())
   const [lines, setLines] = useState<LineDraft[]>([])
-  const [exchangeRate, setExchangeRate] = useState("")
-  const [commissionType, setCommissionType] = useState<CommissionType>("none")
-  const [commissionValue, setCommissionValue] = useState(0)
+  // The agreement type decides HOW this rate applies (percentage of the line
+  // value, per piece, or percentage of the reimbursed costs); the operator
+  // types the number per invoice. The currency pair and exchange rate are
+  // NOT entered here — they are snapshotted from the Sister Profile.
+  const [commissionRate, setCommissionRate] = useState("")
+  const [pullExpenses, setPullExpenses] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Currency + rate typed by hand, the way it's written on the document:
-  // lines are priced in `sourceCurrency`, converted to `targetCurrency` at
-  // "1 target = manualRate source". A published rate, when picked, wins.
-  const [sourceCurrency, setSourceCurrency] = useState("BDT")
-  const [targetCurrency, setTargetCurrency] = useState("USD")
-  const [manualRate, setManualRate] = useState("")
+  // Per-invoice buyer/consignee details — entered at creation time,
+  // positioned top-left on the printed document after the company banner.
+  const [buyerCompanyName, setBuyerCompanyName] = useState("")
+  const [buyerIdNumber, setBuyerIdNumber] = useState("")
+  const [buyerAddress, setBuyerAddress] = useState("")
+  const [buyerCityCountry, setBuyerCityCountry] = useState("")
+  const [buyerContactPerson, setBuyerContactPerson] = useState("")
+  const [buyerPhone, setBuyerPhone] = useState("")
+  const [buyerCustomFields, setBuyerCustomFields] = useState<{ label: string; value: string }[]>([])
 
   const profilesQuery = useQuery({
     queryKey: ["sister-profiles", "all"],
@@ -290,10 +297,25 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
     },
     enabled: !!sisterProfile,
   })
-  const ratesQuery = useQuery({
-    queryKey: ["exchange-rates", "all"],
-    queryFn: async () => { const { data } = await api.get<Paginated<ExchangeRate>>("/exchange-rates/", { params: { page_size: 200 } }); return data.results },
+  const breakdownQuery = useQuery({
+    queryKey: ["sister-profiles", sisterProfile, "cost-breakdown"],
+    queryFn: async () => {
+      const { data } = await api.get<CostBreakdown>(`/sister-profiles/${sisterProfile}/cost-breakdown/`)
+      return data
+    },
+    enabled: !!sisterProfile,
   })
+  const breakdown = breakdownQuery.data
+
+  const selectedProfile = useMemo(
+    () => profilesQuery.data?.find((sp) => sp.id === sisterProfile),
+    [profilesQuery.data, sisterProfile],
+  )
+  const agreement = selectedProfile ? AGREEMENTS[selectedProfile.agreementType] : undefined
+  // Snapshotted server-side from the profile at generation; shown here so
+  // the preview matches what will actually be locked onto the document.
+  const sourceCurrency = selectedProfile?.supplierCurrency ?? ""
+  const targetCurrency = selectedProfile?.buyerCurrency ?? ""
 
   const listsForProfile = useMemo(
     () => (packingListsQuery.data ?? []).filter((pl) => pl.sisterProfile === sisterProfile),
@@ -349,30 +371,48 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
   }
 
   const totalValue = lines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0)
-  const commissionAmount = commissionType === "percentage" ? (totalValue * commissionValue) / 100 : commissionType === "flat" ? commissionValue : 0
+  const totalQty = lines.reduce((sum, l) => sum + (Number(l.totalQty) || 0), 0)
+
+  // Mirrors create_invoice()'s own arithmetic. Preview only — the server
+  // recomputes and locks the real figures at generation time.
+  const commissionAmount = useMemo(() => {
+    const rate = Number(commissionRate) || 0
+    if (!selectedProfile || rate <= 0) return 0
+    if (selectedProfile.agreementType === "2") return rate * totalQty
+    // Type 3 charges its percentage on the reimbursed costs, not the goods.
+    const base = selectedProfile.agreementType === "3" && pullExpenses
+      ? Number(breakdown?.total.amount ?? 0)
+      : totalValue
+    return (base * rate) / 100
+  }, [selectedProfile, commissionRate, totalQty, totalValue, pullExpenses, breakdown])
+
   const grandTotal = totalValue + commissionAmount
 
-  // Mirrors Invoice.convert() on the server: a published rate multiplies,
-  // a hand-typed "1 USD = 120 BDT" divides. Preview only — the server
-  // recomputes and locks the real figure at generation time.
+  // Conversions DIVIDE by the profile's rate, which reads "1 buyer = X supplier".
   const convertedTotal = useMemo(() => {
-    const published = ratesQuery.data?.find((r) => r.id === exchangeRate)
-    if (published) return grandTotal * Number(published.rate)
-    const rate = Number(manualRate)
-    return manualRate && rate > 0 ? grandTotal / rate : null
-  }, [ratesQuery.data, exchangeRate, manualRate, grandTotal])
+    const rate = Number(selectedProfile?.exchangeRate ?? 0)
+    return rate > 0 ? grandTotal / rate : null
+  }, [selectedProfile, grandTotal])
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      const hasBuyerDetails = buyerCompanyName || buyerIdNumber || buyerAddress || buyerCityCountry || buyerContactPerson || buyerPhone || buyerCustomFields.length > 0
       const payload = {
         sisterProfile,
-        exchangeRate: exchangeRate || null,
-        sourceCurrency,
-        targetCurrency,
-        manualRate: manualRate || null,
-        commissionType,
-        commissionValue,
+        commissionRate,
+        pullExpenses,
         lineItems: lines.map(({ tempId: _tempId, ...rest }) => rest),
+        ...(hasBuyerDetails ? {
+          buyerDetails: {
+            companyName: buyerCompanyName,
+            idNumber: buyerIdNumber,
+            address: buyerAddress,
+            cityCountry: buyerCityCountry,
+            contactPerson: buyerContactPerson,
+            phone: buyerPhone,
+            customFields: buyerCustomFields.filter(f => f.label || f.value),
+          },
+        } : {}),
       }
       const { data } = await api.post<Invoice>("/invoices/", payload)
       return data
@@ -384,7 +424,14 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!sisterProfile) { setError("Select a Sister Profile."); return }
-    if (lines.length === 0) { setError("Select at least one Packing List or Warehouse Cost to pull line items from."); return }
+    if (lines.length === 0 && !pullExpenses) {
+      setError("Select at least one Packing List or Warehouse Cost to pull line items from.")
+      return
+    }
+    if (!(Number(commissionRate) > 0)) {
+      setError(`Enter the ${agreement?.rateLabel.toLowerCase() ?? "agreement rate"} for this invoice.`)
+      return
+    }
     setError(null)
     createMutation.mutate()
   }
@@ -403,6 +450,64 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
             <option value="">Select...</option>
             {profilesQuery.data?.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id} — {sp.buyerProfileName}</option>))}
           </Select>
+        </div>
+
+        {/* ── Buyer Details (printed top-left, after company banner) ─── */}
+        <div className="rounded-md border border-slate-200 p-3">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Buyer / Consignee Details</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Company Name</label>
+              <Input placeholder='e.g. LTD "LOXY"' value={buyerCompanyName} onChange={(e) => setBuyerCompanyName(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">I/D No</label>
+              <Input placeholder="e.g. 404853592" value={buyerIdNumber} onChange={(e) => setBuyerIdNumber(e.target.value)} />
+            </div>
+            <div className="col-span-2">
+              <label className="mb-1 block text-xs font-medium text-slate-600">Address</label>
+              <Input placeholder="e.g. 2 PEKINI STREET" value={buyerAddress} onChange={(e) => setBuyerAddress(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">City / Country</label>
+              <Input placeholder="e.g. TBILISI, GEORGIA" value={buyerCityCountry} onChange={(e) => setBuyerCityCountry(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Contact Person</label>
+              <Input placeholder="e.g. Maka Tsartsidze" value={buyerContactPerson} onChange={(e) => setBuyerContactPerson(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Phone</label>
+              <Input placeholder="e.g. +995 322363350" value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} />
+            </div>
+          </div>
+
+          {/* Custom fields */}
+          {buyerCustomFields.length > 0 && (
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              {buyerCustomFields.map((field, idx) => (
+                <div key={idx} className="col-span-2 grid grid-cols-2 gap-2">
+                  <Input placeholder="Custom label" value={field.label} onChange={(e) => {
+                    const next = [...buyerCustomFields]; next[idx] = { ...next[idx], label: e.target.value }; setBuyerCustomFields(next)
+                  }} />
+                  <div className="flex gap-1">
+                    <Input className="flex-1" placeholder="Custom value" value={field.value} onChange={(e) => {
+                      const next = [...buyerCustomFields]; next[idx] = { ...next[idx], value: e.target.value }; setBuyerCustomFields(next)
+                    }} />
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setBuyerCustomFields(buyerCustomFields.filter((_, i) => i !== idx))}>
+                      <X className="h-3.5 w-3.5 text-slate-400" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <Button
+            type="button" variant="outline" size="sm" className="mt-2"
+            onClick={() => setBuyerCustomFields([...buyerCustomFields, { label: "", value: "" }])}
+          >
+            <Plus className="h-3 w-3 mr-1" /> Add Custom Field
+          </Button>
         </div>
 
         {sisterProfile && (
@@ -479,65 +584,122 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
           </div>
         )}
 
-        <div className="grid grid-cols-4 gap-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Line Currency</label>
-            <Input
-              value={sourceCurrency} maxLength={8} placeholder="BDT"
-              onChange={(e) => setSourceCurrency(e.target.value.toUpperCase())}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Convert To</label>
-            <Input
-              value={targetCurrency} maxLength={8} placeholder="USD"
-              onChange={(e) => setTargetCurrency(e.target.value.toUpperCase())}
-            />
-          </div>
-          <div className="col-span-2">
-            <label className="mb-1 block text-xs font-medium text-slate-600">
-              Exchange Rate — 1 {targetCurrency || "target"} = ? {sourceCurrency || "source"}
-            </label>
-            <Input
-              type="number" min={0} step="0.000001" placeholder="120"
-              disabled={Boolean(exchangeRate)}
-              value={manualRate} onChange={(e) => setManualRate(e.target.value)}
-            />
-          </div>
-        </div>
+        {/* ── Agreement charge + the costs behind it ──────────────────── */}
+        <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+          <div className="flex flex-col gap-4">
+            <div className="rounded-md border border-slate-200 p-3">
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Agreement charge</h3>
+              {agreement ? (
+                <>
+                  <p className="mb-3 text-xs leading-relaxed text-slate-500">{agreement.explanation}</p>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">{agreement.rateLabel} *</label>
+                  <div className="relative w-48">
+                    <Input
+                      required type="number" min={0} step="0.01" value={commissionRate}
+                      onChange={(e) => setCommissionRate(e.target.value)}
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                      {agreement.rateSuffix}
+                    </span>
+                  </div>
+                  {selectedProfile?.agreementType === "3" && (
+                    <label className="mt-3 flex items-start gap-2 text-xs text-slate-600">
+                      <input
+                        type="checkbox" className="mt-0.5 h-3.5 w-3.5"
+                        checked={pullExpenses} onChange={(e) => setPullExpenses(e.target.checked)}
+                      />
+                      <span>
+                        Add every recorded cost on this order as a reimbursement line, and base the commission on
+                        that cost total. Nothing marks a cost as already billed — check the lines before submitting
+                        if you have invoiced this order before.
+                      </span>
+                    </label>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-slate-400">Select a Sister Profile to see its agreement.</p>
+              )}
+            </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Or use a published rate</label>
-            <Select value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)}>
-              <option value="">None — use the rate typed above</option>
-              {ratesQuery.data?.map((r) => (<option key={r.id} value={r.id}>{r.sourceCurrency}→{r.targetCurrency} @ {r.rate}</option>))}
-            </Select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Commission Type</label>
-            <Select value={commissionType} onChange={(e) => setCommissionType(e.target.value as CommissionType)}>
-              <option value="none">None</option>
-              <option value="percentage">Percentage</option>
-              <option value="flat">Flat</option>
-            </Select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Commission Value</label>
-            <Input type="number" min={0} step="0.01" disabled={commissionType === "none"} value={commissionValue} onChange={(e) => setCommissionValue(Number(e.target.value))} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-4 gap-4 rounded-md bg-slate-50 px-4 py-3 text-sm">
-          <div><span className="text-slate-500">Line Total</span><div className="font-semibold text-slate-900">{totalValue.toFixed(2)} {sourceCurrency}</div></div>
-          <div><span className="text-slate-500">Commission</span><div className="font-semibold text-slate-900">{commissionAmount.toFixed(2)}</div></div>
-          <div><span className="text-slate-500">Total Value</span><div className="font-semibold text-slate-900">{grandTotal.toFixed(2)} {sourceCurrency}</div></div>
-          <div>
-            <span className="text-slate-500">Converted</span>
-            <div className="font-semibold text-slate-900">
-              {convertedTotal === null ? "—" : `${convertedTotal.toFixed(2)} ${targetCurrency}`}
+            <div className="grid grid-cols-4 gap-4 rounded-md bg-slate-50 px-4 py-3 text-sm">
+              <div>
+                <span className="text-slate-500">Line Total</span>
+                <div className="font-semibold text-slate-900">{totalValue.toFixed(2)} {sourceCurrency}</div>
+              </div>
+              <div>
+                <span className="text-slate-500">Agreement charge</span>
+                <div className="font-semibold text-slate-900">{commissionAmount.toFixed(2)} {sourceCurrency}</div>
+              </div>
+              <div>
+                <span className="text-slate-500">Total Value</span>
+                <div className="font-semibold text-slate-900">{grandTotal.toFixed(2)} {sourceCurrency}</div>
+              </div>
+              <div>
+                <span className="text-slate-500">In {targetCurrency || "buyer currency"}</span>
+                <div className="font-semibold text-slate-900">
+                  {convertedTotal === null ? "—" : `${convertedTotal.toFixed(2)} ${targetCurrency}`}
+                </div>
+              </div>
             </div>
           </div>
+
+          {/* Where this order's money has already gone — the figures behind
+              the charge, so the operator can sanity-check it before issuing. */}
+          <aside className="rounded-md border border-slate-200 p-3">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recorded costs</h3>
+            {!sisterProfile ? (
+              <p className="text-xs text-slate-400">Select a Sister Profile.</p>
+            ) : breakdownQuery.isLoading ? (
+              <div className="flex justify-center py-4"><Spinner className="text-slate-400" /></div>
+            ) : !breakdown ? (
+              <p className="text-xs text-slate-400">No costs recorded yet.</p>
+            ) : (
+              <dl className="flex flex-col gap-2 text-xs">
+                {(["sourcing", "warehouse", "qc", "other"] as const).map((group) => (
+                  <div key={group} className="flex items-baseline justify-between gap-2">
+                    <dt className="capitalize text-slate-500">{group}</dt>
+                    <dd className="text-right">
+                      <div className="font-medium text-slate-900">
+                        {Number(breakdown.groups[group].amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
+                        {breakdown.supplierCurrency}
+                      </div>
+                      <div className="text-slate-400">
+                        {Number(breakdown.groups[group].amountBuyer).toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
+                        {breakdown.buyerCurrency}
+                      </div>
+                    </dd>
+                  </div>
+                ))}
+                <div className="flex items-baseline justify-between gap-2 border-t border-slate-100 pt-2">
+                  <dt className="font-medium text-slate-700">Total</dt>
+                  <dd className="text-right">
+                    <div className="font-semibold text-slate-900">
+                      {Number(breakdown.total.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
+                      {breakdown.supplierCurrency}
+                    </div>
+                    <div className="text-slate-400">
+                      {Number(breakdown.total.amountBuyer).toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
+                      {breakdown.buyerCurrency}
+                    </div>
+                  </dd>
+                </div>
+                {!!breakdown.units.totalOrderQty && (
+                  <div className="flex items-baseline justify-between gap-2 border-t border-slate-100 pt-2">
+                    <dt className="text-slate-500">Per piece</dt>
+                    <dd className="text-right text-slate-900">
+                      {breakdown.units.unitCost == null
+                        ? "—"
+                        : `${Number(breakdown.units.unitCost).toFixed(2)} ${breakdown.supplierCurrency}`}
+                      <span className="block text-slate-400">{breakdown.units.totalOrderQty.toLocaleString()} pcs</span>
+                    </dd>
+                  </div>
+                )}
+                {breakdown.rateLabel && (
+                  <p className="border-t border-slate-100 pt-2 text-slate-400">{breakdown.rateLabel}</p>
+                )}
+              </dl>
+            )}
+          </aside>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

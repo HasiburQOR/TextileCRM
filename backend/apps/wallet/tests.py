@@ -45,7 +45,7 @@ class WalletServiceTests(APITestCase):
         self.wallet = services.create_wallet(self.buyer)
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
 
     # ── Top-up + Expense-driven deduction (Acceptance Checklist item 2) ──
@@ -66,6 +66,121 @@ class WalletServiceTests(APITestCase):
         self.assertEqual(transactions[1].type, WalletTransactionType.DEDUCTION)
         self.assertEqual(transactions[1].amount, Decimal("-150.00"))
         self.assertEqual(transactions[1].sourceExpense.sourceType, SourceType.QC_CARRYING)
+
+    # ── Dual currency: costs are incurred in BDT, charged in USD ─────────
+
+    def _rated_profile(self, rate="120"):
+        self.sister.supplierCurrency = "BDT"
+        self.sister.buyerCurrency = "USD"
+        self.sister.exchangeRate = Decimal(rate)
+        self.sister.save(update_fields=["supplierCurrency", "buyerCurrency", "exchangeRate"])
+        return self.sister
+
+    def test_a_supplier_currency_cost_is_converted_into_the_buyer_wallet(self):
+        self._rated_profile("120")
+        services.record_top_up(wallet=self.wallet, amount=1000, currency="USD", method_reference="TXN-001", created_by=self.admin)
+
+        expense = record_expense(
+            sister_profile=self.sister, source_type=SourceType.WAREHOUSE_LOADER, amount=12000, created_by=self.admin,
+        )
+        # The Expense keeps both figures and the rate it used.
+        self.assertEqual(expense.amount, Decimal("12000"))
+        self.assertEqual(expense.currency, "BDT")
+        self.assertEqual(expense.amountInBuyerCurrency, Decimal("100.00"))  # 12,000 / 120
+        self.assertEqual(expense.buyerCurrency, "USD")
+        self.assertEqual(expense.exchangeRateUsed, Decimal("120"))
+
+        # The wallet is charged in ITS currency, and shows what was spent.
+        txn = WalletTransaction.objects.get(sourceExpense=expense, type=WalletTransactionType.DEDUCTION)
+        self.assertEqual(txn.amount, Decimal("-100.00"))
+        self.assertEqual(txn.currency, "USD")
+        self.assertEqual(txn.sourceAmount, Decimal("-12000.00"))
+        self.assertEqual(txn.sourceCurrency, "BDT")
+        self.assertEqual(txn.exchangeRateUsed, Decimal("120"))
+
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("900.00"))  # 1,000 - 100
+
+    def test_an_unrated_profile_deducts_one_to_one(self):
+        """Rate 0 means the deal's rate hasn't been agreed yet — the cost
+        passes through unconverted rather than vanishing or dividing by 0."""
+        record_expense(sister_profile=self.sister, source_type=SourceType.QC_LUNCH, amount=150, created_by=self.admin)
+        txn = WalletTransaction.objects.get(type=WalletTransactionType.DEDUCTION)
+        self.assertEqual(txn.amount, Decimal("-150.00"))
+        self.assertIsNone(txn.exchangeRateUsed)
+
+    def test_a_caller_supplied_currency_is_not_converted(self):
+        """The profile's rate describes supplier→buyer only; it says nothing
+        about a third currency, so an explicit one passes through as-is."""
+        self._rated_profile("120")
+        expense = record_expense(
+            sister_profile=self.sister, source_type=SourceType.EXTRA_COST, amount=90,
+            currency="EUR", created_by=self.admin,
+        )
+        self.assertEqual(expense.currency, "EUR")
+        self.assertEqual(expense.amountInBuyerCurrency, Decimal("90.00"))
+        self.assertIsNone(expense.exchangeRateUsed)
+
+    def test_a_refund_reverses_at_the_rate_it_was_charged_at(self):
+        """The regression that matters: re-negotiating the rate must not
+        change what an already-charged cost is worth. Refunding 12,000 BDT
+        at a new rate of 100 would hand back 120 USD for a 100 USD charge."""
+        self._rated_profile("120")
+        product = Product.objects.create(sisterProfile=self.sister, name="Tote", createdBy=self.rep)
+        record_expense(
+            sister_profile=self.sister, product=product, source_type=SourceType.WAREHOUSE_LOADER,
+            amount=12000, created_by=self.admin,
+        )
+        self.wallet.refresh_from_db()
+        balance_after_charge = self.wallet.balance
+        self.assertEqual(balance_after_charge, Decimal("-100.00"))
+
+        # The deal is re-negotiated before the cost is corrected away.
+        self._rated_profile("100")
+        delete_expenses(product=product, source_types=[SourceType.WAREHOUSE_LOADER], actor=self.admin)
+
+        refund = WalletTransaction.objects.get(type=WalletTransactionType.REFUND)
+        self.assertEqual(refund.amount, Decimal("100.00"))  # NOT 120
+        self.assertEqual(refund.sourceAmount, Decimal("12000.00"))
+        self.assertEqual(refund.exchangeRateUsed, Decimal("120"))  # the original, not the new one
+
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("0.00"))  # exactly back to where it started
+
+    def test_the_balance_is_always_the_sum_of_the_buyer_currency_amounts(self):
+        self._rated_profile("120")
+        services.record_top_up(wallet=self.wallet, amount=500, currency="USD", method_reference="T1", created_by=self.admin)
+        record_expense(sister_profile=self.sister, source_type=SourceType.WAREHOUSE_LOADER, amount=6000, created_by=self.admin)
+        record_expense(sister_profile=self.sister, source_type=SourceType.QC_LUNCH, amount=1200, created_by=self.admin)
+
+        self.wallet.refresh_from_db()
+        # 500 - 50 - 10
+        self.assertEqual(self.wallet.balance, Decimal("440.00"))
+        self.assertEqual(
+            sum(t.amount for t in WalletTransaction.objects.filter(wallet=self.wallet)),
+            self.wallet.balance,
+        )
+
+    def test_wallet_summary_reports_both_currencies(self):
+        self._rated_profile("120")
+        services.record_top_up(wallet=self.wallet, amount=1000, currency="USD", method_reference="T1", created_by=self.admin)
+        record_expense(sister_profile=self.sister, source_type=SourceType.WAREHOUSE_LOADER, amount=12000, created_by=self.admin)
+
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get(reverse("wallets-summary"))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+        usd = next(r for r in resp.data["byCurrency"] if r["currency"] == "USD")
+        self.assertEqual(usd["topUps"], Decimal("1000.00"))
+        self.assertEqual(usd["charged"], Decimal("100.00"))
+        self.assertEqual(usd["balance"], Decimal("900.00"))
+
+        bdt = next(r for r in resp.data["bySupplierCurrency"] if r["currency"] == "BDT")
+        self.assertEqual(bdt["spent"], Decimal("12000.00"))
+
+    def test_wallet_summary_is_admin_only(self):
+        self.client.force_authenticate(user=self.rep)
+        self.assertEqual(self.client.get(reverse("wallets-summary")).status_code, status.HTTP_403_FORBIDDEN)
 
     def test_top_up_requires_method_reference(self):
         with self.assertRaises(ValidationError):

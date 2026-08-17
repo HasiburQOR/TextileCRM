@@ -8,12 +8,10 @@ from apps.expenses.models import Expense
 
 class BuyerWallet(models.Model):
     """Buyer_Wallet_Module.md: one pooled cash wallet per Buyer Profile (not
-    per Sister Profile) — distinct from, but fed by, the same Expense table
-    as the SettlementLedger (apps.ledger.models). `balance` is never
-    hand-edited — it's a materialized SUM(WalletTransaction.amount),
-    recomputed on every transaction write by
-    apps.wallet.services.recompute_wallet_balance, same pattern as
-    SettlementLedger.netPosition."""
+    per Sister Profile) — fed by the same Expense table the invoice cost
+    totals draw from. `balance` is never hand-edited — it's a materialized
+    SUM(WalletTransaction.amount), recomputed on every transaction write by
+    apps.wallet.services.recompute_wallet_balance."""
 
     buyerProfile = models.OneToOneField(BuyerProfile, related_name="wallet", primary_key=True, on_delete=models.CASCADE)
     currency = models.CharField(max_length=8, default="USD")
@@ -48,12 +46,26 @@ class WalletTransaction(UUIDModel):
 
     wallet = models.ForeignKey(BuyerWallet, related_name="transactions", on_delete=models.CASCADE)
     type = models.CharField(max_length=16, choices=WalletTransactionType.choices)
-    # Positive for top_up/refund, negative for deduction; adjustment can be either.
+    # Positive for top_up/refund, negative for deduction; adjustment can be
+    # either. ALWAYS in the wallet's own currency — `balance` is a
+    # materialized SUM of this column, so a row in any other currency would
+    # corrupt it. The originating figure lives in sourceAmount below.
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     currency = models.CharField(max_length=8, default="USD")
-    # Only set if this transaction's amount required conversion from
-    # `currency` to the wallet's base currency — locked permanently at
-    # transaction time, same rule as Invoice.exchangeRateValueLocked.
+
+    # ── What the cost actually was, before conversion ─────────────────────
+    # A sourcing/warehouse cost is incurred in the supplier's currency but
+    # deducted from a wallet held in the buyer's, so both figures are kept:
+    # `sourceAmount`/`sourceCurrency` is what was spent on the ground,
+    # `amount`/`currency` is what the buyer was charged. Both are shown, to
+    # both parties. Null/blank on top-ups and adjustments, which are already
+    # made in the wallet's own currency.
+    sourceAmount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    sourceCurrency = models.CharField(max_length=8, blank=True, default="")
+    # The rate that connects the two, quoted as "1 wallet currency = <rate>
+    # source currency" — locked permanently at transaction time, same rule
+    # as Invoice.exchangeRateValueLocked. NULL means no conversion was
+    # applied and the two amounts are equal.
     exchangeRateUsed = models.DecimalField(max_digits=14, decimal_places=6, null=True, blank=True)
 
     # Free-text, not a hard FK-backed choice: mirrors apps.expenses.models.SourceType

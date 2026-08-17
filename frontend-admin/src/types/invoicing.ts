@@ -85,11 +85,24 @@ export interface InvoicePayment {
   createdAt: string
 }
 
+export interface BuyerDetails {
+  id?: string
+  companyName: string
+  idNumber: string
+  address: string
+  cityCountry: string
+  contactPerson: string
+  phone: string
+  /** List of {label, value} pairs for custom fields. */
+  customFields: { label: string; value: string }[]
+}
+
 export interface Invoice {
   id: string
   sisterProfile: string
   sisterProfilePoReference: string
   buyerName: string
+  buyerDetails: BuyerDetails | null
   invoiceNo: string
   status: InvoiceStatus
   rejectionReason: string
@@ -124,6 +137,11 @@ export interface InvoiceCreateInput {
   commissionType: CommissionType
   commissionValue: number
   lineItems: InvoiceLineItemInput[]
+  sourceCurrency?: string
+  targetCurrency?: string
+  manualRate?: string | null
+  rateQuote?: string | null
+  buyerDetails?: BuyerDetails
 }
 
 export interface InvoicePaymentInput {

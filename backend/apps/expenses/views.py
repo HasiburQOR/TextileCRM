@@ -62,6 +62,16 @@ class ExpenseViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         qs = super().get_queryset()
         params = self.request.query_params
 
+        # ?id=xxx&id=yyy — selective export of specific rows (used by the
+        # frontend's "Download Selected" checkbox feature). Accepts one or
+        # more comma-separated UUIDs.
+        ids = [v for v in params.getlist("id") if v]
+        if not ids:
+            # Also accept a single comma-separated value for convenience
+            ids = [v for v in params.get("id", "").split(",") if v]
+        if ids:
+            qs = qs.filter(pk__in=ids)
+
         for param, field in (
             ("sisterProfile", "sisterProfile_id"),
             ("buyerProfile", "sisterProfile__buyerProfile_id"),
@@ -109,7 +119,9 @@ class ExpenseViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
             product=product,
             source_type=data.get("sourceType"),
             amount=data.get("amount"),
-            currency=data.get("currency", "BDT"),
+            # Omitted -> the Sister Profile's own supplier currency, rather
+            # than a hard-coded BDT that may not be this deal's currency.
+            currency=data.get("currency") or None,
             remarks=data.get("remarks", ""),
             field_name=data.get("fieldName", ""),
             created_by=request.user,

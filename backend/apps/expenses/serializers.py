@@ -14,16 +14,24 @@ class ExpenseSerializer(serializers.ModelSerializer):
         model = Expense
         fields = [
             "id", "sisterProfile", "sisterProfilePoReference", "buyerProfile", "buyerProfileName",
-            "product", "productName", "sourceType", "amount", "currency", "remarks", "fieldName",
+            "product", "productName", "sourceType", "amount", "currency",
+            "amountInBuyerCurrency", "buyerCurrency", "exchangeRateUsed",
+            "remarks", "fieldName",
             "createdBy", "createdByName", "createdAt",
         ]
-        read_only_fields = ["id", "createdBy", "createdAt"]
+        read_only_fields = [
+            "id", "createdBy", "createdAt", "amountInBuyerCurrency", "buyerCurrency", "exchangeRateUsed",
+        ]
 
 
 class ExpenseSelfSerializer(serializers.ModelSerializer):
-    """Buyer-facing — BR-55/FR-80: expense summary per Sister Profile."""
+    """Buyer-facing — BR-55/FR-80: expense summary per Sister Profile. Shows
+    both the cost as incurred and what it took off the buyer's own wallet."""
 
     class Meta:
         model = Expense
-        fields = ["id", "sourceType", "amount", "currency", "remarks", "createdAt"]
+        fields = [
+            "id", "sourceType", "amount", "currency",
+            "amountInBuyerCurrency", "buyerCurrency", "exchangeRateUsed", "remarks", "createdAt",
+        ]
         read_only_fields = fields

@@ -1,3 +1,5 @@
+from decimal import ROUND_HALF_UP, Decimal
+
 from django.db import models
 
 from apps.core.models import TimeStampedModel, UUIDModel
@@ -36,20 +38,15 @@ class BuyerProfile(UUIDModel, TimeStampedModel):
 
 
 class AgreementType(models.TextChoices):
-    # Label matches the actual formula in apps.ledger.services.recompute_settlement:
-    # amountOwed = totalExpense * (percentage_rate / 100) — a percentage of
-    # sourcing expense, not of purchase/goods value (see BRD §4.3).
+    """Label-only: the agreement type itself carries no rate any more. The
+    commission rate is entered per invoice at creation time, mapped from the
+    type (1 → percentage of sourcing expense, 2 → fixed rate per unit,
+    3 → reimburse expenses + commission percentage) — see
+    apps.invoicing.services.create_invoice."""
+
     TYPE_1 = "1", "Type 1 — % of sourcing expense"
     TYPE_2 = "2", "Type 2 — fixed rate per unit"
     TYPE_3 = "3", "Type 3 — reimburse + commission"
-
-
-# Required key(s) in `agreementRateConfig` per Agreement Type (BRD 4.3).
-AGREEMENT_TYPE_RATE_KEYS = {
-    AgreementType.TYPE_1: "percentage_rate",
-    AgreementType.TYPE_2: "rate_per_unit",
-    AgreementType.TYPE_3: "commission_percentage",
-}
 
 
 class SisterProfileStatus(models.TextChoices):
@@ -70,9 +67,24 @@ class SisterProfile(UUIDModel, TimeStampedModel):
     # real-world PO number — never merge or auto-fill one from the other.
     referenceCode = models.CharField(max_length=32, unique=True, default=generate_sister_profile_reference_code)
     poReference = models.CharField(max_length=255, blank=True, default="")
+    # Label-only (see AgreementType above) — the rate lives on each invoice.
     agreementType = models.CharField(max_length=1, choices=AgreementType.choices)
-    # e.g. {"percentage_rate": 8} / {"rate_per_unit": 1.5} / {"commission_percentage": 5}
-    agreementRateConfig = models.JSONField(default=dict)
+
+    # ── Currency configuration ────────────────────────────────────────────
+    # Moved here from the per-invoice exchange-rate flow: one currency pair
+    # and one rate per order, set when the deal is struck. Every invoice
+    # generated for this profile snapshots these three values at creation
+    # (FR-57's lock-at-generation discipline), so later edits never rewrite
+    # a financial document that was already issued.
+    # The currency the supplier side prices things in (expenses, line items).
+    supplierCurrency = models.CharField(max_length=8, default="BDT")
+    # The currency the buyer pays / reads totals in.
+    buyerCurrency = models.CharField(max_length=8, default="USD")
+    # Quoted as "1 buyer = <rate> supplier" (e.g. 1 USD = 120 BDT) — the way
+    # a rate is written by hand on a commercial invoice. Converting supplier
+    # → buyer therefore DIVIDES by it (see convert_to_buyer_currency).
+    exchangeRate = models.DecimalField(max_digits=14, decimal_places=6, default=0)
+
     status = models.CharField(max_length=16, choices=SisterProfileStatus.choices, default=SisterProfileStatus.ACTIVE)
 
     class Meta:
@@ -82,6 +94,17 @@ class SisterProfile(UUIDModel, TimeStampedModel):
         return f"{self.poReference or self.id} ({self.buyerProfile.name})"
 
     def is_rate_locked(self) -> bool:
-        """FR-66: agreement type/rate become immutable once cost entries
-        exist."""
+        """FR-66: the currency configuration (currencies + rate) becomes
+        immutable once cost entries exist."""
         return self.expenses.exists()
+
+    def convert_to_buyer_currency(self, amount):
+        """`amount` (in supplierCurrency) expressed in buyerCurrency, i.e.
+        divided by the rate ("1 buyer = X supplier"). Returns None when no
+        rate is set, so callers can omit the converted figure entirely
+        rather than print a misleading 0.00."""
+        rate = Decimal(self.exchangeRate or 0)
+        if not rate:
+            return None
+        converted = Decimal(amount or 0) / rate
+        return converted.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

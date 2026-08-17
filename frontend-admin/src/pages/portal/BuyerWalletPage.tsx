@@ -73,7 +73,8 @@ export function BuyerWalletPage() {
                     <th className="px-4 py-3 font-medium">Type</th>
                     <th className="px-4 py-3 font-medium">Description</th>
                     <th className="px-4 py-3 font-medium">Order</th>
-                    <th className="px-4 py-3 font-medium">Amount</th>
+                    <th className="px-4 py-3 font-medium">Spent on your behalf</th>
+                    <th className="px-4 py-3 font-medium">Charged to you</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -83,8 +84,20 @@ export function BuyerWalletPage() {
                       <td className="px-4 py-3"><Badge variant={WALLET_TXN_TYPE_BADGE[t.type]}>{WALLET_TXN_TYPE_LABEL[t.type]}</Badge></td>
                       <td className="px-4 py-3 text-slate-700">{t.description}</td>
                       <td className="px-4 py-3 text-slate-500">{t.sisterProfilePoReference || "—"}</td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {t.sourceAmount == null ? (
+                          "—"
+                        ) : (
+                          <>
+                            {Number(t.sourceAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
+                            {t.sourceCurrency}
+                            {t.rateLabel && <span className="block text-xs text-slate-400">{t.rateLabel}</span>}
+                          </>
+                        )}
+                      </td>
                       <td className={`px-4 py-3 font-medium ${Number(t.amount) < 0 ? "text-red-600" : "text-emerald-600"}`}>
-                        {Number(t.amount) > 0 ? "+" : ""}{Number(t.amount).toLocaleString()} {t.currency}
+                        {Number(t.amount) > 0 ? "+" : ""}
+                        {Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} {t.currency}
                       </td>
                     </tr>
                   ))}

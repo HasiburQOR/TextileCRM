@@ -116,13 +116,24 @@ class InvoiceServiceTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.employee = User.objects.create_user(username="emp", password="pass12345", role=Roles.EMPLOYEE)
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
 
     def _line_items(self, amount="1000"):
         return [{"description": "Kids T-Shirts", "ctn": 20, "qtyPerCtn": 50, "unitPrice": "1.00", "amount": amount}]
+
+    def _invoice(self, amount="1000", commission_rate=10, **kwargs):
+        """The default lifecycle fixture: 1,000 of goods on a Type 1 profile
+        at 10% — a grand total of 1,100, which is what every status/payment
+        assertion below is written against. The agreement type decides HOW
+        the rate applies (see AGREEMENT_COMMISSION_TYPES); a rate is always
+        required, so there is no such thing as a commission-free invoice."""
+        return services.create_invoice(
+            sister_profile=self.sister, created_by=self.employee,
+            line_items=self._line_items(amount), commission_rate=commission_rate, **kwargs,
+        )
 
     # ── A Warehouse Cost can be pulled in as its own line item ──────────
     # Mirrors how a PackingCarton becomes a line — pick the row, it's
@@ -138,7 +149,9 @@ class InvoiceServiceTests(APITestCase):
             "description": "Warehouse Cost — PO-001", "ctn": 1, "qtyPerCtn": 1, "totalQty": 1,
             "unitPrice": str(wc.totalCost), "amount": str(wc.totalCost), "warehouseCost": wc,
         }]
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=line_items)
+        invoice = services.create_invoice(
+            sister_profile=self.sister, created_by=self.employee, line_items=line_items, commission_rate=10,
+        )
         self.assertEqual(invoice.totalValue, Decimal("1065.00"))
         wc_line = invoice.lineItems.get(warehouseCost=wc)
         self.assertEqual(wc_line.amount, Decimal("65.00"))
@@ -151,39 +164,63 @@ class InvoiceServiceTests(APITestCase):
                 "description": "Warehouse Cost", "ctn": 1, "qtyPerCtn": 1, "totalQty": 1,
                 "unitPrice": "40", "amount": "40", "warehouseCost": wc,
             }],
+            commission_rate=10,
         )
         warehouse_services.delete_warehouse_cost(wc, actor=self.employee)
         wc_line = invoice.lineItems.get(description="Warehouse Cost")
         self.assertIsNone(wc_line.warehouseCost)  # SET_NULL, not cascaded
         self.assertEqual(wc_line.amount, Decimal("40.00"))  # the invoice's own copy is untouched
 
-    # ── Commission formulas (BR-43/FR-50) ───────────────────────────────
+    # ── Agreement-driven commission (BR-43/FR-50) ───────────────────────
+    # The Sister Profile's agreement type is a label that decides HOW the
+    # per-invoice rate applies; the rate itself is typed at generation time.
 
-    def test_no_commission_by_default(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
-        self.assertEqual(invoice.totalValue, Decimal("1000.00"))
-        self.assertEqual(invoice.commission_amount(), 0)
-        self.assertEqual(invoice.outstandingBalance, Decimal("1000.00"))
+    def test_a_rate_is_required_because_every_agreement_charges_one(self):
+        with self.assertRaises(ValidationError):
+            services.create_invoice(
+                sister_profile=self.sister, created_by=self.employee, line_items=self._line_items(),
+            )
 
-    def test_percentage_commission(self):
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=self._line_items(),
-            commission_type=CommissionType.PERCENTAGE, commission_value=5,
-        )
+    def test_a_non_positive_rate_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            services.create_invoice(
+                sister_profile=self.sister, created_by=self.employee,
+                line_items=self._line_items(), commission_rate=0,
+            )
+
+    def test_type_1_charges_a_percentage_of_the_line_value(self):
+        invoice = self._invoice(commission_rate=5)
+        self.assertEqual(invoice.commissionType, CommissionType.PERCENTAGE)
         self.assertEqual(invoice.commission_amount(), Decimal("50.00"))
         self.assertEqual(invoice.outstandingBalance, Decimal("1050.00"))
+        # Type 1's goods are the buyer's own purchases — only the fee is owed.
+        self.assertEqual(invoice.amount_owed(), Decimal("50.00"))
 
-    def test_flat_commission(self):
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=self._line_items(),
-            commission_type=CommissionType.FLAT, commission_value=75,
-        )
-        self.assertEqual(invoice.commission_amount(), Decimal("75.00"))
-        self.assertEqual(invoice.outstandingBalance, Decimal("1075.00"))
+    def test_type_2_charges_a_fixed_rate_per_unit(self):
+        self.sister.agreementType = AgreementType.TYPE_2
+        self.sister.save(update_fields=["agreementType"])
+        # 20 ctn x 50 pcs = 1,000 pcs at 0.25 each.
+        invoice = self._invoice(commission_rate="0.25")
+        self.assertEqual(invoice.commissionType, CommissionType.PER_UNIT)
+        self.assertEqual(invoice.total_qty(), 1000)
+        self.assertEqual(invoice.commission_amount(), Decimal("250.00"))
+        self.assertEqual(invoice.outstandingBalance, Decimal("1250.00"))
+
+    def test_type_2_commission_counts_the_lines_saved_in_the_same_call(self):
+        """Regression: the commission is computed before the line items are
+        persisted, so a per-unit rate must read the in-memory quantities. If
+        it queried the (still empty) relation it would silently charge 0."""
+        self.sister.agreementType = AgreementType.TYPE_2
+        self.sister.save(update_fields=["agreementType"])
+        invoice = self._invoice(commission_rate="1")
+        self.assertEqual(invoice.commissionTotalSupplier, Decimal("1000.00"))
+        self.assertNotEqual(invoice.commissionTotalSupplier, Decimal("0"))
 
     def test_cannot_create_invoice_with_no_line_items(self):
         with self.assertRaises(ValidationError):
-            services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=[])
+            services.create_invoice(
+                sister_profile=self.sister, created_by=self.employee, line_items=[], commission_rate=10,
+            )
 
     # ── Material captured at Sourcing Intake reaches invoice lines ──────
 
@@ -198,6 +235,7 @@ class InvoiceServiceTests(APITestCase):
             sister_profile=self.sister, created_by=self.employee,
             line_items=[{"description": "Crewneck - Ecru", "product": product,
                          "ctn": 20, "qtyPerCtn": 50, "unitPrice": "1.00", "amount": "1000"}],
+            commission_rate=10,
         )
         self.assertEqual(invoice.lineItems.get().material, "100% Cotton")
 
@@ -213,65 +251,78 @@ class InvoiceServiceTests(APITestCase):
             line_items=[{"description": "Crewneck - Ecru", "product": product,
                          "material": "Cotton-Poly 60/40",
                          "ctn": 20, "qtyPerCtn": 50, "unitPrice": "1.00", "amount": "1000"}],
+            commission_rate=10,
         )
         self.assertEqual(invoice.lineItems.get().material, "Cotton-Poly 60/40")
 
-    # ── Exchange rate locking (DRF doc §4 + §5 item 6) ──────────────────
+    # ── Currency configuration is a Sister Profile snapshot (FR-57) ─────
 
-    def test_exchange_rate_value_is_locked_at_creation_and_survives_republish(self):
-        rate = ExchangeRate.objects.create(
-            sourceCurrency="USD", targetCurrency="BDT", rate=Decimal("109.500000"),
-            effectiveDate="2026-08-01", publishedBy=self.admin,
-        )
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=self._line_items("1000"), exchange_rate=rate,
-        )
-        self.assertEqual(invoice.exchangeRateValueLocked, Decimal("109.500000"))
-        self.assertEqual(invoice.convertedTotal, Decimal("109500.00"))  # 1000 * 109.5
+    def test_currency_config_is_snapshotted_from_the_sister_profile(self):
+        self.sister.supplierCurrency = "BDT"
+        self.sister.buyerCurrency = "USD"
+        self.sister.exchangeRate = Decimal("110.000000")
+        self.sister.save(update_fields=["supplierCurrency", "buyerCurrency", "exchangeRate"])
 
-        # Admin publishes a brand new rate for the same currency pair.
-        ExchangeRate.objects.create(
-            sourceCurrency="USD", targetCurrency="BDT", rate=Decimal("115.000000"),
-            effectiveDate="2026-09-01", publishedBy=self.admin,
-        )
-        # Even editing the ORIGINAL referenced row must not move the invoice.
-        rate.rate = Decimal("999.000000")
-        rate.save()
+        invoice = self._invoice(commission_rate=10)
+        self.assertEqual(invoice.sourceCurrency, "BDT")
+        self.assertEqual(invoice.targetCurrency, "USD")
+        self.assertEqual(invoice.exchangeRateValueLocked, Decimal("110.000000"))
+        # Conversions DIVIDE: the rate reads "1 USD = 110 BDT".
+        self.assertEqual(invoice.convertedTotal, Decimal("10.00"))  # 1,100 / 110
+        self.assertEqual(invoice.rate_label(), "1 USD = 110 BDT")
+
+    def test_the_locked_rate_survives_a_later_edit_of_the_profile(self):
+        """FR-57: the rate is copied at generation. Re-negotiating the deal
+        must never rewrite a document that was already produced."""
+        self.sister.exchangeRate = Decimal("110.000000")
+        self.sister.save(update_fields=["exchangeRate"])
+        invoice = self._invoice(commission_rate=10)
+
+        self.sister.exchangeRate = Decimal("999.000000")
+        self.sister.save(update_fields=["exchangeRate"])
 
         invoice.refresh_from_db()
-        self.assertEqual(invoice.exchangeRateValueLocked, Decimal("109.500000"))
-        self.assertEqual(invoice.convertedTotal, Decimal("109500.00"))
+        self.assertEqual(invoice.exchangeRateValueLocked, Decimal("110.000000"))
+        self.assertEqual(invoice.convertedTotal, Decimal("10.00"))
+
+    def test_an_unrated_profile_produces_no_converted_total(self):
+        """Rate 0 means "not set yet" — the document omits the converted
+        column rather than printing a misleading 0.00."""
+        invoice = self._invoice(commission_rate=10)
+        self.assertEqual(invoice.exchangeRateValueLocked, Decimal("0"))
+        self.assertIsNone(invoice.convert(Decimal("100")))
+        self.assertEqual(invoice.rate_label(), "")
 
     # ── Status transitions (BR-39/46 / FR-47-49/53) ─────────────────────
 
     def test_new_invoice_is_pending_approval(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
+        invoice = self._invoice()
         self.assertEqual(invoice.status, InvoiceStatus.PENDING_APPROVAL)
 
     def test_cannot_approve_twice(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
+        invoice = self._invoice()
         services.approve_invoice(invoice, self.admin)
         with self.assertRaises(ValidationError):
             services.approve_invoice(invoice, self.admin)
 
     def test_reject_requires_reason(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
+        invoice = self._invoice()
         with self.assertRaises(ValidationError):
             services.reject_invoice(invoice, self.admin, "")
 
     def test_cannot_reject_an_issued_invoice(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
+        invoice = self._invoice()
         services.approve_invoice(invoice, self.admin)
         with self.assertRaises(ValidationError):
             services.reject_invoice(invoice, self.admin, "too late")
 
     def test_cannot_void_a_pending_invoice(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
+        invoice = self._invoice()
         with self.assertRaises(ValidationError):
             services.void_invoice(invoice, "changed my mind", self.admin)
 
     def test_void_requires_reason_and_zeroes_outstanding(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
+        invoice = self._invoice()
         services.approve_invoice(invoice, self.admin)
         services.void_invoice(invoice, "Duplicate invoice", self.admin)
         invoice.refresh_from_db()
@@ -279,32 +330,32 @@ class InvoiceServiceTests(APITestCase):
         self.assertEqual(invoice.outstandingBalance, Decimal("0"))
 
     def test_cannot_pay_a_pending_invoice(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
+        invoice = self._invoice()
         with self.assertRaises(ValidationError):
             services.record_payment(invoice, amount=100, currency="USD", payment_date="2026-08-10", bank_reference="", recorded_by=self.admin)
 
     # ── Outstanding balance recompute (BR-44 / FR-51-52) ────────────────
 
     def test_outstanding_balance_recomputes_on_partial_payments(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items("1000"))
+        invoice = self._invoice("1000")
         services.approve_invoice(invoice, self.admin)
         services.record_payment(invoice, amount=400, currency="USD", payment_date="2026-08-10", bank_reference="TXN1", recorded_by=self.admin)
         invoice.refresh_from_db()
-        self.assertEqual(invoice.outstandingBalance, Decimal("600.00"))
+        self.assertEqual(invoice.outstandingBalance, Decimal("700.00"))  # 1,100 grand total - 400
 
-        services.record_payment(invoice, amount=600, currency="USD", payment_date="2026-08-11", bank_reference="TXN2", recorded_by=self.admin)
+        services.record_payment(invoice, amount=700, currency="USD", payment_date="2026-08-11", bank_reference="TXN2", recorded_by=self.admin)
         invoice.refresh_from_db()
         self.assertEqual(invoice.outstandingBalance, Decimal("0.00"))
 
     def test_outstanding_balance_never_goes_negative(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items("1000"))
+        invoice = self._invoice("1000")
         services.approve_invoice(invoice, self.admin)
         services.record_payment(invoice, amount=1500, currency="USD", payment_date="2026-08-10", bank_reference="", recorded_by=self.admin)
         invoice.refresh_from_db()
         self.assertEqual(invoice.outstandingBalance, Decimal("0.00"))
 
     def test_cannot_record_negative_payment(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
+        invoice = self._invoice()
         services.approve_invoice(invoice, self.admin)
         with self.assertRaises(ValidationError):
             services.record_payment(invoice, amount=-50, currency="USD", payment_date="2026-08-10", bank_reference="", recorded_by=self.admin)
@@ -314,20 +365,20 @@ class InvoiceServiceTests(APITestCase):
     def test_payment_amount_can_be_corrected(self):
         """A payment typed as 400 when the bank actually sent 450 shouldn't
         have to be deleted and re-entered."""
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items("1000"))
+        invoice = self._invoice("1000")
         services.approve_invoice(invoice, self.admin)
         payment = services.record_payment(invoice, amount=400, currency="USD", payment_date="2026-08-10", bank_reference="TXN1", recorded_by=self.admin)
         invoice.refresh_from_db()
-        self.assertEqual(invoice.outstandingBalance, Decimal("600.00"))
+        self.assertEqual(invoice.outstandingBalance, Decimal("700.00"))
 
         services.update_payment(payment, actor=self.admin, amount=450)
         invoice.refresh_from_db()
         payment.refresh_from_db()
         self.assertEqual(payment.amount, Decimal("450.00"))
-        self.assertEqual(invoice.outstandingBalance, Decimal("550.00"))
+        self.assertEqual(invoice.outstandingBalance, Decimal("650.00"))
 
     def test_payment_date_and_reference_can_be_corrected_without_touching_amount(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items("1000"))
+        invoice = self._invoice("1000")
         services.approve_invoice(invoice, self.admin)
         payment = services.record_payment(invoice, amount=400, currency="USD", payment_date="2026-08-10", bank_reference="TXN1", recorded_by=self.admin)
 
@@ -338,29 +389,29 @@ class InvoiceServiceTests(APITestCase):
         self.assertEqual(payment.bankReference, "TXN1-CORRECTED")
 
     def test_payment_edit_rejects_non_positive_amount(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items("1000"))
+        invoice = self._invoice("1000")
         services.approve_invoice(invoice, self.admin)
         payment = services.record_payment(invoice, amount=400, currency="USD", payment_date="2026-08-10", bank_reference="", recorded_by=self.admin)
         with self.assertRaises(ValidationError):
             services.update_payment(payment, actor=self.admin, amount=0)
 
     def test_payment_can_be_deleted_and_outstanding_recomputes(self):
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items("1000"))
+        invoice = self._invoice("1000")
         services.approve_invoice(invoice, self.admin)
         payment = services.record_payment(invoice, amount=400, currency="USD", payment_date="2026-08-10", bank_reference="", recorded_by=self.admin)
         invoice.refresh_from_db()
-        self.assertEqual(invoice.outstandingBalance, Decimal("600.00"))
+        self.assertEqual(invoice.outstandingBalance, Decimal("700.00"))
 
         services.delete_payment(payment, actor=self.admin)
         invoice.refresh_from_db()
-        self.assertEqual(invoice.outstandingBalance, Decimal("1000.00"))
+        self.assertEqual(invoice.outstandingBalance, Decimal("1100.00"))
         self.assertEqual(invoice.payments.count(), 0)
 
     def test_payment_edit_and_delete_locked_once_voided(self):
         """BR-46: a Void invoice's payment history is part of the closed
         record, same as its rate/commission — correctable while Issued,
         frozen after."""
-        invoice = services.create_invoice(sister_profile=self.sister, created_by=self.employee, line_items=self._line_items())
+        invoice = self._invoice()
         services.approve_invoice(invoice, self.admin)
         payment = services.record_payment(invoice, amount=100, currency="USD", payment_date="2026-08-10", bank_reference="", recorded_by=self.admin)
         services.void_invoice(invoice, "Duplicate invoice", self.admin)
@@ -369,53 +420,49 @@ class InvoiceServiceTests(APITestCase):
         with self.assertRaises(ValidationError):
             services.delete_payment(payment, actor=self.admin)
 
-    # ── Payment details are fixable until approval ────────────────────
+    # ── The commission rate is fixable until approval ──────────────────
 
-    def test_payment_details_can_be_corrected_before_approval(self):
-        """A commission entered as 5% when it should have been a flat 50 is
-        a two-argument fix, not a delete-and-recreate."""
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=self._line_items(),
-            commission_type=CommissionType.PERCENTAGE, commission_value=5,
-        )
-        services.update_invoice_payment_details(
-            invoice, actor=self.admin, commission_type=CommissionType.FLAT, commission_value=50,
-        )
-        invoice.refresh_from_db()
-        self.assertEqual(invoice.commissionType, CommissionType.FLAT)
-        self.assertEqual(invoice.commission_amount(), Decimal("50.00"))
+    def test_commission_rate_can_be_corrected_before_approval(self):
+        """A percentage typed as 5 when it should have been 8 is a
+        one-argument fix, not a delete-and-recreate."""
+        invoice = self._invoice(commission_rate=5)
         self.assertEqual(invoice.outstandingBalance, Decimal("1050.00"))
 
-    def test_editing_the_rate_relocks_and_reconverts_totals(self):
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=self._line_items(),
-            source_currency="BDT", target_currency="USD", manual_rate="110",
-            commission_type=CommissionType.FLAT, commission_value=50,
-        )
-        self.assertEqual(invoice.convertedTotal, Decimal("9.55"))  # 1050 / 110
-        services.update_invoice_payment_details(invoice, actor=self.employee, manual_rate="120")
+        services.update_invoice_commission(invoice, actor=self.admin, commission_rate=8)
         invoice.refresh_from_db()
-        self.assertEqual(invoice.exchangeRateValueLocked, Decimal("120"))
-        self.assertEqual(invoice.convertedTotal, Decimal("8.75"))  # 1050 / 120
+        self.assertEqual(invoice.commission_amount(), Decimal("80.00"))
+        self.assertEqual(invoice.outstandingBalance, Decimal("1080.00"))
 
-    def test_omitted_fields_keep_their_stored_value(self):
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=self._line_items(),
-        )
-        services.update_invoice_payment_details(invoice, actor=self.admin, commission_value=10)
+    def test_editing_the_rate_reconverts_the_totals(self):
+        self.sister.exchangeRate = Decimal("110")
+        self.sister.save(update_fields=["exchangeRate"])
+        invoice = self._invoice(commission_rate=5)
+        self.assertEqual(invoice.convertedTotal, Decimal("9.55"))  # 1,050 / 110
+
+        services.update_invoice_commission(invoice, actor=self.employee, commission_rate=10)
         invoice.refresh_from_db()
-        self.assertEqual(invoice.sourceCurrency, "BDT")  # untouched, not reset
-        # A value without a type applies to nothing (same rule as creation).
-        self.assertEqual(invoice.commissionType, CommissionType.NONE)
-        self.assertEqual(invoice.commission_amount(), 0)
+        # The rate itself is a locked snapshot — only the commission moved.
+        self.assertEqual(invoice.exchangeRateValueLocked, Decimal("110"))
+        self.assertEqual(invoice.convertedTotal, Decimal("10.00"))  # 1,100 / 110
+        self.assertEqual(invoice.commissionTotalBuyer, Decimal("0.91"))  # 100 / 110
 
-    def test_payment_details_locked_once_issued(self):
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=self._line_items(),
-        )
+    def test_an_omitted_rate_keeps_the_stored_value(self):
+        invoice = self._invoice(commission_rate=5)
+        services.update_invoice_commission(invoice, actor=self.admin)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.commissionValue, Decimal("5.00"))  # untouched, not reset
+        self.assertEqual(invoice.outstandingBalance, Decimal("1050.00"))
+
+    def test_a_non_positive_rate_is_rejected_on_edit_too(self):
+        invoice = self._invoice(commission_rate=5)
+        with self.assertRaises(ValidationError):
+            services.update_invoice_commission(invoice, actor=self.admin, commission_rate=0)
+
+    def test_the_commission_is_locked_once_issued(self):
+        invoice = self._invoice()
         services.approve_invoice(invoice, self.admin)
         with self.assertRaises(ValidationError):
-            services.update_invoice_payment_details(invoice, actor=self.admin, commission_value=1)
+            services.update_invoice_commission(invoice, actor=self.admin, commission_rate=1)
 
 
 class InvoiceAPITenantTests(APITestCase):
@@ -424,20 +471,26 @@ class InvoiceAPITenantTests(APITestCase):
         self.buyer_b = BuyerProfile.objects.create(name="Buyer B")
         self.sister_a = SisterProfile.objects.create(
             buyerProfile=self.buyer_a, poReference="PO-A",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.sister_b = SisterProfile.objects.create(
             buyerProfile=self.buyer_b, poReference="PO-B",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.employee = User.objects.create_user(username="emp", password="pass12345", role=Roles.EMPLOYEE)
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
         self.buyer_a_user = User.objects.create_user(
             username="buyer_a", password="pass12345", role=Roles.BUYER, buyer_profile=self.buyer_a
         )
+        # 500 of goods at 10% = a grand total of 550, which is what the
+        # outstanding-balance assertions below are written against.
         line_items = [{"description": "Goods", "amount": "500"}]
-        self.invoice_a = services.create_invoice(sister_profile=self.sister_a, created_by=self.employee, line_items=line_items)
-        self.invoice_b = services.create_invoice(sister_profile=self.sister_b, created_by=self.employee, line_items=line_items)
+        self.invoice_a = services.create_invoice(
+            sister_profile=self.sister_a, created_by=self.employee, line_items=line_items, commission_rate=10,
+        )
+        self.invoice_b = services.create_invoice(
+            sister_profile=self.sister_b, created_by=self.employee, line_items=line_items, commission_rate=10,
+        )
 
     def test_buyer_cannot_see_another_buyers_invoice(self):
         self.client.force_authenticate(user=self.buyer_a_user)
@@ -532,13 +585,13 @@ class InvoiceAPITenantTests(APITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(resp.data["outstandingBalance"], "300.00")
+        self.assertEqual(resp.data["outstandingBalance"], "350.00")  # 550 - 200
         # The same stale-prefetch issue affects the serialized `payments`
         # list independently of `outstandingBalance` — assert both.
         self.assertEqual(len(resp.data["payments"]), 1)
 
         self.invoice_a.refresh_from_db()
-        self.assertEqual(self.invoice_a.outstandingBalance, Decimal("300.00"))
+        self.assertEqual(self.invoice_a.outstandingBalance, Decimal("350.00"))
 
     def test_admin_can_publish_exchange_rate(self):
         self.client.force_authenticate(user=self.admin)
@@ -550,19 +603,19 @@ class InvoiceAPITenantTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["publishedBy"], self.admin.id)
 
-    # ── Edit-before-approve on payment details ────────────────────────
+    # ── Edit-before-approve on the commission rate ────────────────────
 
-    def test_employee_can_edit_payment_details_on_pending_invoice(self):
+    def test_employee_can_edit_the_commission_rate_on_a_pending_invoice(self):
         self.client.force_authenticate(user=self.employee)
         resp = self.client.patch(
             reverse("invoice-detail", args=[self.invoice_a.id]),
-            {"commissionType": "flat", "commissionValue": 25},
-            format="json",
+            {"commissionRate": 20}, format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["commissionType"], "flat")
+        # The TYPE stays agreement-derived — only the rate is editable.
+        self.assertEqual(resp.data["commissionType"], "percentage")
         self.invoice_a.refresh_from_db()
-        self.assertEqual(self.invoice_a.outstandingBalance, Decimal("525.00"))  # 500 + flat 25
+        self.assertEqual(self.invoice_a.outstandingBalance, Decimal("600.00"))  # 500 + 20%
 
     def test_payment_details_cannot_be_edited_after_approval(self):
         services.approve_invoice(self.invoice_a, self.admin)
@@ -581,13 +634,26 @@ class InvoiceAPITenantTests(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_patch_with_an_unknown_rate_id_is_rejected(self):
+    def test_patch_with_a_non_positive_rate_is_rejected(self):
         self.client.force_authenticate(user=self.employee)
         resp = self.client.patch(
             reverse("invoice-detail", args=[self.invoice_a.id]),
-            {"exchangeRate": "e2ea7f52-1c1c-4b3f-9d1f-000000000000"}, format="json",
+            {"commissionRate": 0}, format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_the_currency_snapshot_cannot_be_patched(self):
+        """The currency configuration belongs to the Sister Profile and is
+        snapshotted at generation — a PATCH must never move it."""
+        self.client.force_authenticate(user=self.employee)
+        resp = self.client.patch(
+            reverse("invoice-detail", args=[self.invoice_a.id]),
+            {"sourceCurrency": "EUR", "exchangeRateValueLocked": "7"}, format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.invoice_a.refresh_from_db()
+        self.assertEqual(self.invoice_a.sourceCurrency, "BDT")
+        self.assertEqual(self.invoice_a.exchangeRateValueLocked, Decimal("0"))
 
     # ── Payments are editable after recording, via the API ─────────────
 
@@ -606,7 +672,7 @@ class InvoiceAPITenantTests(APITestCase):
             {"amount": "250"}, format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["outstandingBalance"], "250.00")  # 500 - 250
+        self.assertEqual(resp.data["outstandingBalance"], "300.00")  # 550 - 250
         self.assertEqual(len(resp.data["payments"]), 1)
         self.assertEqual(resp.data["payments"][0]["amount"], "250.00")
 
@@ -622,7 +688,7 @@ class InvoiceAPITenantTests(APITestCase):
 
         resp = self.client.delete(reverse("invoice-payment-detail", args=[self.invoice_a.id, payment_id]))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["outstandingBalance"], "500.00")
+        self.assertEqual(resp.data["outstandingBalance"], "550.00")
         self.assertEqual(len(resp.data["payments"]), 0)
 
     def test_buyer_cannot_edit_or_delete_a_payment(self):
@@ -677,7 +743,7 @@ class CommercialInvoiceDocumentTests(APITestCase):
         )
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-A1",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.employee = User.objects.create_user(username="doc_emp", password="pass12345", role=Roles.EMPLOYEE)
         self.admin = User.objects.create_user(username="doc_admin", password="pass12345", role=Roles.ADMIN)
@@ -695,12 +761,23 @@ class CommercialInvoiceDocumentTests(APITestCase):
         line.update(overrides)
         return line
 
+    def _set_rate(self, rate="120"):
+        """Give the profile a rate ("1 USD = 120 BDT"). The default profile
+        has none, so the document omits its converted column entirely."""
+        self.sister.exchangeRate = Decimal(rate)
+        self.sister.save(update_fields=["exchangeRate"])
+
+    def _invoice(self, lines=None, commission_rate=10, **kwargs):
+        return services.create_invoice(
+            sister_profile=self.sister, created_by=self.employee,
+            line_items=lines if lines is not None else [self._sample_line()],
+            commission_rate=commission_rate, **kwargs,
+        )
+
     # ── Auto-calculation (matches the sample's own arithmetic) ──────────
 
     def test_line_totals_are_computed_from_cartons_and_unit_price(self):
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=[self._sample_line()],
-        )
+        invoice = self._invoice()
         line = invoice.lineItems.first()
         self.assertEqual(line.totalQty, 180)                      # 3 x 60
         self.assertEqual(line.amount, Decimal("27000.00"))        # 180 x 150
@@ -713,10 +790,7 @@ class CommercialInvoiceDocumentTests(APITestCase):
     def test_explicitly_supplied_values_are_not_overwritten_by_the_formula(self):
         """Short/excess cartons are real — the packing list wins over
         arithmetic when the two disagree."""
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[self._sample_line(totalQty=175, amount="26250")],
-        )
+        invoice = self._invoice([self._sample_line(totalQty=175, amount="26250")])
         line = invoice.lineItems.first()
         self.assertEqual(line.totalQty, 175)
         self.assertEqual(line.amount, Decimal("26250.00"))
@@ -724,73 +798,56 @@ class CommercialInvoiceDocumentTests(APITestCase):
     def test_inch_carton_dimensions_are_converted_to_centimetres(self):
         """PackingCarton stores inches; the document prints cm and derives
         CBM from them."""
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[self._sample_line(ctnLengthCm=10, ctnWidthCm=10, ctnHeightCm=10, dimensionsInCm=False)],
+        invoice = self._invoice(
+            [self._sample_line(ctnLengthCm=10, ctnWidthCm=10, ctnHeightCm=10, dimensionsInCm=False)]
         )
         line = invoice.lineItems.first()
         self.assertEqual(line.ctnLengthCm, Decimal("25.40"))
         self.assertEqual(line.cbmPerCtn, Decimal("0.016387"))
 
     def test_document_totals_sum_every_line(self):
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[
-                self._sample_line(),
-                self._sample_line(ctn=1, qtyPerCtn=30, netWeightPerCtn="7", grossWeightPerCtn="8.5"),
-            ],
-        )
+        invoice = self._invoice([
+            self._sample_line(),
+            self._sample_line(ctn=1, qtyPerCtn=30, netWeightPerCtn="7", grossWeightPerCtn="8.5"),
+        ])
         totals = invoice.document_totals()
         self.assertEqual(totals["totalQty"], 210)                      # 180 + 30
         self.assertEqual(totals["totalCtn"], 4)
         self.assertEqual(totals["totalNetWeight"], Decimal("47.50"))   # 40.5 + 7
         self.assertEqual(totals["totalCbm"], Decimal("0.2880"))        # 0.216 + 0.072
 
-    # ── Manual currency + exchange rate ─────────────────────────────────
+    # ── The Sister Profile's currency pair and rate ─────────────────────
 
-    def test_manual_rate_converts_in_the_direction_it_was_typed(self):
+    def test_the_profile_rate_converts_in_the_direction_it_was_typed(self):
         """"1 USD = 120 BDT" against the sample's own total: 12,727,855 BDT
         is 106,065.46 USD."""
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=[self._sample_line()],
-            source_currency="BDT", target_currency="USD", manual_rate="120",
-        )
+        self._set_rate("120")
+        invoice = self._invoice(commission_rate=10)
         self.assertEqual(invoice.sourceCurrency, "BDT")
-        self.assertEqual(invoice.rateQuote, "divide")
+        self.assertEqual(invoice.targetCurrency, "USD")
         self.assertEqual(invoice.rate_label(), "1 USD = 120 BDT")
         self.assertEqual(invoice.convert(Decimal("12727855")), Decimal("106065.46"))
-        self.assertEqual(invoice.convertedTotal, Decimal("225.00"))  # 27000 / 120
+        # 27,000 lines + 10% = 29,700; / 120 = 247.50
+        self.assertEqual(invoice.convertedTotal, Decimal("247.50"))
 
-    def test_published_rate_still_multiplies_as_before(self):
-        rate = ExchangeRate.objects.create(
-            sourceCurrency="BDT", targetCurrency="USD", rate="0.0083",
-            effectiveDate="2026-08-01", publishedBy=self.admin,
-        )
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[self._sample_line()], exchange_rate=rate,
-        )
-        self.assertEqual(invoice.rateQuote, "multiply")
-        self.assertEqual(invoice.convertedTotal, Decimal("224.10"))  # 27000 x 0.0083
-
-    def test_rate_without_a_target_currency_is_rejected(self):
-        with self.assertRaises(ValidationError):
-            services.create_invoice(
-                sister_profile=self.sister, created_by=self.employee,
-                line_items=[self._sample_line()], manual_rate="120",
-            )
+    def test_both_currencies_are_carried_on_the_commission_and_cost_totals(self):
+        """The buyer reads every agreement figure in their own currency
+        without re-deriving it from the rate."""
+        self._set_rate("120")
+        invoice = self._invoice(commission_rate=10)
+        self.assertEqual(invoice.commissionTotalSupplier, Decimal("2700.00"))
+        self.assertEqual(invoice.commissionTotalBuyer, Decimal("22.50"))  # 2,700 / 120
 
     # ── Rendering ───────────────────────────────────────────────────────
 
     def _document_invoice(self):
-        return services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[
+        self._set_rate("120")
+        return self._invoice(
+            [
                 self._sample_line(),
                 self._sample_line(brand="Jack & Jones", description="boy <hoodie> & cap"),
             ],
-            source_currency="BDT", target_currency="USD", manual_rate="120",
-            commission_type=CommissionType.PERCENTAGE, commission_value=15,
+            commission_rate=15,
         )
 
     def _fill_company(self):
@@ -916,10 +973,7 @@ class CommercialInvoiceDocumentTests(APITestCase):
         letterhead must ride a computed offset into the column grid so it
         sits top-centre, matching the PDF."""
         self._set_logo((1400, 300))
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=[self._sample_line()],
-        )
-        ws = load_workbook(io.BytesIO(exports.render_invoice_xlsx(invoice))).active
+        ws = load_workbook(io.BytesIO(exports.render_invoice_xlsx(self._invoice()))).active
         self.assertEqual(len(ws._images), 1)
         marker = ws._images[0].anchor._from
         self.assertEqual(marker.row, 0)  # top row
@@ -941,7 +995,7 @@ class CommercialInvoiceDocumentTests(APITestCase):
         self.assertIn("PACKING LIST", text)
         self.assertIn("Foto", text)
         self.assertIn("T/N.W", text)
-        # …and its full 21-column body, grouped SIZE header included.
+        # …and its full 22-column body, grouped SIZE header included.
         self.assertIn("SIZE (cm)", text)
         self.assertIn("Style No", text)
         self.assertIn("CBM/ctn", text)
@@ -958,17 +1012,23 @@ class CommercialInvoiceDocumentTests(APITestCase):
                    if isinstance(c.value, (int, float)) and not isinstance(c.value, bool) and c.value == 180]
         self.assertTrue(numeric, "expected the 180-pcs line quantity as a numeric cell")
 
-    def test_line_table_carries_no_per_line_money_columns(self):
-        """The money side of this document is one figure (TOTAL VALUE), not a
-        priced-out bill — Unit Price and AMOUNT are deliberately absent from
-        the line table, and the per-line 27,000 they used to print with it."""
+    def test_line_table_prints_unit_price_and_per_line_amounts(self):
+        """The line table quotes each line's Unit Price AND per-line AMOUNT
+        (unitPrice × totalQty), so the buyer can verify the arithmetic that
+        feeds TOTAL VALUE at the bottom."""
         ws = load_workbook(io.BytesIO(exports.render_invoice_xlsx(self._document_invoice()))).active
         text = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
-        self.assertNotIn("Unit Price", text)
-        self.assertNotIn("AMOUNT", text)
+        self.assertIn("Unit Price", text)
+        # The sample line's price (150) lands as a real numeric cell, like
+        # every other figure on the sheet.
+        unit_prices = [c.value for row in ws.iter_rows() for c in row
+                       if isinstance(c.value, (int, float)) and not isinstance(c.value, bool) and c.value == 150]
+        self.assertTrue(unit_prices, "expected the 150.00 unit price as a numeric cell")
+        self.assertIn("AMOUNT", text)
+        # Each sample line: 180 pcs × 150 = 27,000
         priced = [c.value for row in ws.iter_rows() for c in row
                   if isinstance(c.value, (int, float)) and not isinstance(c.value, bool) and c.value == 27000]
-        self.assertFalse(priced, "per-line amounts must not be printed on the document")
+        self.assertTrue(priced, "per-line amounts must be printed on the document")
 
     def test_totals_block_prints_all_in_total_value_without_outstanding(self):
         """TOTAL VALUE is the all-in figure: product lines + warehouse-cost
@@ -976,22 +1036,38 @@ class CommercialInvoiceDocumentTests(APITestCase):
         document shows. The outstanding balance is deliberately not printed
         — the buyer gets the total and what has been received against it,
         nothing more."""
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[self._sample_line()],
-            commission_type=CommissionType.FLAT, commission_value="1000",
-        )
+        invoice = self._invoice(commission_rate=10)
         content = exports.render_invoice_xlsx(invoice)
         ws = load_workbook(io.BytesIO(content)).active
         text = "\n".join(str(c.value) for row in ws.iter_rows() for c in row if c.value is not None)
         self.assertIn("TOTAL VALUE", text)
         self.assertIn("BDT", text)
-        self.assertIn("28,000.00 BDT", text)  # 27,000 lines + 1,000 commission
+        self.assertIn("29,700.00 BDT", text)  # 27,000 lines + 10% commission
         self.assertNotIn("OUTSTANDING IN THIS INVOICE", text)
         self.assertIn("TOTAL CTNS/BAG", text)
         self.assertNotIn("COMMISSION", text)
+        # No exchange rate set → no converted total or rate printed.
+        self.assertNotIn("TOTAL VALUE (CONVERTED)", text)
         self.assertNotIn("EXCHANGE RATE", text)
         self.assertNotIn("1 USD = 120 BDT", text)
+
+    def test_totals_block_prints_converted_total_and_exchange_rate(self):
+        """When a rate is set, the document prints TOTAL VALUE in the source
+        currency, TOTAL VALUE (CONVERTED) in the target currency, and the
+        exchange rate that connects them — so the buyer sees both BDT and USD."""
+        self._set_rate("120")
+        invoice = self._invoice(commission_rate=10)
+        content = exports.render_invoice_xlsx(invoice)
+        ws = load_workbook(io.BytesIO(content)).active
+        text = "\n".join(str(c.value) for row in ws.iter_rows() for c in row if c.value is not None)
+        self.assertIn("TOTAL VALUE", text)
+        self.assertIn("29,700.00 BDT", text)  # supplier currency total
+        self.assertIn("TOTAL VALUE (CONVERTED)", text)
+        self.assertIn("USD", text)
+        # convertedTotal = grandTotal(29,700) / 120 = 247.50
+        self.assertIn("247.50 USD", text)
+        self.assertIn("EXCHANGE RATE", text)
+        self.assertIn("1 USD = 120 BDT", text)
 
     def test_payments_received_still_show_their_own_arithmetic(self):
         """Each bank transfer summed = received, as on the reference — the
@@ -1042,10 +1118,7 @@ class CommercialInvoiceDocumentTests(APITestCase):
     def test_style_column_renders_the_real_style_and_pattern_numbers(self):
         """The reference's lettered codes (A2, K13) are replaced by our real
         identifiers: style_no / pattern_no, e.g. "MRF25 / MR12528"."""
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[self._sample_line(styleItemCode="MRF25", patternNo="MR12528")],
-        )
+        invoice = self._invoice([self._sample_line(styleItemCode="MRF25", patternNo="MR12528")])
         self.assertEqual(invoice.lineItems.first().patternNo, "MR12528")  # locked at generation
         ws = load_workbook(io.BytesIO(exports.render_invoice_xlsx(invoice))).active
         text = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
@@ -1079,10 +1152,7 @@ class CommercialInvoiceDocumentTests(APITestCase):
 
     def test_photo_added_to_a_product_appears_in_both_documents(self):
         product = self._product_with_photo()
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[self._sample_line(product=product)],
-        )
+        invoice = self._invoice([self._sample_line(product=product)])
         # Excel: the photo is embedded as a real drawing on the sheet.
         ws = load_workbook(io.BytesIO(exports.render_invoice_xlsx(invoice))).active
         self.assertEqual(len(ws._images), 1)
@@ -1099,10 +1169,7 @@ class CommercialInvoiceDocumentTests(APITestCase):
         overall.image.save("overall.jpg", ContentFile(buf.getvalue()), save=False)
         overall.save()
 
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[self._sample_line(product=product)],
-        )
+        invoice = self._invoice([self._sample_line(product=product)])
         chosen = exports._line_photo(invoice.lineItems.first())
         self.assertIsNotNone(chosen)
         # The green "product overall" shot, not the blue fabric close-up.
@@ -1111,9 +1178,7 @@ class CommercialInvoiceDocumentTests(APITestCase):
 
     def test_a_line_without_a_product_or_photo_still_renders(self):
         """No photo must mean an empty cell, never a failed download."""
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=[self._sample_line()],
-        )
+        invoice = self._invoice()
         ws = load_workbook(io.BytesIO(exports.render_invoice_xlsx(invoice))).active
         self.assertEqual(len(ws._images), 0)
         self.assertTrue(exports.render_invoice_pdf(invoice).startswith(b"%PDF"))
@@ -1123,10 +1188,7 @@ class CommercialInvoiceDocumentTests(APITestCase):
         that must degrade to a blank Foto cell."""
         product = self._product_with_photo()
         product.images.first().image.storage.delete(product.images.first().image.name)
-        invoice = services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee,
-            line_items=[self._sample_line(product=product)],
-        )
+        invoice = self._invoice([self._sample_line(product=product)])
         self.assertIsNone(exports._line_photo(invoice.lineItems.first()))
         self.assertTrue(exports.render_invoice_pdf(invoice).startswith(b"%PDF"))
 

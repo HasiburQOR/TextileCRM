@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { buyerName, exchangeRateId, commissionType, commissionValue, lineItems, createdById } = body
+  const { buyerName, exchangeRateId, commissionType, commissionValue, lineItems, createdById, sourceCurrency, targetCurrency, manualRate } = body
   if (!buyerName || !createdById || !lineItems?.length) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
@@ -35,19 +35,36 @@ export async function POST(req: NextRequest) {
   const grandTotal = totalValue + commissionAmt
 
   let exchangeRateValue = 0
-  let targetCurrency = ''
+  let resolvedTargetCurrency = targetCurrency || ''
+  let resolvedSourceCurrency = sourceCurrency || 'BDT'
+
   if (exchangeRateId) {
     const rate = await db.exchangeRate.findUnique({ where: { id: exchangeRateId } })
-    if (rate) { exchangeRateValue = rate.rate; targetCurrency = rate.targetCurrency }
+    if (rate) { exchangeRateValue = rate.rate; resolvedTargetCurrency = rate.targetCurrency; resolvedSourceCurrency = rate.sourceCurrency }
+  } else if (manualRate && targetCurrency) {
+    // Manual rate: "1 targetCurrency = manualRate sourceCurrency" (divide direction)
+    exchangeRateValue = Number(manualRate)
+  }
+
+  // Calculate converted total: grandTotal / rate (manual/divide) or grandTotal * rate (published/multiply)
+  let convertedTotal = 0
+  if (exchangeRateValue > 0 && resolvedTargetCurrency) {
+    if (exchangeRateId) {
+      // Published rate multiplies: target = source × rate
+      convertedTotal = Math.round(grandTotal * exchangeRateValue * 100) / 100
+    } else {
+      // Manual rate divides: target = source / rate (1 USD = 120 BDT)
+      convertedTotal = Math.round(grandTotal / exchangeRateValue * 100) / 100
+    }
   }
 
   const invoice = await db.invoice.create({
     data: {
       invoiceNo, buyerName, status: 'PENDING_APPROVAL',
-      exchangeRateId: exchangeRateId || null, exchangeRateValue, targetCurrency,
+      exchangeRateId: exchangeRateId || null, exchangeRateValue, targetCurrency: resolvedTargetCurrency, sourceCurrency: resolvedSourceCurrency,
       commissionType: commissionType || 'NONE', commissionValue: commissionValue || 0,
       totalValue: Math.round(totalValue * 100) / 100,
-      convertedTotal: exchangeRateValue ? Math.round(grandTotal * exchangeRateValue * 100) / 100 : 0,
+      convertedTotal,
       outstandingBalance: Math.round(grandTotal * 100) / 100,
       createdById,
       lineItems: { create: lineItems.map((li: Record<string, unknown>) => ({

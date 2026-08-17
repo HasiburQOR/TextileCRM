@@ -12,7 +12,6 @@ from apps.buyers.portal_views import (
     PortalOrderDetailView,
     PortalOrderDocumentsView,
     PortalOrderInvoicesView,
-    PortalOrderLedgerView,
     PortalOrderPackingListView,
     PortalOrderSourcingProgressView,
     PortalOrdersListView,
@@ -23,7 +22,6 @@ from apps.core.views import CompanyProfileView
 from apps.documents.views import DocumentVaultItemViewSet
 from apps.expenses.views import ExpenseViewSet
 from apps.invoicing.views import ExchangeRateViewSet, InvoiceViewSet
-from apps.ledger.views import SettlementLedgerViewSet
 from apps.notifications.views import NotificationViewSet
 from apps.packing.views import PackingCartonViewSet, PackingListViewSet, PackingRuleViewSet
 from apps.qc.views import QCReportViewSet
@@ -35,7 +33,7 @@ from apps.sourcing.views import (
     SourcingCostViewSet,
     TemplateFieldViewSet,
 )
-from apps.wallet.views import NegativeWalletBalancesView
+from apps.wallet.views import NegativeWalletBalancesView, WalletSummaryView
 from apps.warehouse.views import WarehouseCostViewSet
 
 router = DefaultRouter()
@@ -54,7 +52,6 @@ router.register("warehouse-costs", WarehouseCostViewSet, basename="warehouse-cos
 router.register("expenses", ExpenseViewSet, basename="expense")
 router.register("exchange-rates", ExchangeRateViewSet, basename="exchange-rate")
 router.register("invoices", InvoiceViewSet, basename="invoice")
-router.register("settlements", SettlementLedgerViewSet, basename="settlement")
 router.register("audit-log", AuditLogEntryViewSet, basename="audit-log")
 router.register("notifications", NotificationViewSet, basename="notification")
 router.register("documents", DocumentVaultItemViewSet, basename="document")
@@ -82,11 +79,11 @@ urlpatterns = [
     path("portal/orders/<uuid:order_id>/", PortalOrderDetailView.as_view(), name="portal-order-detail"),
     path("portal/orders/<uuid:order_id>/sourcing-progress/", PortalOrderSourcingProgressView.as_view(), name="portal-order-sourcing-progress"),
     path("portal/orders/<uuid:order_id>/costs/", PortalOrderCostsView.as_view(), name="portal-order-costs"),
-    path("portal/orders/<uuid:order_id>/ledger/", PortalOrderLedgerView.as_view(), name="portal-order-ledger"),
     path("portal/orders/<uuid:order_id>/packing-list/", PortalOrderPackingListView.as_view(), name="portal-order-packing-list"),
     path("portal/orders/<uuid:order_id>/invoices/", PortalOrderInvoicesView.as_view(), name="portal-order-invoices"),
     path("portal/orders/<uuid:order_id>/documents/", PortalOrderDocumentsView.as_view(), name="portal-order-documents"),
     path("portal/wallet/", PortalWalletView.as_view(), name="portal-wallet"),
     path("wallets/negative-balance/", NegativeWalletBalancesView.as_view(), name="wallets-negative-balance"),
+    path("wallets/summary/", WalletSummaryView.as_view(), name="wallets-summary"),
     path("", include(router.urls)),
 ]

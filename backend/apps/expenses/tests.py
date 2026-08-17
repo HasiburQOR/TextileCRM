@@ -67,7 +67,7 @@ class ExpenseExportTests(APITestCase):
     def _sister(self, buyer, po_reference):
         return SisterProfile.objects.create(
             buyerProfile=buyer, poReference=po_reference,
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
 
     def _set_created(self, expense, when):

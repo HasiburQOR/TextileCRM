@@ -85,17 +85,26 @@ def record_adjustment(*, wallet: BuyerWallet, amount, reason, created_by, sister
 def record_deduction(
     *, wallet: BuyerWallet, amount, source_type, sister_profile, created_by,
     source_expense=None, currency=None, exchange_rate_used=None,
+    source_amount=None, source_currency="",
 ) -> WalletTransaction | None:
     """WF-03/WF-04: called only from apps.expenses.services.record_expense,
     in the same atomic block as the Expense row it deducts for. `amount` is
-    the positive cost being deducted; stored as a negative WalletTransaction
-    amount (see models.py). Mirrors record_expense's own "skip on falsy
-    amount" behavior so a zero-amount Expense never produces a zero-value
-    wallet row either."""
+    the positive cost being deducted, already expressed in the WALLET's
+    currency; stored as a negative WalletTransaction amount (see models.py).
+    Mirrors record_expense's own "skip on falsy amount" behavior so a
+    zero-amount Expense never produces a zero-value wallet row either.
+
+    `source_amount`/`source_currency`/`exchange_rate_used` record what the
+    cost was before conversion, so both parties can read the row in the
+    currency they recognise. All three are None/blank when no conversion
+    took place.
+    """
     if not amount:
         return None
     txn = WalletTransaction.objects.create(
         wallet=wallet, type=WalletTransactionType.DEDUCTION, amount=-_round2(amount), currency=currency or wallet.currency,
+        sourceAmount=-_round2(source_amount) if source_amount is not None else None,
+        sourceCurrency=source_currency or "",
         exchangeRateUsed=exchange_rate_used, sourceType=source_type, sourceExpense=source_expense,
         sisterProfile=sister_profile, createdBy=created_by,
     )
@@ -107,14 +116,23 @@ def record_deduction(
 def record_refund(
     *, wallet: BuyerWallet, amount, source_type, sister_profile, created_by,
     source_expense=None, currency=None, reason="",
+    source_amount=None, source_currency="", exchange_rate_used=None,
 ) -> WalletTransaction | None:
-    """WF-05: called only from apps.expenses.services.delete_expenses, when
-    an Expense is voided/corrected — writes a new reversing row rather than
-    ever touching the original deduction (append-only)."""
+    """WF-05: called only from apps.expenses.services._refund_for_expenses,
+    when an Expense is voided/corrected — writes a new reversing row rather
+    than ever touching the original deduction (append-only).
+
+    Every currency figure is copied from the deduction being reversed, never
+    recomputed from the Sister Profile: the rate may have moved since, and
+    refunding at today's rate would return a different sum than was charged.
+    """
     if not amount:
         return None
     txn = WalletTransaction.objects.create(
         wallet=wallet, type=WalletTransactionType.REFUND, amount=_round2(amount), currency=currency or wallet.currency,
+        sourceAmount=_round2(source_amount) if source_amount is not None else None,
+        sourceCurrency=source_currency or "",
+        exchangeRateUsed=exchange_rate_used,
         sourceType=source_type, sourceExpense=source_expense, sisterProfile=sister_profile,
         reason=reason or "Expense corrected/voided", createdBy=created_by,
     )
@@ -127,8 +145,7 @@ def recompute_wallet_balance(wallet: BuyerWallet) -> BuyerWallet:
     above — never a separate batch job. `balance` is a materialized cache of
     SUM(transactions.amount); see models.py's docstring for why it's never
     hand-edited. WF-08: fires the Negative/Low-Balance alert only on the
-    transition into that state, not on every subsequent write, same pattern
-    as apps.ledger.services.recompute_settlement."""
+    transition into that state, not on every subsequent write."""
     total = _round2(wallet.transactions.aggregate(total=Sum("amount"))["total"] or Decimal("0"))
 
     was_negative = wallet.negativeBalance

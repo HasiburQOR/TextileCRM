@@ -13,12 +13,7 @@ import { api } from "@/lib/api"
 import { extractErrorMessage } from "@/lib/errors"
 import type { Paginated } from "@/types/api"
 import type { AgreementType, BuyerProfile, SisterProfile, SisterProfileCreateInput, SisterProfileStatus } from "@/types/buyers"
-
-const AGREEMENT_RATE_KEY: Record<AgreementType, { key: string; label: string; suffix: string }> = {
-  "1": { key: "percentage_rate", label: "Percentage of Sourcing Expense", suffix: "%" },
-  "2": { key: "rate_per_unit", label: "Rate per Unit", suffix: "/pc" },
-  "3": { key: "commission_percentage", label: "Commission Percentage", suffix: "%" },
-}
+import { AGREEMENTS } from "@/types/buyers"
 
 const STATUS_BADGE: Record<SisterProfileStatus, "info" | "success" | "danger"> = {
   active: "info", completed: "success", cancelled: "danger",
@@ -87,9 +82,9 @@ export function SisterProfilesPage() {
         </div>
         <Select className="w-44" value={agreementFilter} onChange={(e) => setAgreementFilter(e.target.value as AgreementType | "all")}>
           <option value="all">All Agreement Types</option>
-          <option value="1">Type 1 — % of sourcing expense</option>
-          <option value="2">Type 2 — per unit</option>
-          <option value="3">Type 3 — commission</option>
+          {(Object.keys(AGREEMENTS) as AgreementType[]).map((key) => (
+            <option key={key} value={key}>{AGREEMENTS[key].short}</option>
+          ))}
         </Select>
         <Select className="w-40" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as SisterProfileStatus | "all")}>
           <option value="all">All Statuses</option>
@@ -118,6 +113,7 @@ export function SisterProfilesPage() {
                   <th className="px-4 py-3 font-medium">PO Reference</th>
                   <th className="px-4 py-3 font-medium">Buyer</th>
                   <th className="px-4 py-3 font-medium">Agreement</th>
+                  <th className="px-4 py-3 font-medium">Currency</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Created</th>
                 </tr>
@@ -128,7 +124,17 @@ export function SisterProfilesPage() {
                     <td className="px-4 py-3"><code className="text-xs text-slate-500">{sp.referenceCode}</code></td>
                     <td className="px-4 py-3 font-medium text-slate-900">{sp.poReference || sp.id}</td>
                     <td className="px-4 py-3 text-slate-500">{sp.buyerProfileName}</td>
-                    <td className="px-4 py-3 text-slate-500">Type {sp.agreementType}</td>
+                    <td className="px-4 py-3 text-slate-500" title={AGREEMENTS[sp.agreementType]?.title}>
+                      {AGREEMENTS[sp.agreementType]?.short ?? `Type ${sp.agreementType}`}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {sp.supplierCurrency} → {sp.buyerCurrency}
+                      {Number(sp.exchangeRate) > 0 && (
+                        <span className="block text-slate-400">
+                          1 {sp.buyerCurrency} = {Number(sp.exchangeRate).toLocaleString()} {sp.supplierCurrency}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3"><Badge variant={STATUS_BADGE[sp.status]}>{sp.status}</Badge></td>
                     <td className="px-4 py-3 text-slate-400">{new Date(sp.createdAt).toLocaleDateString()}</td>
                   </tr>
@@ -160,7 +166,9 @@ function CreateSisterProfileDialog({ initialBuyer, onClose, onSubmit, loading, e
   const [buyerProfile, setBuyerProfile] = useState(initialBuyer)
   const [poReference, setPoReference] = useState("")
   const [agreementType, setAgreementType] = useState<AgreementType>("1")
-  const [rateValue, setRateValue] = useState<number>(0)
+  const [supplierCurrency, setSupplierCurrency] = useState("BDT")
+  const [buyerCurrency, setBuyerCurrency] = useState("USD")
+  const [exchangeRate, setExchangeRate] = useState("")
   const [referenceCode, setReferenceCode] = useState("")
 
   const buyersQuery = useQuery({
@@ -171,15 +179,15 @@ function CreateSisterProfileDialog({ initialBuyer, onClose, onSubmit, loading, e
     },
   })
 
-  const rateSpec = AGREEMENT_RATE_KEY[agreementType]
-
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     onSubmit({
       buyerProfile,
       poReference,
       agreementType,
-      agreementRateConfig: { [rateSpec.key]: rateValue },
+      supplierCurrency: supplierCurrency.trim().toUpperCase(),
+      buyerCurrency: buyerCurrency.trim().toUpperCase(),
+      exchangeRate: exchangeRate.trim() || "0",
       referenceCode: referenceCode.trim() || undefined,
     })
   }
@@ -199,24 +207,73 @@ function CreateSisterProfileDialog({ initialBuyer, onClose, onSubmit, loading, e
           <label className="mb-1 block text-xs font-medium text-slate-600">PO Reference</label>
           <Input value={poReference} onChange={(e) => setPoReference(e.target.value)} placeholder="Buyer's PO number" />
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">Agreement Type *</label>
-          <Select required value={agreementType} onChange={(e) => { setAgreementType(e.target.value as AgreementType); setRateValue(0) }}>
-            <option value="1">Type 1 — % of sourcing expense</option>
-            <option value="2">Type 2 — fixed rate per unit</option>
-            <option value="3">Type 3 — reimburse + commission</option>
-          </Select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">{rateSpec.label} *</label>
-          <div className="relative">
-            <Input
-              required type="number" min={0} step="0.01" value={rateValue}
-              onChange={(e) => setRateValue(Number(e.target.value))}
-            />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{rateSpec.suffix}</span>
+
+        <fieldset>
+          <legend className="mb-2 block text-xs font-medium text-slate-600">Agreement with this buyer *</legend>
+          <div className="flex flex-col gap-2">
+            {(Object.keys(AGREEMENTS) as AgreementType[]).map((key) => {
+              const spec = AGREEMENTS[key]
+              const selected = agreementType === key
+              return (
+                <label
+                  key={key}
+                  className={`flex cursor-pointer gap-3 rounded-md border p-3 transition ${
+                    selected ? "border-slate-900 bg-slate-50" : "border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <input
+                    type="radio" name="agreementType" value={key} checked={selected}
+                    onChange={() => setAgreementType(key)} className="mt-1 h-4 w-4 shrink-0"
+                  />
+                  <span className="flex flex-col gap-1">
+                    <span className="text-sm font-medium text-slate-900">{spec.title}</span>
+                    <span className="text-xs leading-relaxed text-slate-500">{spec.explanation}</span>
+                    <span className="text-xs text-slate-400">
+                      The {spec.rateLabel.toLowerCase()} is entered on each invoice, not here.
+                    </span>
+                  </span>
+                </label>
+              )
+            })}
           </div>
-        </div>
+        </fieldset>
+
+        <fieldset className="rounded-md border border-slate-200 p-3">
+          <legend className="px-1 text-xs font-medium text-slate-600">Currency &amp; exchange rate</legend>
+          <p className="mb-3 text-xs leading-relaxed text-slate-500">
+            Sourcing and warehouse costs are spent in the supplier's currency and charged to the buyer's
+            wallet in theirs, converted at this rate. Both figures are shown to both sides.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Supplier currency *</label>
+              <Input
+                required maxLength={8} value={supplierCurrency}
+                onChange={(e) => setSupplierCurrency(e.target.value.toUpperCase())} placeholder="BDT"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Buyer currency *</label>
+              <Input
+                required maxLength={8} value={buyerCurrency}
+                onChange={(e) => setBuyerCurrency(e.target.value.toUpperCase())} placeholder="USD"
+              />
+            </div>
+          </div>
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-slate-600">Exchange rate</label>
+            <Input
+              type="number" min={0} step="0.000001" value={exchangeRate}
+              onChange={(e) => setExchangeRate(e.target.value)} placeholder="e.g. 120"
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              {Number(exchangeRate) > 0
+                ? `1 ${buyerCurrency || "buyer"} = ${exchangeRate} ${supplierCurrency || "supplier"}`
+                : "Leave blank until the rate is agreed — costs then pass through unconverted."}
+            </p>
+          </div>
+        </fieldset>
+
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Reference Code</label>
           <Input value={referenceCode} onChange={(e) => setReferenceCode(e.target.value)} placeholder="Leave blank to auto-generate SIS-0001..." />

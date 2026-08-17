@@ -4,7 +4,7 @@ Commercial Invoice / Packing List exports (PDF + Excel).
 Layout follows the SUMAIYA-style combined document this business actually
 issues: company letterhead (name, ID/registration no, address, contact
 person, TEL), the invoice meta (DATE / Inv No), one combined COMMERCIAL
-INVOICE / PACKING LIST table with twenty-one columns per product line —
+INVOICE / PACKING LIST table with twenty-three columns per product line —
 including an embedded product photo per row, and carton SIZE as a grouped
 header spanning its L/W/H sub-columns — a totals block that shows its own
 arithmetic (bill + commission = total; each bank transfer summed =
@@ -80,11 +80,15 @@ COLUMNS = [
     ("ctn", "ctn"),
     ("qtyPerCtn", "qtyPerCtn"),
     ("totalQty", "totalQty"),
-    # No per-line Unit Price / Amount columns: the money side of this
-    # document is deliberately one figure — TOTAL VALUE in the summary block
-    # below — not a priced-out bill of lines. The per-line amounts still
-    # exist on InvoiceLineItem and still sum into that total; they're simply
-    # not what this document is for.
+    # Unit Price prints per line: the price captured at Sourcing Intake
+    # (ProductVariant.unitPrice), carried onto the Packing List's carton row
+    # (PackingCarton.unitPrice) and locked onto this invoice line at
+    # generation, so the document quotes the same figure the sourcing intake
+    # and packing list do.
+    ("unitPrice", "unitPrice"),
+    # Per-line AMOUNT (unitPrice × totalQty) so the buyer can verify the
+    # arithmetic that feeds the TOTAL VALUE at the bottom.
+    ("amount", "amount"),
     ("nwPerCtn", "nwPerCtn"),
     ("totalNw", "totalNw"),
     ("gwPerCtn", "gwPerCtn"),
@@ -147,6 +151,7 @@ _T = {
     "total": {"en": "TOTAL", "ka": "სულ"},
     # Totals block
     "total_value": {"en": "TOTAL VALUE", "ka": "სულ ღირებულება"},
+    "total_value_converted": {"en": "TOTAL VALUE (CONVERTED)", "ka": "სულ ღირებულება (კონვერტირებული)"},
     "commission": {"en": "COMMISSION", "ka": "კომისია"},
     "total_bill_commission": {"en": "TOTAL BILL + COMMISSION", "ka": "სულ ანგარიში + კომისია"},
     "bank_transfer": {"en": "BANK TRANSFER", "ka": "საბანკო გადარიცხვა"},
@@ -308,6 +313,43 @@ def _company_lines(company: CompanyProfile, lang: str = "en") -> list[str]:
 
 
 def _consignee_lines(invoice: Invoice, lang: str = "en") -> list[str]:
+    """Build consignee/buyer block for the printed document.
+
+    When per-invoice ``InvoiceBuyerDetails`` are present (typed at creation
+    time), those lines are used instead of the SisterProfile → BuyerProfile
+    hierarchy — the operator explicitly fills them in for the document.
+    """
+    buyer_details = getattr(invoice, "_buyer_details_cache", None)
+    if buyer_details is None:
+        try:
+            buyer_details = invoice.buyerDetails
+            # Cache it for repeated access (e.g. PDF + XLSX on same instance).
+            invoice._buyer_details_cache = buyer_details
+        except Exception:
+            buyer_details = None
+    if buyer_details:
+        lines: list[str] = []
+        if buyer_details.companyName:
+            lines.append(buyer_details.companyName)
+        if buyer_details.idNumber:
+            lines.append(f"I/D NO: {buyer_details.idNumber}")
+        if buyer_details.address:
+            lines.append(f"ADD: {buyer_details.address}")
+        if buyer_details.cityCountry:
+            lines.append(buyer_details.cityCountry)
+        if buyer_details.contactPerson:
+            lines.append(buyer_details.contactPerson)
+        if buyer_details.phone:
+            lines.append(f"TEL: {buyer_details.phone}")
+        # Custom label/value pairs
+        for field in (buyer_details.customFields or []):
+            label = field.get("label", "")
+            value = field.get("value", "")
+            if label and value:
+                lines.append(f"{label}: {value}")
+        if lines:
+            return lines
+
     sister_profile = invoice.sisterProfile
     buyer = sister_profile.buyerProfile
     lines = [buyer.name]
@@ -333,25 +375,28 @@ def _bank_rows(company: CompanyProfile, lang: str = "en") -> list[tuple[str, str
 def _totals_rows(invoice: Invoice, lang: str = "en") -> list[tuple[str, str]]:
     """The summary block.
 
-    The money side of this document is deliberately ONE figure: TOTAL VALUE
-    — every related cost rolled into it (product lines + any warehouse-cost
-    lines pulled in + commission), quoted in the invoice's own source
-    currency. The locked exchange rate and the converted total are not
-    printed: they remain on the Invoice model and drive the admin screens,
-    but they are not what this document communicates. The outstanding
-    balance is likewise not on the document — what a buyer needs on paper is
-    the all-in total and what has actually been received against it.
-
-    What follows the total is physical, not financial — quantities, cartons,
-    cube and weights — plus the payment record. "BANK TRANSFER
-    50000.00 + 30000.00 = 80000.00" keeps showing its own arithmetic, as on
-    the reference document.
+    The money side now shows TWO totals: TOTAL VALUE in the invoice's
+    source (line-item) currency, and TOTAL VALUE (CONVERTED) in the
+    target currency — so the buyer sees both figures regardless of what
+    currency the lines are priced in. The exchange rate that connects
+    them is also printed, so the conversion is auditable on paper.
     """
     totals = invoice.document_totals()
     source = invoice.sourceCurrency or ""
+    target = invoice.targetCurrency or ""
     paid = invoice.total_paid()
 
     rows = [(t("total_value", lang), f"{_money(invoice.grand_total())} {source}".strip())]
+
+    # Show the converted total if we have a target currency and a rate.
+    converted = invoice.convertedTotal
+    if target and converted:
+        rows.append((t("total_value_converted", lang), f"{_money(converted)} {target}"))
+
+    # Show the exchange rate so the conversion is auditable on paper.
+    if invoice.exchangeRateValueLocked:
+        rows.append((t("exchange_rate", lang), invoice.rate_label()))
+
     if paid:
         payments = list(invoice.payments.all().order_by("paymentDate", "createdAt"))
         parts = " + ".join(
@@ -388,6 +433,8 @@ def _cell_values(line, index: int) -> dict:
         "ctn": f"{line.ctn:,}",
         "qtyPerCtn": f"{line.qtyPerCtn:,}",
         "totalQty": f"{line.totalQty:,}",
+        "unitPrice": _num(line.unitPrice),
+        "amount": _num(line.amount),
         "nwPerCtn": _num(line.netWeightPerCtn),
         "totalNw": _num(line.netWeight),
         "gwPerCtn": _num(line.grossWeightPerCtn),
@@ -403,18 +450,18 @@ def _cell_values(line, index: int) -> dict:
 
 
 # ── PDF ────────────────────────────────────────────────────────────────
-# Landscape A4: twenty-one columns of invoice + packing detail do not fit
+# Landscape A4: twenty-three columns of invoice + packing detail do not fit
 # portrait at a readable type size.
 
 PDF_COLUMN_WIDTHS = {
-    "no": 8, "photo": 18, "description": 35, "brand": 19, "details": 28,
-    "ctn": 8, "qtyPerCtn": 10, "totalQty": 10,
-    "nwPerCtn": 9, "totalNw": 10, "gwPerCtn": 9, "totalGw": 10,
+    "no": 8, "photo": 18, "description": 22, "brand": 15, "details": 22,
+    "ctn": 8, "qtyPerCtn": 9, "totalQty": 9, "unitPrice": 14, "amount": 16,
+    "nwPerCtn": 8, "totalNw": 10, "gwPerCtn": 8, "totalGw": 10,
     "sizeL": 9, "sizeW": 9, "sizeH": 9,
-    "cbmPerCtn": 11, "cbm": 10, "material": 22, "style": 22,
+    "cbmPerCtn": 10, "cbm": 10, "material": 21, "style": 21,
 }  # sums to 266mm — the printable width of landscape A4 at 14mm margins.
-# The 29mm the dropped Unit Price/Amount columns used to take is given back
-# to the descriptive columns, which are what this document is actually for.
+# The 16mm the Amount column takes is reclaimed from the descriptive
+# columns around it, so the table still spans the full printable width.
 
 
 def render_invoice_pdf(invoice: Invoice, lang: str = "en") -> bytes:
@@ -620,7 +667,7 @@ def render_invoice_pdf(invoice: Invoice, lang: str = "en") -> bytes:
 
 XLSX_COLUMN_WIDTHS = {
     "no": 7, "photo": 14, "description": 38, "brand": 20, "details": 30,
-    "ctn": 7, "qtyPerCtn": 9, "totalQty": 10,
+    "ctn": 7, "qtyPerCtn": 9, "totalQty": 10, "unitPrice": 10, "amount": 14,
     "nwPerCtn": 9, "totalNw": 10, "gwPerCtn": 9, "totalGw": 10,
     "sizeL": 7, "sizeW": 7, "sizeH": 7,
     "cbmPerCtn": 10, "cbm": 10, "material": 28, "style": 20,
@@ -747,11 +794,12 @@ def render_invoice_xlsx(invoice: Invoice, lang: str = "en") -> bytes:
     row += 2
 
     keys = KEYS
-    numeric_keys = {"ctn", "qtyPerCtn", "totalQty", "nwPerCtn",
+    numeric_keys = {"ctn", "qtyPerCtn", "totalQty", "unitPrice", "amount", "nwPerCtn",
                     "totalNw", "gwPerCtn", "totalGw", "sizeL", "sizeW", "sizeH",
                     "cbmPerCtn", "cbm"}
     numeric_source = {
         "ctn": lambda li: li.ctn, "qtyPerCtn": lambda li: li.qtyPerCtn, "totalQty": lambda li: li.totalQty,
+        "unitPrice": lambda li: li.unitPrice, "amount": lambda li: li.amount,
         "nwPerCtn": lambda li: li.netWeightPerCtn, "totalNw": lambda li: li.netWeight,
         "gwPerCtn": lambda li: li.grossWeightPerCtn, "totalGw": lambda li: li.grossWeight,
         "sizeL": lambda li: li.ctnLengthCm, "sizeW": lambda li: li.ctnWidthCm, "sizeH": lambda li: li.ctnHeightCm,
@@ -803,7 +851,7 @@ def render_invoice_xlsx(invoice: Invoice, lang: str = "en") -> bytes:
     if last_line_row >= first_line_row:
         ws.cell(row=row, column=1, value=t("total", lang)).font = bold
         for col, key in enumerate(keys, start=1):
-            if key in ("ctn", "totalQty", "totalNw", "totalGw", "cbm"):
+            if key in ("ctn", "totalQty", "amount", "totalNw", "totalGw", "cbm"):
                 letter = get_column_letter(col)
                 cell = ws.cell(row=row, column=col, value=f"=SUM({letter}{first_line_row}:{letter}{last_line_row})")
                 cell.font = bold

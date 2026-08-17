@@ -17,7 +17,6 @@ from apps.invoicing.models import (
     InvoiceLineItem,
     InvoicePayment,
     InvoiceStatus,
-    RateQuote,
 )
 
 
@@ -100,61 +99,137 @@ def compute_line_item(li: dict) -> dict:
     return out
 
 
+# Agreement Type (label) → CommissionType on the invoice. The type itself
+# carries no rate any more — the operator types the rate per invoice and
+# this mapping decides how it's applied (see create_invoice).
+AGREEMENT_COMMISSION_TYPES = {
+    "1": CommissionType.PERCENTAGE,   # % of sourcing expense / line value
+    "2": CommissionType.PER_UNIT,     # fixed rate per unit
+    "3": CommissionType.PERCENTAGE,   # % of the reimbursed cost total
+}
+
+
 @transaction.atomic
 def create_invoice(
-    *, sister_profile, created_by, line_items: list, exchange_rate=None,
-    commission_type=CommissionType.NONE, commission_value=0,
-    source_currency="", target_currency="", manual_rate=None, rate_quote=None,
+    *, sister_profile, created_by, line_items: list,
+    commission_rate=None, pull_expenses=False, buyer_details=None,
 ) -> Invoice:
     """BR-36/FR-42: pre-filled line items from one or more approved Packing
     Lists (the caller resolves which PackingCarton rows to pull from — this
     function just persists whatever line items it's handed).
-    FR-57: the rate VALUE is copied onto the invoice now, permanently.
 
-    The rate can come from a published ExchangeRate (`exchange_rate`) or be
-    typed by hand (`manual_rate` + `target_currency` + `rate_quote`). A
-    published rate wins when both are given: it's the auditable one.
+    The currency configuration — supplier currency, buyer currency, and the
+    rate ("1 buyer = X supplier", conversions divide by it) — is snapshotted
+    from the Sister Profile (FR-57: locked at generation, never re-read).
+
+    ``commission_rate`` is the agreement-driven rate, applied according to
+    the profile's agreement type (see AGREEMENT_COMMISSION_TYPES): a
+    percentage for Type 1/3, a per-unit figure for Type 2.
+
+    ``pull_expenses`` (Type 3 "reimburse + commission"): every recorded,
+    non-advance Expense on the profile becomes a cost line on the invoice
+    and is summed into the dual-currency cost totals. NOTE: nothing marks
+    an Expense as already pulled, so generating a second Type 3 invoice
+    without deleting the first re-bills the same rows — the operator's
+    preview is the guard against that.
+
+    ``buyer_details`` is an optional dict with keys matching
+    InvoiceBuyerDetails fields (companyName, idNumber, address, cityCountry,
+    contactPerson, phone, customFields). When provided, an
+    InvoiceBuyerDetails row is created alongside the invoice.
     """
-    if not line_items:
+    if not line_items and not (pull_expenses and sister_profile.agreementType == "3"):
         raise ValidationError("At least one line item is required.")
 
-    line_items = [compute_line_item(li) for li in line_items]
-    total_value = _round2(sum((_dec(li.get("amount")) for li in line_items), Decimal("0")))
+    agreement_type = sister_profile.agreementType
+    commission_type = AGREEMENT_COMMISSION_TYPES.get(agreement_type, CommissionType.NONE)
+    rate = _dec(commission_rate)
+    if commission_type != CommissionType.NONE and rate <= 0:
+        raise ValidationError("A positive commission rate is required for this agreement type.")
 
-    if exchange_rate:
-        locked_rate = _dec(exchange_rate.rate)
-        resolved_target = exchange_rate.targetCurrency
-        resolved_source = source_currency or exchange_rate.sourceCurrency
-        resolved_quote = RateQuote.MULTIPLY  # what a published rate means
-    else:
-        locked_rate = _dec(manual_rate)
-        resolved_target = target_currency or ""
-        resolved_source = source_currency or "BDT"
-        resolved_quote = rate_quote or RateQuote.DIVIDE  # "1 USD = 120 BDT"
-        if locked_rate < 0:
-            raise ValidationError("Exchange rate cannot be negative.")
-        if locked_rate and not resolved_target:
-            raise ValidationError("A target currency is required when an exchange rate is given.")
+    line_items = [compute_line_item(li) for li in line_items]
+
+    # Type 3: pull the recorded expenses in as cost lines.
+    cost_lines = []
+    cost_total = Decimal("0")
+    if pull_expenses and agreement_type == "3":
+        from apps.expenses.models import Expense, SourceType
+
+        expenses = (
+            Expense.objects.filter(sisterProfile=sister_profile)
+            .exclude(sourceType=SourceType.SOURCING_ADVANCE)
+            .order_by("createdAt")
+        )
+        for expense in expenses:
+            cost_total += expense.amount
+            label = expense.get_sourceType_display()
+            if expense.fieldName:
+                label = f"{label} — {expense.fieldName}"
+            if expense.remarks:
+                label = f"{label} ({expense.remarks})"
+            cost_lines.append(
+                {
+                    "description": label,
+                    "unitPrice": expense.amount,
+                    "amount": expense.amount,
+                }
+            )
+    cost_total = _round2(cost_total)
+
+    all_lines = line_items + cost_lines
+    total_value = _round2(sum((_dec(li.get("amount")) for li in all_lines), Decimal("0")))
 
     invoice = Invoice(
         sisterProfile=sister_profile,
-        exchangeRate=exchange_rate,
-        exchangeRateValueLocked=locked_rate,
-        sourceCurrency=resolved_source,
-        targetCurrency=resolved_target,
-        rateQuote=resolved_quote,
-        commissionType=commission_type or CommissionType.NONE,
-        commissionValue=_dec(commission_value),
+        # Currency configuration snapshot — never re-read from the profile.
+        exchangeRateValueLocked=_dec(sister_profile.exchangeRate),
+        sourceCurrency=sister_profile.supplierCurrency,
+        targetCurrency=sister_profile.buyerCurrency,
+        agreementTypeAtCreation=agreement_type,
+        commissionType=commission_type,
+        commissionValue=rate,
+        costTotalSupplier=cost_total,
         totalValue=total_value,
         createdBy=created_by,
     )
-    commission = invoice.commission_amount()
+
+    # Commission in the supplier (line-item) currency. Mirrors
+    # Invoice.commission_amount(), computed here because the line items
+    # aren't saved yet (PER_UNIT sums their quantity).
+    if commission_type == CommissionType.PERCENTAGE:
+        base = cost_total if agreement_type == "3" else total_value
+        commission = base * rate / Decimal("100")
+    elif commission_type == CommissionType.PER_UNIT:
+        total_qty = sum((int(li.get("totalQty") or 0) for li in all_lines))
+        commission = rate * total_qty
+    else:
+        commission = Decimal("0")
+    commission = _round2(commission)
+
+    invoice.costTotalBuyer = invoice.convert(cost_total) or Decimal("0")
+    invoice.commissionTotalSupplier = commission
+    invoice.commissionTotalBuyer = invoice.convert(commission) or Decimal("0")
     grand_total = _round2(total_value + commission)
     invoice.convertedTotal = invoice.convert(grand_total) or Decimal("0")
     invoice.outstandingBalance = grand_total
     invoice.save()
 
-    for li in line_items:
+    # Persist buyer/consignee details when provided.
+    if buyer_details:
+        from apps.invoicing.models import InvoiceBuyerDetails
+
+        InvoiceBuyerDetails.objects.create(
+            invoice=invoice,
+            companyName=buyer_details.get("companyName", ""),
+            idNumber=buyer_details.get("idNumber", ""),
+            address=buyer_details.get("address", ""),
+            cityCountry=buyer_details.get("cityCountry", ""),
+            contactPerson=buyer_details.get("contactPerson", ""),
+            phone=buyer_details.get("phone", ""),
+            customFields=buyer_details.get("customFields") or {},
+        )
+
+    for li in all_lines:
         InvoiceLineItem.objects.create(
             invoice=invoice,
             product=li.get("product"),
@@ -205,74 +280,44 @@ _UNSET = object()  # distinguishes "field not supplied" from "field cleared"
 
 
 @transaction.atomic
-def update_invoice_payment_details(
-    invoice: Invoice, *, actor, exchange_rate=_UNSET, commission_type=_UNSET,
-    commission_value=_UNSET, source_currency=_UNSET, target_currency=_UNSET,
-    manual_rate=_UNSET, rate_quote=_UNSET,
-) -> Invoice:
-    """Fix the payment options on an invoice that hasn't been approved yet.
+def update_invoice_commission(invoice: Invoice, *, actor, commission_rate=_UNSET) -> Invoice:
+    """Fix the commission rate on an invoice that hasn't been approved yet.
 
-    Rate and commission are chosen once, at generation time, and mistakes
-    are easy — wrong rate row, percentage instead of flat. Until now the
-    only remedy was delete-and-recreate, which throws away the assembled
-    line items. This edits just that configuration, and only while the
-    invoice is still Pending Approval: an Issued invoice is a financial
+    The rate is chosen once, at generation time, and a mistyped figure is
+    easy — percentage typed as 0.8 instead of 8, per-unit rate off by a
+    factor. Until now the only remedy was delete-and-recreate, which throws
+    away the assembled line items. This edits just the rate, and only while
+    the invoice is still Pending Approval: an Issued invoice is a financial
     document the buyer may already hold (BR-46's no-in-place-edits rule
     stays in force for it), and Rejected/Void are dead ends.
 
-    PATCH semantics: omitted arguments keep the stored value. A supplied
-    published ExchangeRate wins over the manual rate and re-locks its
-    value — same resolution rules as create_invoice(). Every derived
-    figure is recomputed from the unchanged line items; payments cannot
-    exist against a pending invoice, so the outstanding balance is simply
-    the new grand total.
+    The commission TYPE is agreement-derived (agreementTypeAtCreation) and
+    the currency configuration is a SisterProfile snapshot — neither is
+    editable here, only the rate. Every derived figure is recomputed from
+    the unchanged line items; payments cannot exist against a pending
+    invoice, so the outstanding balance is simply the new grand total.
     """
     if invoice.status != InvoiceStatus.PENDING_APPROVAL:
         raise ValidationError(
-            f"Payment details can only be edited before approval — this invoice is '{invoice.status}'."
+            f"Commission can only be edited before approval — this invoice is '{invoice.status}'."
         )
 
     before = {
-        "exchangeRateValueLocked": str(invoice.exchangeRateValueLocked),
-        "sourceCurrency": invoice.sourceCurrency, "targetCurrency": invoice.targetCurrency,
         "commissionType": invoice.commissionType, "commissionValue": str(invoice.commissionValue),
     }
 
-    resolved_rate = invoice.exchangeRate if exchange_rate is _UNSET else exchange_rate
-    resolved_commission_type = invoice.commissionType if commission_type is _UNSET else commission_type
-    resolved_commission_value = invoice.commissionValue if commission_value is _UNSET else _dec(commission_value)
-    resolved_source = invoice.sourceCurrency if source_currency is _UNSET else source_currency
-    resolved_target = invoice.targetCurrency if target_currency is _UNSET else target_currency
-    resolved_quote = invoice.rateQuote if rate_quote is _UNSET else rate_quote
-
-    if resolved_rate:
-        locked_rate = _dec(resolved_rate.rate)
-        resolved_target = resolved_rate.targetCurrency
-        resolved_source = resolved_source or resolved_rate.sourceCurrency
-        resolved_quote = RateQuote.MULTIPLY  # what a published rate means
-    else:
-        locked_rate = invoice.exchangeRateValueLocked if manual_rate is _UNSET else _dec(manual_rate)
-        if not resolved_source:
-            resolved_source = "BDT"
-        if locked_rate < 0:
-            raise ValidationError("Exchange rate cannot be negative.")
-        if locked_rate and not resolved_target:
-            raise ValidationError("A target currency is required when an exchange rate is given.")
-
-    invoice.exchangeRate = resolved_rate
-    invoice.exchangeRateValueLocked = locked_rate
-    invoice.sourceCurrency = resolved_source
-    invoice.targetCurrency = resolved_target
-    invoice.rateQuote = resolved_quote
-    invoice.commissionType = resolved_commission_type or CommissionType.NONE
-    invoice.commissionValue = resolved_commission_value
+    if commission_rate is not _UNSET:
+        rate = _dec(commission_rate)
+        if invoice.commissionType != CommissionType.NONE and rate <= 0:
+            raise ValidationError("A positive commission rate is required.")
+        invoice.commissionValue = rate
 
     # Recompute every derived figure from the unchanged line items — the
     # same sequence create_invoice() runs.
-    invoice.totalValue = _round2(
-        sum((_dec(li.amount) for li in invoice.lineItems.all()), Decimal("0"))
-    )
-    grand_total = _round2(invoice.totalValue + invoice.commission_amount())
+    commission = _round2(invoice.commission_amount())
+    invoice.commissionTotalSupplier = commission
+    invoice.commissionTotalBuyer = invoice.convert(commission) or Decimal("0")
+    grand_total = _round2(invoice.totalValue + commission)
     invoice.convertedTotal = invoice.convert(grand_total) or Decimal("0")
     invoice.outstandingBalance = grand_total
     invoice.save()
@@ -283,8 +328,6 @@ def update_invoice_payment_details(
         actor=actor, action="UPDATE_INVOICE", entity_type="Invoice", entity_id=invoice.id,
         before=before,
         after={
-            "exchangeRateValueLocked": str(invoice.exchangeRateValueLocked),
-            "sourceCurrency": invoice.sourceCurrency, "targetCurrency": invoice.targetCurrency,
             "commissionType": invoice.commissionType, "commissionValue": str(invoice.commissionValue),
         },
     )

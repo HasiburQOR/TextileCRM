@@ -40,14 +40,14 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
     """BR-36–47 / FR-42–59."""
 
     queryset = Invoice.objects.select_related(
-        "sisterProfile__buyerProfile", "exchangeRate", "createdBy", "approvedBy"
+        "sisterProfile__buyerProfile", "createdBy", "approvedBy", "buyerDetails"
     ).prefetch_related("lineItems", "payments")
     tenant_lookup = "sisterProfile__buyerProfile_id"
     allowed_roles = [Roles.EMPLOYEE]
     # PUT stays excluded — BR-46: an invoice is never wholesale rewritten.
     # PATCH exists for exactly one purpose (partial_update below): fixing
-    # the payment options on a still-Pending invoice, because a wrong rate
-    # or commission at generation time otherwise meant delete-and-recreate.
+    # the commission rate on a still-Pending invoice, because a wrong rate
+    # at generation time otherwise meant delete-and-recreate.
     # Everything else still only advances through the status actions, and
     # once approved the door closes for good.
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
@@ -96,7 +96,6 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         sister_profile = SisterProfile.objects.filter(pk=data.get("sisterProfile")).first()
         if not sister_profile:
             raise DRFValidationError({"sisterProfile": "Required."})
-        exchange_rate = ExchangeRate.objects.filter(pk=data.get("exchangeRate")).first() if data.get("exchangeRate") else None
 
         line_items = []
         for li in data.get("lineItems", []):
@@ -114,46 +113,32 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
                 sister_profile=sister_profile,
                 created_by=request.user,
                 line_items=line_items,
-                exchange_rate=exchange_rate,
-                commission_type=data.get("commissionType", "none"),
-                commission_value=data.get("commissionValue") or 0,
-                source_currency=data.get("sourceCurrency", ""),
-                target_currency=data.get("targetCurrency", ""),
-                manual_rate=data.get("manualRate"),
-                rate_quote=data.get("rateQuote"),
+                commission_rate=data.get("commissionRate"),
+                pull_expenses=bool(data.get("pullExpenses")),
+                buyer_details=data.get("buyerDetails"),
             )
         except DjangoValidationError as exc:
             raise DRFValidationError(exc.messages if hasattr(exc, "messages") else str(exc))
         return Response(self.get_serializer(invoice).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
-        """Edit-before-approve: fix the payment configuration (commission,
-        rate, currencies) on a still-pending invoice before an Admin
-        approves it. Every other field — status, invoiceNo, line items,
-        totals — remains service-owned, and the service itself refuses
-        anything not in Pending Approval."""
+        """Edit-before-approve: fix the commission rate on a still-pending
+        invoice before an Admin approves it. Every other field — status,
+        invoiceNo, line items, the agreement-derived commission type, the
+        SisterProfile currency snapshot, totals — remains service-owned,
+        and the service itself refuses anything not in Pending Approval."""
         invoice = self.get_object()
         data = request.data
         payload = {}
-        if "exchangeRate" in data:
-            # Present-but-empty means an explicit switch to the manual rate
-            # below; absent means "leave whatever rate is already locked".
-            if data["exchangeRate"]:
-                rate = ExchangeRate.objects.filter(pk=data["exchangeRate"]).first()
-                if rate is None:
-                    raise DRFValidationError({"exchangeRate": "Unknown exchange rate."})
-                payload["exchange_rate"] = rate
-            else:
-                payload["exchange_rate"] = None
         for key, kwarg in (
-            ("commissionType", "commission_type"), ("commissionValue", "commission_value"),
-            ("sourceCurrency", "source_currency"), ("targetCurrency", "target_currency"),
-            ("manualRate", "manual_rate"), ("rateQuote", "rate_quote"),
+            ("commissionRate", "commission_rate"),
+            ("commissionValue", "commission_rate"),  # legacy payload key
         ):
             if key in data:
                 payload[kwarg] = data[key]
+                break
         try:
-            invoice = services.update_invoice_payment_details(invoice, actor=request.user, **payload)
+            invoice = services.update_invoice_commission(invoice, actor=request.user, **payload)
         except DjangoValidationError as exc:
             raise DRFValidationError(exc.messages if hasattr(exc, "messages") else str(exc))
         return Response(self.get_serializer(invoice).data)

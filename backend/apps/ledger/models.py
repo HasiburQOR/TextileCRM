@@ -1,22 +1,8 @@
-from django.db import models
+"""The Settlement Ledger is gone (BR-49–51 redesign): the agreement type
+became a label, the rate/currency configuration moved onto
+SisterProfile, and the per-invoice amount-owed calculation it used to
+feed now lives in apps.invoicing (Invoice.amount_owed). This app keeps
+its migration history only — 0002 deletes the SettlementLedger table."""
 
-from apps.buyers.models import SisterProfile
-
-
-class SettlementLedger(models.Model):
-    """BR-49–51 / FR-74–76: a materialized, one-row-per-Sister-Profile
-    ledger, recomputed on every Expense write (see
-    apps.ledger.services.recompute_settlement, called from
-    apps.expenses.services.record_expense) — not a live SQL view and not a
-    nightly batch job, per the migration doc's explicit instruction."""
-
-    sisterProfile = models.OneToOneField(SisterProfile, related_name="settlementLedger", primary_key=True, on_delete=models.CASCADE)
-    totalAdvance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    totalExpense = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    amountOwed = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    netPosition = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    negativeBalance = models.BooleanField(default=False)
-    updatedAt = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"Settlement for {self.sisterProfile} (net {self.netPosition})"
+# No models remain. The app itself stays installed so its migrations
+# (including the table drop) keep applying against existing databases.

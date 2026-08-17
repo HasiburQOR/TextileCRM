@@ -18,11 +18,11 @@ class WarehouseCostServiceTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.other_sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-002",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.wh_user = User.objects.create_user(username="wh", password="pass12345", role=Roles.WAREHOUSE)
         self.packing_list = PackingList.objects.create(sisterProfile=self.sister, poNo="PO-001", createdBy=self.wh_user)
@@ -139,11 +139,11 @@ class WarehouseCostAPITenantTests(APITestCase):
         self.buyer_b = BuyerProfile.objects.create(name="Buyer B")
         self.sister_a = SisterProfile.objects.create(
             buyerProfile=self.buyer_a, poReference="PO-A",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.sister_b = SisterProfile.objects.create(
             buyerProfile=self.buyer_b, poReference="PO-B",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.wh_user = User.objects.create_user(username="wh", password="pass12345", role=Roles.WAREHOUSE)
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)

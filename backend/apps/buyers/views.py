@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError
 from rest_framework import status, viewsets
@@ -185,3 +187,118 @@ class SisterProfileViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         _save_or_reject_duplicate_reference_code(serializer)
+
+    def perform_update(self, serializer):
+        """The exchange rate now decides what a buyer is charged for every
+        cost recorded after it, so an edit is a money-affecting action and
+        must leave an audit trail — unlike before, when nothing on this
+        model touched a balance."""
+        from apps.audit.services import log_action
+
+        instance = self.get_object()
+        before = {
+            "supplierCurrency": instance.supplierCurrency, "buyerCurrency": instance.buyerCurrency,
+            "exchangeRate": str(instance.exchangeRate), "agreementType": instance.agreementType,
+            "status": instance.status,
+        }
+        updated = _save_or_reject_duplicate_reference_code(serializer)
+        log_action(
+            actor=self.request.user, action="UPDATE_SISTER_PROFILE",
+            entity_type="SisterProfile", entity_id=updated.id, before=before,
+            after={
+                "supplierCurrency": updated.supplierCurrency, "buyerCurrency": updated.buyerCurrency,
+                "exchangeRate": str(updated.exchangeRate), "agreementType": updated.agreementType,
+                "status": updated.status,
+            },
+        )
+
+    @action(detail=True, methods=["get"], url_path="cost-breakdown")
+    def cost_breakdown(self, request, pk=None):
+        """Where this order's money has gone, in both currencies.
+
+        Feeds the Sister Profile overview and the invoice builder's
+        breakdown panel. It lives here rather than on the invoice serializer
+        because that serializer backs a 200-row list endpoint, where a
+        per-row aggregation would be an N+1; and being an action on this
+        ViewSet it inherits tenant scoping for free, so a buyer reaching for
+        another buyer's order 404s like everywhere else.
+
+        Supplier-currency figures are only summed across rows that actually
+        share a currency — an Expense recorded in a third currency is never
+        added to the supplier total, only to the buyer total it was charged
+        at.
+        """
+        from django.db.models import Count, Sum
+
+        from apps.expenses.models import Expense, SourceType
+        from apps.sourcing.models import ProductVariant
+
+        profile = self.get_object()
+
+        groups = {
+            "sourcing": [SourceType.SOURCING_ADVANCE],
+            "warehouse": [
+                SourceType.WAREHOUSE_LOADER, SourceType.WAREHOUSE_EXTRA_WORKER,
+                SourceType.WAREHOUSE_PACKAGING_ITEM,
+            ],
+            "qc": [SourceType.QC_LUNCH, SourceType.QC_CARRYING, SourceType.QC_TRAVEL_EXTRA],
+            "other": [SourceType.CUSTOM_FIELD, SourceType.EXTRA_COST],
+        }
+        group_of = {st: name for name, types in groups.items() for st in types}
+        labels = dict(SourceType.choices)
+
+        rows = (
+            Expense.objects.filter(sisterProfile=profile)
+            .values("sourceType", "currency")
+            .annotate(
+                amount=Sum("amount"),
+                amountBuyer=Sum("amountInBuyerCurrency"),
+                count=Count("id"),
+            )
+            .order_by("sourceType")
+        )
+
+        by_source_type, group_totals = [], {name: {"amount": Decimal("0"), "amountBuyer": Decimal("0")} for name in groups}
+        total = Decimal("0")
+        total_buyer = Decimal("0")
+        for row in rows:
+            amount = row["amount"] or Decimal("0")
+            amount_buyer = row["amountBuyer"] or Decimal("0")
+            same_currency = row["currency"] == profile.supplierCurrency
+            by_source_type.append({
+                "sourceType": row["sourceType"],
+                "label": labels.get(row["sourceType"], row["sourceType"]),
+                "group": group_of.get(row["sourceType"], "other"),
+                "currency": row["currency"],
+                "amount": amount,
+                "amountBuyer": amount_buyer,
+                "count": row["count"],
+            })
+            bucket = group_totals[group_of.get(row["sourceType"], "other")]
+            bucket["amountBuyer"] += amount_buyer
+            if same_currency:
+                bucket["amount"] += amount
+                total += amount
+            total_buyer += amount_buyer
+
+        order_qty = ProductVariant.objects.filter(product__sisterProfile=profile).aggregate(
+            total=Sum("orderQty")
+        )["total"] or 0
+
+        return Response({
+            "supplierCurrency": profile.supplierCurrency,
+            "buyerCurrency": profile.buyerCurrency,
+            "exchangeRate": profile.exchangeRate,
+            "rateLabel": (
+                f"1 {profile.buyerCurrency} = {profile.exchangeRate.normalize():f} {profile.supplierCurrency}"
+                if profile.exchangeRate else ""
+            ),
+            "groups": group_totals,
+            "bySourceType": by_source_type,
+            "total": {"amount": total, "amountBuyer": total_buyer},
+            "units": {
+                "totalOrderQty": order_qty,
+                "unitCost": (total / order_qty).quantize(Decimal("0.01")) if order_qty else None,
+                "unitCostBuyer": (total_buyer / order_qty).quantize(Decimal("0.01")) if order_qty else None,
+            },
+        })

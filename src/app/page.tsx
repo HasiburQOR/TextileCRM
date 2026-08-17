@@ -54,7 +54,7 @@ interface QCReport { id: string; reportId: string; requestId: string; lunchCostF
 interface Carton { id?: string; cartonNoFrom: number; cartonNoTo: number; noOfCartons: number; color: string; assortId: string; itemNumber: string; sizeBreakdown: string; qtyPerCarton: number; shipQty: number; orderQty: number; shortQty: number; shortPct: number; ctnLength: number; ctnWidth: number; ctnHeight: number; netWeight: number; grossWeight: number; ctnCbm: number }
 interface PackingList { id: string; orderQty: number; shipmentQty: number; shortQty: number; shortPct: number; totalCbm: number; totalNetWeight: number; totalGrossWeight: number; frontMark: string; sideMark: string; cartons: Carton[] }
 interface InvoiceLineItem { id?: string; description: string; brand: string; ctn: number; qtyPerCtn: number; totalQty: number; unitPrice: number; amount: number; netWeight: number; grossWeight: number; cbm: number; material: string; styleItemCode: string; remarks: string }
-interface Invoice { id: string; invoiceNo: string; buyerName: string; status: string; rejectionReason: string; exchangeRateValue: number; targetCurrency: string; commissionType: string; commissionValue: number; totalValue: number; convertedTotal: number; outstandingBalance: number; createdAt: string; createdBy: { id: string; name: string | null }; approvedBy: { id: string; name: string | null } | null; lineItems: InvoiceLineItem[]; payments: { id: string; amount: number; currency: string; paymentDate: string; bankReference: string }[] }
+interface Invoice { id: string; invoiceNo: string; buyerName: string; status: string; rejectionReason: string; exchangeRateValue: number; sourceCurrency: string; targetCurrency: string; commissionType: string; commissionValue: number; totalValue: number; convertedTotal: number; outstandingBalance: number; createdAt: string; createdBy: { id: string; name: string | null }; approvedBy: { id: string; name: string | null } | null; lineItems: InvoiceLineItem[]; payments: { id: string; amount: number; currency: string; paymentDate: string; bankReference: string }[] }
 interface ExchangeRate { id: string; sourceCurrency: string; targetCurrency: string; rate: number; effectiveDate: string; publishedBy: { id: string; name: string | null } }
 interface SourcingRequest {
   id: string; productName: string; photoUrl: string; packingListNotes: string; status: string
@@ -207,6 +207,9 @@ export default function Home() {
   const [newInvOpen, setNewInvOpen] = useState(false)
   const [invBuyer, setInvBuyer] = useState('')
   const [invRateId, setInvRateId] = useState('')
+  const [invSourceCurrency, setInvSourceCurrency] = useState('BDT')
+  const [invTargetCurrency, setInvTargetCurrency] = useState('USD')
+  const [invManualRate, setInvManualRate] = useState('')
   const [invCommType, setInvCommType] = useState('NONE')
   const [invCommValue, setInvCommValue] = useState('')
   const [invLineItems, setInvLineItems] = useState<InvoiceLineItem[]>([{ ...EMPTY_LI }])
@@ -450,6 +453,8 @@ export default function Home() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           buyerName: invBuyer, exchangeRateId: invRateId || null,
+          sourceCurrency: invSourceCurrency, targetCurrency: invTargetCurrency,
+          manualRate: invManualRate || null,
           commissionType: invCommType, commissionValue: parseFloat(invCommValue) || 0,
           lineItems: invLineItems.filter(li => li.description.trim()),
           createdById: currentUser.id,
@@ -457,7 +462,7 @@ export default function Home() {
       })
       if (res.ok) {
         toast({ title: 'Invoice created' }); setNewInvOpen(false)
-        setInvBuyer(''); setInvRateId(''); setInvCommType('NONE'); setInvCommValue('')
+        setInvBuyer(''); setInvRateId(''); setInvSourceCurrency('BDT'); setInvTargetCurrency('USD'); setInvManualRate(''); setInvCommType('NONE'); setInvCommValue('')
         setInvLineItems([{ ...EMPTY_LI }]); refresh()
       } else toast({ title: 'Failed to create invoice', variant: 'destructive' })
     } catch { toast({ title: 'Network error', variant: 'destructive' }) }
@@ -699,6 +704,9 @@ export default function Home() {
       const updated = { ...li }
       if (['description', 'brand', 'material', 'styleItemCode', 'remarks'].includes(field)) {
         (updated as Record<string, unknown>)[field] = val
+      } else if (field === 'unitPrice') {
+        // Prices are fractional — parseInt would turn 12.50 into 12.
+        (updated as Record<string, unknown>).unitPrice = parseFloat(val) || 0
       } else {
         (updated as Record<string, unknown>)[field] = parseInt(val) || 0
       }
@@ -832,7 +840,7 @@ export default function Home() {
         {/* INVOICES */}
         {activePage === 'invoices' && <div className="space-y-6">
           <div className="flex justify-between items-center"><h2 className="text-2xl font-bold">Invoices</h2><Button onClick={() => setNewInvOpen(true)}><Plus className="w-4 h-4 mr-2" />New Invoice</Button></div>
-          <Table><TableHeader><TableRow><TableHead>Invoice #</TableHead><TableHead>Buyer</TableHead><TableHead>Status</TableHead><TableHead>Total</TableHead><TableHead>Currency</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{invoices.map(inv => <TableRow key={inv.id} className="cursor-pointer" onClick={() => setDetailInv(inv)}><TableCell className="font-medium">{inv.invoiceNo}</TableCell><TableCell>{inv.buyerName}</TableCell><TableCell>{statusBadge(inv.status)}</TableCell><TableCell>{inv.totalValue.toFixed(2)}</TableCell><TableCell>{inv.targetCurrency}</TableCell><TableCell>{new Date(inv.createdAt).toLocaleDateString()}</TableCell></TableRow>)}</TableBody></Table>
+          <Table><TableHeader><TableRow><TableHead>Invoice #</TableHead><TableHead>Buyer</TableHead><TableHead>Status</TableHead><TableHead>Total</TableHead><TableHead>Converted</TableHead><TableHead>Date</TableHead></TableRow></TableHeader><TableBody>{invoices.map(inv => <TableRow key={inv.id} className="cursor-pointer" onClick={() => setDetailInv(inv)}><TableCell className="font-medium">{inv.invoiceNo}</TableCell><TableCell>{inv.buyerName}</TableCell><TableCell>{statusBadge(inv.status)}</TableCell><TableCell>{inv.totalValue.toFixed(2)} {inv.sourceCurrency}</TableCell><TableCell>{inv.convertedTotal > 0 ? `${inv.convertedTotal.toFixed(2)} ${inv.targetCurrency}` : '—'}</TableCell><TableCell>{new Date(inv.createdAt).toLocaleDateString()}</TableCell></TableRow>)}</TableBody></Table>
         </div>}
         {/* EXCHANGE RATES */}
         {activePage === 'exchange-rates' && <div className="space-y-6">
@@ -907,15 +915,20 @@ export default function Home() {
           <Select value={invRateId || 'none'} onValueChange={v => setInvRateId(v === 'none' ? '' : v)}><SelectTrigger><SelectValue placeholder="Exchange Rate (optional)" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{exchangeRates.map(er => <SelectItem key={er.id} value={er.id}>{er.sourceCurrency}/{er.targetCurrency} @ {er.rate}</SelectItem>)}</SelectContent></Select>
           <div className="grid grid-cols-2 gap-2"><Select value={invCommType} onValueChange={setInvCommType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="NONE">No Commission</SelectItem><SelectItem value="PERCENTAGE">Percentage</SelectItem><SelectItem value="FIXED">Fixed</SelectItem></SelectContent></Select>{invCommType !== 'NONE' && <Input type="number" placeholder="Value" value={invCommValue} onChange={e => setInvCommValue(e.target.value)} />}</div>
         </div>
+        <div className="grid grid-cols-3 gap-4">
+          <div><Label>Line Currency</Label><Select value={invSourceCurrency} onValueChange={setInvSourceCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Convert To</Label><Select value={invTargetCurrency} onValueChange={setInvTargetCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Manual Rate (1 {invTargetCurrency} = ? {invSourceCurrency})</Label><Input type="number" step="0.000001" placeholder="120" disabled={Boolean(invRateId)} value={invManualRate} onChange={e => setInvManualRate(e.target.value)} /></div>
+        </div>
         <Separator /><Label>Line Items</Label>
-        {invLineItems.map((li, i) => <div key={i} className="grid grid-cols-4 gap-2"><Input placeholder="Description *" value={li.description} onChange={e => handleLIChange(i, 'description', e.target.value)} /><Input placeholder="Brand" value={li.brand} onChange={e => handleLIChange(i, 'brand', e.target.value)} /><Input type="number" placeholder="Ctns" value={li.ctn || ''} onChange={e => handleLIChange(i, 'ctn', e.target.value)} /><div className="flex gap-1"><Input type="number" placeholder="Qty/Ctn" value={li.qtyPerCtn || ''} onChange={e => handleLIChange(i, 'qtyPerCtn', e.target.value)} />{invLineItems.length > 1 && <Button size="sm" variant="destructive" onClick={() => removeLI(i)}><Trash2 className="w-3 h-3" /></Button>}</div></div>)}
+        {invLineItems.map((li, i) => <div key={i} className="grid grid-cols-5 gap-2"><Input placeholder="Description *" value={li.description} onChange={e => handleLIChange(i, 'description', e.target.value)} /><Input placeholder="Brand" value={li.brand} onChange={e => handleLIChange(i, 'brand', e.target.value)} /><Input type="number" placeholder="Ctns" value={li.ctn || ''} onChange={e => handleLIChange(i, 'ctn', e.target.value)} /><Input type="number" placeholder="Qty/Ctn" value={li.qtyPerCtn || ''} onChange={e => handleLIChange(i, 'qtyPerCtn', e.target.value)} /><div className="flex gap-1"><Input type="number" step="0.01" placeholder="Unit Price" value={li.unitPrice || ''} onChange={e => handleLIChange(i, 'unitPrice', e.target.value)} />{invLineItems.length > 1 && <Button size="sm" variant="destructive" onClick={() => removeLI(i)}><Trash2 className="w-3 h-3" /></Button>}</div></div>)}
         <Button size="sm" variant="outline" onClick={addLI}><Plus className="w-3 h-3 mr-1" />Add Line</Button>
         <Button onClick={submitInvoice}>Create Invoice</Button>
       </div></DialogContent></Dialog>
       {/* Invoice Detail */}
       <Dialog open={!!detailInv} onOpenChange={() => setDetailInv(null)}><DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Invoice Details</DialogTitle></DialogHeader>{detailInv && <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4"><div><Label className="text-muted-foreground">Invoice #</Label><p className="font-medium">{detailInv.invoiceNo}</p></div><div><Label className="text-muted-foreground">Status</Label><p>{statusBadge(detailInv.status)}</p></div><div><Label className="text-muted-foreground">Buyer</Label><p>{detailInv.buyerName}</p></div><div><Label className="text-muted-foreground">Total</Label><p>{detailInv.totalValue.toFixed(2)} {detailInv.targetCurrency}</p></div></div>
-        {detailInv.lineItems.length > 0 && <Table><TableHeader><TableRow><TableHead>Description</TableHead><TableHead>Brand</TableHead><TableHead>Ctns</TableHead><TableHead>Total Qty</TableHead><TableHead>Amount</TableHead></TableRow></TableHeader><TableBody>{detailInv.lineItems.map((li, i) => <TableRow key={i}><TableCell>{li.description}</TableCell><TableCell>{li.brand}</TableCell><TableCell>{li.ctn}</TableCell><TableCell>{li.totalQty}</TableCell><TableCell>{li.amount.toFixed(2)}</TableCell></TableRow>)}</TableBody></Table>}
+        <div className="grid grid-cols-2 gap-4"><div><Label className="text-muted-foreground">Invoice #</Label><p className="font-medium">{detailInv.invoiceNo}</p></div><div><Label className="text-muted-foreground">Status</Label><p>{statusBadge(detailInv.status)}</p></div><div><Label className="text-muted-foreground">Buyer</Label><p>{detailInv.buyerName}</p></div><div><Label className="text-muted-foreground">Total</Label><p>{detailInv.totalValue.toFixed(2)} {detailInv.sourceCurrency}{detailInv.convertedTotal > 0 ? ` ≈ ${detailInv.convertedTotal.toFixed(2)} ${detailInv.targetCurrency}` : ''}</p></div></div>
+        {detailInv.lineItems.length > 0 && <Table><TableHeader><TableRow><TableHead>Description</TableHead><TableHead>Brand</TableHead><TableHead>Ctns</TableHead><TableHead>Total Qty</TableHead><TableHead>Unit Price</TableHead><TableHead>Amount</TableHead></TableRow></TableHeader><TableBody>{detailInv.lineItems.map((li, i) => <TableRow key={i}><TableCell>{li.description}</TableCell><TableCell>{li.brand}</TableCell><TableCell>{li.ctn}</TableCell><TableCell>{li.totalQty}</TableCell><TableCell>{li.unitPrice.toFixed(2)}</TableCell><TableCell>{li.amount.toFixed(2)}</TableCell></TableRow>)}</TableBody></Table>}
         {detailInv.status === 'PENDING' && <div className="flex gap-2 pt-4 border-t"><Button onClick={() => approveInvoice(detailInv.id)}><CheckCircle2 className="w-4 h-4 mr-1" />Approve</Button><Button variant="destructive" onClick={() => openRejectDialog('invoice', detailInv.id)}><XCircle className="w-4 h-4 mr-1" />Reject</Button></div>}
         {detailInv.status === 'APPROVED' && <div className="flex gap-2 pt-4 border-t"><Button variant="outline" onClick={() => { setPayInvId(detailInv.id); setPayAmount(''); setPayRef('') }}><Banknote className="w-4 h-4 mr-1" />Record Payment</Button><Button variant="destructive" onClick={() => openRejectDialog('void', detailInv.id)}>Void</Button></div>}
       </div>}</DialogContent></Dialog>

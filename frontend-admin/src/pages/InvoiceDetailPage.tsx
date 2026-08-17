@@ -163,6 +163,26 @@ export function InvoiceDetailPage() {
         )}
       </div>
 
+      {/* ── Buyer / Consignee Details ── */}
+      {inv.buyerDetails && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Buyer / Consignee Details</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+              {inv.buyerDetails.companyName && <div><span className="text-slate-500">Company:</span> <span className="font-medium">{inv.buyerDetails.companyName}</span></div>}
+              {inv.buyerDetails.idNumber && <div><span className="text-slate-500">I/D No:</span> <span className="font-medium">{inv.buyerDetails.idNumber}</span></div>}
+              {inv.buyerDetails.address && <div className="col-span-2"><span className="text-slate-500">Address:</span> <span className="font-medium">{inv.buyerDetails.address}</span></div>}
+              {inv.buyerDetails.cityCountry && <div><span className="text-slate-500">City / Country:</span> <span className="font-medium">{inv.buyerDetails.cityCountry}</span></div>}
+              {inv.buyerDetails.contactPerson && <div><span className="text-slate-500">Contact:</span> <span className="font-medium">{inv.buyerDetails.contactPerson}</span></div>}
+              {inv.buyerDetails.phone && <div><span className="text-slate-500">Phone:</span> <span className="font-medium">{inv.buyerDetails.phone}</span></div>}
+              {(inv.buyerDetails.customFields || []).map((f, i) => (
+                <div key={i}><span className="text-slate-500">{f.label}:</span> <span className="font-medium">{f.value}</span></div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
       {inv.status === "rejected" && inv.rejectionReason && (
         <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">Rejection reason: {inv.rejectionReason}</div>

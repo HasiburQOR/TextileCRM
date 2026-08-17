@@ -26,7 +26,7 @@ class NotificationTriggerTests(APITestCase):
         )
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
 
     def test_trip_closure_notifies_the_creating_rep(self):
@@ -58,14 +58,16 @@ class NotificationTriggerTests(APITestCase):
 
     def test_invoice_issuance_notifies_the_buyer(self):
         invoice = invoicing_services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=[{"description": "Goods", "amount": "500"}],
+            sister_profile=self.sister, created_by=self.employee,
+            line_items=[{"description": "Goods", "amount": "500"}], commission_rate=10,
         )
         invoicing_services.approve_invoice(invoice, self.admin)
         self.assertTrue(Notification.objects.filter(user=self.buyer_user, type=NotificationType.INVOICE_ISSUED).exists())
 
     def test_payment_recorded_notifies_the_buyer(self):
         invoice = invoicing_services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=[{"description": "Goods", "amount": "500"}],
+            sister_profile=self.sister, created_by=self.employee,
+            line_items=[{"description": "Goods", "amount": "500"}], commission_rate=10,
         )
         invoicing_services.approve_invoice(invoice, self.admin)
         invoicing_services.record_payment(
@@ -74,24 +76,18 @@ class NotificationTriggerTests(APITestCase):
         self.assertTrue(Notification.objects.filter(user=self.buyer_user, type=NotificationType.PAYMENT_RECORDED).exists())
 
     def test_negative_balance_notifies_admin_and_buyer_only_on_transition(self):
-        # TYPE_2: rate=10/unit. 20 units sourced -> owed=200. Advance=50 -> net=-150 (negative).
-        product = Product.objects.create(sisterProfile=self.sister, name="Bags", createdBy=self.rep)
-        from apps.sourcing.models import ProductVariant
-
-        ProductVariant.objects.create(product=product, colorName="Black", orderQty=20)
-        self.sister.agreementType = AgreementType.TYPE_2
-        self.sister.agreementRateConfig = {"rate_per_unit": 10}
-        self.sister.save()
-
+        """The Settlement Ledger's own alert is gone with the ledger — the
+        Buyer Wallet is now the single negative-balance signal. An expense
+        against an un-topped-up wallet drives it straight below zero."""
         record_expense(sister_profile=self.sister, source_type=SourceType.SOURCING_ADVANCE, amount=50, created_by=self.admin)
         # One alert event -> one row per recipient (Admin + buyer) = 2 rows.
-        self.assertEqual(Notification.objects.filter(type=NotificationType.NEGATIVE_BALANCE_ALERT).count(), 2)
-        self.assertTrue(Notification.objects.filter(user=self.admin, type=NotificationType.NEGATIVE_BALANCE_ALERT).exists())
-        self.assertTrue(Notification.objects.filter(user=self.buyer_user, type=NotificationType.NEGATIVE_BALANCE_ALERT).exists())
+        self.assertEqual(Notification.objects.filter(type=NotificationType.WALLET_NEGATIVE_BALANCE).count(), 2)
+        self.assertTrue(Notification.objects.filter(user=self.admin, type=NotificationType.WALLET_NEGATIVE_BALANCE).exists())
+        self.assertTrue(Notification.objects.filter(user=self.buyer_user, type=NotificationType.WALLET_NEGATIVE_BALANCE).exists())
 
         # A second Expense write while still negative must NOT re-fire the alert.
         record_expense(sister_profile=self.sister, source_type=SourceType.QC_CARRYING, amount=10, created_by=self.admin)
-        self.assertEqual(Notification.objects.filter(type=NotificationType.NEGATIVE_BALANCE_ALERT).count(), 2)
+        self.assertEqual(Notification.objects.filter(type=NotificationType.WALLET_NEGATIVE_BALANCE).count(), 2)
 
 
 class NotificationAPITests(APITestCase):

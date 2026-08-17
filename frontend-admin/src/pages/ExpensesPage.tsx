@@ -94,6 +94,9 @@ export function ExpensesPage() {
   const [downloading, setDownloading] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
 
+  // Per-row selection state for "Download Selected"
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
   // Typing in the search box shouldn't fire a request per keystroke — the
   // filter is applied server-side now, unlike the other controls which
   // change one value at a time.
@@ -220,6 +223,38 @@ export function ExpensesPage() {
     setSearchInput("")
   }
 
+  // ── Row selection helpers ──────────────────────────────────────────
+  const allSelected = useMemo(
+    () => rows.length > 0 && rows.every((e) => selectedIds.has(e.id)),
+    [rows, selectedIds],
+  )
+  const someSelected = useMemo(
+    () => selectedIds.size > 0 && !allSelected,
+    [selectedIds, allSelected],
+  )
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(rows.map((e) => e.id)))
+    }
+  }
+
+  function toggleRow(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Clear selection whenever the row set changes (new filters loaded)
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [filterParams])
+
   async function handleDownload(filetype: "xlsx" | "csv" | "pdf") {
     setDownloading(filetype)
     setDownloadError(null)
@@ -227,6 +262,24 @@ export function ExpensesPage() {
       const params = new URLSearchParams({ ...filterParams, filetype, groupBy })
       await downloadFile(`/expenses/export/?${params.toString()}`, `expenses.${filetype}`)
       setDownloadOpen(false)
+    } catch (err) {
+      setDownloadError(extractErrorMessage(err))
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  /** Download only the checked rows — sends ?id=xxx&id=yyy to the export
+   * endpoint, which reuses get_queryset() so the same grouping/formatting
+   * applies to just those rows. */
+  async function handleDownloadSelected(filetype: "xlsx" | "csv" | "pdf") {
+    if (selectedIds.size === 0) return
+    setDownloading(filetype)
+    setDownloadError(null)
+    try {
+      const params = new URLSearchParams({ filetype, groupBy })
+      selectedIds.forEach((id) => params.append("id", id))
+      await downloadFile(`/expenses/export/?${params.toString()}`, `expenses-selected.${filetype}`)
     } catch (err) {
       setDownloadError(extractErrorMessage(err))
     } finally {
@@ -254,6 +307,24 @@ export function ExpensesPage() {
         <Button onClick={() => { setDownloadError(null); setDownloadOpen(true) }}>
           <Download className="h-4 w-4" /> Download
         </Button>
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => handleDownloadSelected("xlsx")}
+              disabled={downloading !== null}
+            >
+              <FileSpreadsheet className="h-4 w-4" /> Download Selected ({selectedIds.size})
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear selection
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -331,6 +402,15 @@ export function ExpensesPage() {
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+                    <th className="px-4 py-3 font-medium w-10">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-slate-300"
+                        checked={allSelected}
+                        ref={(el) => { if (el) el.indeterminate = someSelected }}
+                        onChange={toggleAll}
+                      />
+                    </th>
                     <th className="px-4 py-3 font-medium">Buyer</th>
                     <th className="px-4 py-3 font-medium">Sister Profile</th>
                     <th className="px-4 py-3 font-medium">Product</th>
@@ -346,9 +426,17 @@ export function ExpensesPage() {
                   {rows.map((e) => (
                     <tr
                       key={e.id}
-                      className="cursor-pointer hover:bg-slate-50"
+                      className={`cursor-pointer hover:bg-slate-50${selectedIds.has(e.id) ? " bg-indigo-50/50" : ""}`}
                       onClick={() => navigate(e.product ? `/products/${e.product}` : `/sister-profiles/${e.sisterProfile}`)}
                     >
+                      <td className="px-4 py-3" onClick={(ev) => ev.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-slate-300"
+                          checked={selectedIds.has(e.id)}
+                          onChange={() => toggleRow(e.id)}
+                        />
+                      </td>
                       <td className="px-4 py-3 text-slate-500">{e.buyerProfileName || "—"}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{e.sisterProfilePoReference || e.sisterProfile}</td>
                       <td className="px-4 py-3 text-slate-500">{e.productName || "—"}</td>

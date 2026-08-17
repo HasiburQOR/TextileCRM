@@ -30,7 +30,7 @@ class StateMachineTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
@@ -143,11 +143,11 @@ class SourcingTenantIsolationTests(APITestCase):
         self.buyer_b = BuyerProfile.objects.create(name="H&M Sourcing")
         self.sister_a = SisterProfile.objects.create(
             buyerProfile=self.buyer_a, poReference="PO-A",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.sister_b = SisterProfile.objects.create(
             buyerProfile=self.buyer_b, poReference="PO-B",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
@@ -220,7 +220,7 @@ class FullWorkflowAPITests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
@@ -309,7 +309,7 @@ class SourcingAdvanceExpenseTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.product = Product.objects.create(sisterProfile=self.sister, name="Kids T-Shirt", createdBy=self.rep)
@@ -430,7 +430,7 @@ class CustomSizeBreakdownTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Buyer")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-1",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
 
@@ -589,7 +589,7 @@ class ProductTemplateTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Buyer")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-1",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         # sourcing.migrations.0008_seed_field_library already seeds these
         # exact rows (this app's data migrations run in the test DB too) —
@@ -721,7 +721,7 @@ class ProductMaterialFieldTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         # Edits (PATCH) are Admin-only per ProductViewSet.get_permissions -

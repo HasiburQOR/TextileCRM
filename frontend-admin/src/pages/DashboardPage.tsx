@@ -9,7 +9,7 @@ import { useAuthStore } from "@/lib/auth-store"
 import { PRODUCT_STATUS_BADGE_VARIANT, PRODUCT_STATUS_LABEL } from "@/lib/status"
 import type { Paginated } from "@/types/api"
 import type { ProductStatus } from "@/types/sourcing"
-import type { BuyerWallet } from "@/types/wallet"
+import type { BuyerWallet, WalletSummary } from "@/types/wallet"
 
 interface ProductSummary {
   id: string
@@ -40,13 +40,21 @@ export function DashboardPage() {
   const totalInvoices = useCount("invoices", {})
   const issuedInvoices = useCount("invoices", { status: "issued" })
 
-  // Buyer_Wallet_Module.md "Dashboard (Module 1) update": a distinct signal
-  // from any Settlement Ledger negative-balance alert — cash liquidity
-  // (this) vs. contractual amount owed (Settlement Ledger).
+  // Buyer_Wallet_Module.md "Dashboard (Module 1) update": the cash-liquidity
+  // signal — which buyers have spent past what they have funded.
   const negativeWallets = useQuery({
     queryKey: ["wallets", "negative-balance"],
     queryFn: async () => {
       const { data } = await api.get<BuyerWallet[]>("/wallets/negative-balance/")
+      return data
+    },
+    enabled: isAdmin,
+  })
+
+  const walletSummary = useQuery({
+    queryKey: ["wallets", "summary"],
+    queryFn: async () => {
+      const { data } = await api.get<WalletSummary>("/wallets/summary/")
       return data
     },
     enabled: isAdmin,
@@ -73,6 +81,44 @@ export function DashboardPage() {
         <StatCard label="Total Invoices" value={totalInvoices.data} loading={totalInvoices.isLoading} />
         <StatCard label="Issued Invoices" value={issuedInvoices.data} loading={issuedInvoices.isLoading} />
       </div>
+
+      {/* What buyers have funded and what has been charged against it. Shown
+          per currency, never as one number: wallets are per-buyer and each
+          names its own currency, so a single total would add USD to EUR. */}
+      {isAdmin && walletSummary.data && (
+        <Card>
+          <CardHeader><CardTitle>Buyer funds</CardTitle></CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {walletSummary.data.byCurrency.length === 0 ? (
+              <p className="text-sm text-slate-400">No wallet activity yet.</p>
+            ) : (
+              walletSummary.data.byCurrency.map((row) => (
+                <div key={row.currency} className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <Figure label={`Received (${row.currency})`} value={row.topUps} currency={row.currency} tone="positive" />
+                  <Figure label={`Charged (${row.currency})`} value={row.charged} currency={row.currency} />
+                  <Figure label={`Refunded (${row.currency})`} value={row.refunded} currency={row.currency} />
+                  <Figure
+                    label={`Balance held (${row.currency})`}
+                    value={row.balance}
+                    currency={row.currency}
+                    tone={Number(row.balance) < 0 ? "negative" : undefined}
+                  />
+                </div>
+              ))
+            )}
+            {walletSummary.data.bySupplierCurrency.length > 0 && (
+              <div className="border-t border-slate-100 pt-3">
+                <p className="mb-2 text-xs uppercase tracking-wide text-slate-400">Spent on the supplier side</p>
+                <div className="flex flex-wrap gap-6">
+                  {walletSummary.data.bySupplierCurrency.map((row) => (
+                    <Figure key={row.currency} label={row.currency} value={row.spent} currency={row.currency} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isAdmin && negativeWallets.data && negativeWallets.data.length > 0 && (
         <Card>
@@ -139,6 +185,25 @@ export function DashboardPage() {
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+function Figure({ label, value, currency, tone }: {
+  label: string; value: string; currency: string; tone?: "positive" | "negative"
+}) {
+  return (
+    <div>
+      <div className="text-xs text-slate-400">{label}</div>
+      <div
+        className={
+          tone === "positive" ? "text-lg font-semibold text-emerald-600"
+            : tone === "negative" ? "text-lg font-semibold text-red-600"
+            : "text-lg font-semibold text-slate-900"
+        }
+      >
+        {Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}
+      </div>
     </div>
   )
 }

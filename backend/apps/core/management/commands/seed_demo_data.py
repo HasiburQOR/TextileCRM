@@ -57,18 +57,23 @@ BUYERS = [
 BUYER_PASSWORD = "buyer123"
 
 # ── Sister profiles (one PO each) ───────────────────────────────────
-# buyer index -> (poReference, agreementType, rateConfig)
+# The agreement type is a label; the rate is typed per invoice. What the
+# profile carries instead is the currency pair and the rate connecting them,
+# quoted "1 buyerCurrency = <rate> supplierCurrency".
+# buyer index -> (poReference, agreementType, supplierCurrency, buyerCurrency, exchangeRate)
 SISTER_PROFILES = [
-    (0, "NRG-PO-2026-014", "1", {"percentage_rate": 8}),
-    (0, "NRG-PO-2026-021", "3", {"commission_percentage": 5}),
-    (1, "CL-4471", "2", {"rate_per_unit": 1.5}),
-    (2, "BRM-2026-A9", "1", {"percentage_rate": 7.5}),
-    (3, "AUR-88213", "1", {"percentage_rate": 9}),
-    (3, "AUR-88240", "2", {"rate_per_unit": 2.0}),
-    (4, "MTX-0117", "1", {"percentage_rate": 6}),
-    (5, "KC-2026-33", "3", {"commission_percentage": 4.5}),
-    (7, "ATG-PO-7712", "1", {"percentage_rate": 8.5}),
-    (9, "HBL-556", "2", {"rate_per_unit": 1.25}),
+    (0, "NRG-PO-2026-014", "1", "BDT", "USD", Decimal("120")),
+    (0, "NRG-PO-2026-021", "3", "BDT", "USD", Decimal("120")),
+    (1, "CL-4471", "2", "BDT", "USD", Decimal("118.5")),
+    # Left unrated on purpose: exercises the "no rate agreed yet" path, where
+    # costs pass through to the wallet unconverted.
+    (2, "BRM-2026-A9", "1", "BDT", "USD", Decimal("0")),
+    (3, "AUR-88213", "1", "BDT", "USD", Decimal("121.25")),
+    (3, "AUR-88240", "2", "BDT", "USD", Decimal("121.25")),
+    (4, "MTX-0117", "1", "BDT", "USD", Decimal("119.75")),
+    (5, "KC-2026-33", "3", "BDT", "USD", Decimal("120.5")),
+    (7, "ATG-PO-7712", "1", "BDT", "USD", Decimal("122")),
+    (9, "HBL-556", "2", "BDT", "USD", Decimal("117.8")),
 ]
 
 # ── Products ────────────────────────────────────────────────────────
@@ -148,12 +153,18 @@ PRODUCTS = [
 # ── Expenses ────────────────────────────────────────────────────────
 # (sister-profile index, product index | None, sourceType, amount, remarks, fieldName)
 #
-# Deliberately USD, matching the wallet currency: `record_deduction`
-# subtracts the raw amount from the wallet regardless of currency, so
-# mixing BDT expenses into a USD wallet would drive every demo buyer
-# hundreds of thousands negative and make the dashboard's negative-balance
-# alert meaningless. Sized so most buyers stay comfortably funded and
-# exactly one (Kestrel, below) is over-drawn — enough to demo the alert.
+# Amounts are written in the BUYER's currency because that is what the
+# wallet balances below are sized against — most buyers comfortably funded,
+# exactly one (Kestrel) over-drawn, enough to demo the negative-balance
+# alert. They are recorded through record_expense in the profile's SUPPLIER
+# currency (see _seed_business_data), converted up at that profile's rate,
+# so the seed exercises the real dual-currency path and each wallet lands
+# back on roughly the figure written here.
+#
+# (This used to be recorded as USD outright, because record_deduction
+# subtracted the raw amount from a USD wallet regardless of currency —
+# a BDT expense would have driven every demo buyer hundreds of thousands
+# negative. That conversion gap is now closed, so the workaround is gone.)
 EXPENSES = [
     (0, 0, "sourcing_advance", 1850, "Advance to Ashulia knit unit", ""),
     (0, 0, "qc_lunch", 32, "Inline QC team — 2 days", ""),
@@ -318,9 +329,12 @@ class Command(BaseCommand):
                 buyerProfile=buyers[buyer_index],
                 poReference=po_reference,
                 agreementType=agreement_type,
-                agreementRateConfig=rate_config,
+                supplierCurrency=supplier_currency,
+                buyerCurrency=buyer_currency,
+                exchangeRate=exchange_rate,
             )
-            for buyer_index, po_reference, agreement_type, rate_config in SISTER_PROFILES
+            for buyer_index, po_reference, agreement_type, supplier_currency, buyer_currency, exchange_rate
+            in SISTER_PROFILES
         ]
 
         # Products + per-color variant rows.
@@ -406,14 +420,17 @@ class Command(BaseCommand):
                 )
             )
 
-        # Invoices — one issued-track, one still pending approval.
-        usd_bdt = ExchangeRate.objects.filter(
-            sourceCurrency="USD", targetCurrency="BDT", effectiveDate=today
-        ).first()
-        for packing_list, unit_price, commission in (
-            (packing_lists[0], Decimal("12.50"), Decimal("5")),
-            (packing_lists[2], Decimal("18.75"), Decimal("0")),
+        # Invoices — one issued-track, one still pending approval. Every
+        # agreement charges a rate, but the rate means different things: a
+        # percentage for Types 1/3, an amount PER PIECE for Type 2. Seeding
+        # one figure for both would put a 7.5-per-piece charge on a
+        # 2,160-piece order and make the demo data nonsense.
+        agreement_rate = {"1": Decimal("5"), "2": Decimal("0.35"), "3": Decimal("4.5")}
+        for packing_list, unit_price in (
+            (packing_lists[0], Decimal("12.50")),
+            (packing_lists[2], Decimal("18.75")),
         ):
+            commission = agreement_rate[packing_list.sisterProfile.agreementType]
             line_items = [
                 {
                     "product": carton.product,
@@ -443,24 +460,30 @@ class Command(BaseCommand):
                 }
                 for carton in packing_list.cartons.all()
             ]
+            # The currency pair and rate come from the Sister Profile now —
+            # only the agreement rate is per invoice.
             create_invoice(
                 sister_profile=packing_list.sisterProfile,
                 created_by=rep,
                 line_items=line_items,
-                exchange_rate=usd_bdt,
-                commission_type=CommissionType.PERCENTAGE if commission else CommissionType.NONE,
-                commission_value=commission,
+                commission_rate=commission,
             )
 
         # Expenses last — each one recomputes its settlement ledger and
         # deducts the buyer wallet, so balances end up realistically drawn down.
         for sister_index, product_index, source_type, amount, remarks, field_name in EXPENSES:
+            sister = sisters[sister_index]
+            # EXPENSES is written in buyer-currency terms (see its comment);
+            # scale up into the profile's supplier currency so the cost is
+            # recorded where it was actually spent, and record_expense
+            # converts it back down onto the wallet. An unrated profile has
+            # no rate to scale by, so its figure is already the right one.
+            supplier_amount = Decimal(amount) * (sister.exchangeRate or Decimal("1"))
             record_expense(
-                sister_profile=sisters[sister_index],
+                sister_profile=sister,
                 product=products[product_index] if product_index is not None else None,
                 source_type=source_type,
-                amount=Decimal(amount),
-                currency="USD",
+                amount=supplier_amount.quantize(Decimal("0.01")),
                 remarks=remarks,
                 field_name=field_name,
                 created_by=rep,

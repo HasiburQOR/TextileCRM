@@ -23,7 +23,7 @@ class AuditTrailTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
 
     def test_expense_write_creates_audit_entry(self):
@@ -57,7 +57,8 @@ class AuditTrailTests(APITestCase):
 
     def test_invoice_lifecycle_creates_audit_entries(self):
         invoice = invoicing_services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=[{"description": "Goods", "amount": "500"}],
+            sister_profile=self.sister, created_by=self.employee,
+            line_items=[{"description": "Goods", "amount": "500"}], commission_rate=10,
         )
         self.assertTrue(AuditLogEntry.objects.filter(entityType="Invoice", action="CREATE_INVOICE", entityId=str(invoice.id)).exists())
 
@@ -73,7 +74,8 @@ class AuditTrailTests(APITestCase):
         only) vs FR-84 (payment recorded is a notification, not an audit
         event)."""
         invoice = invoicing_services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=[{"description": "Goods", "amount": "500"}],
+            sister_profile=self.sister, created_by=self.employee,
+            line_items=[{"description": "Goods", "amount": "500"}], commission_rate=10,
         )
         invoicing_services.approve_invoice(invoice, self.admin)
         before_count = AuditLogEntry.objects.count()
@@ -90,7 +92,7 @@ class AuditAPIPermissionTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Buyer")
         self.buyer_user = User.objects.create_user(username="buyer", password="pass12345", role=Roles.BUYER, buyer_profile=self.buyer)
         sister = SisterProfile.objects.create(
-            buyerProfile=self.buyer, poReference="PO-1", agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8}
+            buyerProfile=self.buyer, poReference="PO-1", agreementType=AgreementType.TYPE_1
         )
         record_expense(sister_profile=sister, source_type=SourceType.QC_CARRYING, amount=100, created_by=self.admin)
 

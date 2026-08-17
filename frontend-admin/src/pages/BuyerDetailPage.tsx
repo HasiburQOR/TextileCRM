@@ -222,6 +222,7 @@ export function BuyerDetailPage() {
                         <th className="px-4 py-2 font-medium">Type</th>
                         <th className="px-4 py-2 font-medium">Source</th>
                         <th className="px-4 py-2 font-medium">Sister Profile</th>
+                        <th className="px-4 py-2 font-medium">Cost incurred</th>
                         <th className="px-4 py-2 font-medium">Amount</th>
                         <th className="px-4 py-2 font-medium">Running Balance</th>
                       </tr>
@@ -235,10 +236,26 @@ export function BuyerDetailPage() {
                           </td>
                           <td className="px-4 py-2 text-slate-700">{t.description}{t.reason ? ` — ${t.reason}` : ""}</td>
                           <td className="px-4 py-2 text-slate-500">{t.sisterProfilePoReference || "—"}</td>
-                          <td className={`px-4 py-2 font-medium ${Number(t.amount) < 0 ? "text-red-600" : "text-emerald-600"}`}>
-                            {Number(t.amount) > 0 ? "+" : ""}{Number(t.amount).toLocaleString()} {t.currency}
+                          {/* What was actually spent on the supplier side, and
+                              the locked rate it was charged to the buyer at. */}
+                          <td className="px-4 py-2 text-slate-500">
+                            {t.sourceAmount == null ? (
+                              "—"
+                            ) : (
+                              <>
+                                {Number(t.sourceAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
+                                {t.sourceCurrency}
+                                {t.rateLabel && <span className="block text-xs text-slate-400">{t.rateLabel}</span>}
+                              </>
+                            )}
                           </td>
-                          <td className="px-4 py-2 text-slate-900">{t.runningBalance.toLocaleString()} {t.currency}</td>
+                          <td className={`px-4 py-2 font-medium ${Number(t.amount) < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                            {Number(t.amount) > 0 ? "+" : ""}
+                            {Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} {t.currency}
+                          </td>
+                          <td className="px-4 py-2 text-slate-900">
+                            {t.runningBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })} {t.currency}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

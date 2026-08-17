@@ -15,10 +15,10 @@ class DocumentVaultTests(APITestCase):
         self.buyer_a = BuyerProfile.objects.create(name="Buyer A")
         self.buyer_b = BuyerProfile.objects.create(name="Buyer B")
         self.sister_a = SisterProfile.objects.create(
-            buyerProfile=self.buyer_a, poReference="PO-A", agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8}
+            buyerProfile=self.buyer_a, poReference="PO-A", agreementType=AgreementType.TYPE_1
         )
         self.sister_b = SisterProfile.objects.create(
-            buyerProfile=self.buyer_b, poReference="PO-B", agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8}
+            buyerProfile=self.buyer_b, poReference="PO-B", agreementType=AgreementType.TYPE_1
         )
         self.buyer_a_user = User.objects.create_user(
             username="buyer_a", password="pass12345", role=Roles.BUYER, buyer_profile=self.buyer_a

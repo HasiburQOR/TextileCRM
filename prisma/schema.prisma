@@ -252,6 +252,7 @@ model Invoice {
   rejectionReason      String    @default("")
   exchangeRateId       String?
   exchangeRateValue    Float     @default(0)
+  sourceCurrency       String    @default("BDT")
   targetCurrency       String    @default("")
   commissionType       String    @default("NONE")
   commissionValue      Float     @default(0)

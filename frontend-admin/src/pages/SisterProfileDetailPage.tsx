@@ -1,23 +1,24 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, ArrowLeft } from "lucide-react"
 import { useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { api } from "@/lib/api"
+import { extractErrorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import type { Paginated } from "@/types/api"
-import type { SisterProfile } from "@/types/buyers"
+import type { CostBreakdown, SisterProfile, SisterProfileUpdateInput } from "@/types/buyers"
+import { AGREEMENTS } from "@/types/buyers"
 import type { Invoice } from "@/types/invoicing"
 import type { PackingList } from "@/types/packing"
 import type { Product, SourcingCost } from "@/types/sourcing"
 
-interface SettlementLedgerRow {
-  sisterProfile: string; totalAdvance: string; totalExpense: string
-  amountOwed: string; netPosition: string; negativeBalance: boolean; updatedAt: string
-}
 
 interface ExpenseRow {
   id: string; sourceType: string; amount: string; currency: string
@@ -44,6 +45,7 @@ export function SisterProfileDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [tab, setTab] = useState<TabKey>("overview")
+  const [editOpen, setEditOpen] = useState(false)
 
   const profileQuery = useQuery({
     queryKey: ["sister-profiles", id],
@@ -51,9 +53,12 @@ export function SisterProfileDetailPage() {
     enabled: !!id,
   })
 
-  const ledgerQuery = useQuery({
-    queryKey: ["settlements", id],
-    queryFn: async () => { const { data } = await api.get<SettlementLedgerRow>(`/settlements/${id}/`); return data },
+  const breakdownQuery = useQuery({
+    queryKey: ["sister-profiles", id, "cost-breakdown"],
+    queryFn: async () => {
+      const { data } = await api.get<CostBreakdown>(`/sister-profiles/${id}/cost-breakdown/`)
+      return data
+    },
     enabled: !!id,
   })
 
@@ -126,7 +131,10 @@ export function SisterProfileDetailPage() {
     return <p className="py-16 text-center text-sm text-slate-400">Sister Profile not found.</p>
   }
   const profile = profileQuery.data
-  const ledger = ledgerQuery.data
+  const breakdown = breakdownQuery.data
+  const agreement = AGREEMENTS[profile.agreementType]
+  const money = (value: string | null | undefined, currency: string) =>
+    value == null ? "—" : `${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
 
   return (
     <div className="flex flex-col gap-6">
@@ -143,16 +151,19 @@ export function SisterProfileDetailPage() {
             </Badge>
           </div>
           <p className="text-sm text-slate-500">
-            {profile.buyerProfileName} · Agreement Type {profile.agreementType}
-            {profile.rateLocked && " · rate locked (cost entries exist)"}
+            {profile.buyerProfileName} · {agreement?.short ?? `Type ${profile.agreementType}`}
+            {" · "}{profile.supplierCurrency} → {profile.buyerCurrency}
+            {profile.rateLocked && " · currency locked (cost entries exist)"}
           </p>
         </div>
+        <Button variant="outline" onClick={() => setEditOpen(true)}>Edit</Button>
       </div>
 
-      {ledger?.negativeBalance && (
-        <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {Number(profile.exchangeRate) <= 0 && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <AlertTriangle className="h-4 w-4 shrink-0" />
-          Negative balance: net position is {Number(ledger.netPosition).toLocaleString()}. Review the Settlement Ledger.
+          No exchange rate set for this order. Costs are charged to the buyer's wallet unconverted until one is
+          agreed, and invoices will print no converted total.
         </div>
       )}
 
@@ -172,15 +183,79 @@ export function SisterProfileDetailPage() {
       </div>
 
       {tab === "overview" && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Total Advance" value={ledger ? Number(ledger.totalAdvance).toLocaleString() : "—"} />
-          <StatCard label="Total Expense" value={ledger ? Number(ledger.totalExpense).toLocaleString() : "—"} />
-          <StatCard label="Amount Owed" value={ledger ? Number(ledger.amountOwed).toLocaleString() : "—"} />
-          <StatCard
-            label="Net Position"
-            value={ledger ? Number(ledger.netPosition).toLocaleString() : "—"}
-            tone={ledger?.negativeBalance ? "danger" : "success"}
-          />
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader><CardTitle>Agreement</CardTitle></CardHeader>
+            <CardContent className="flex flex-col gap-2 pt-0">
+              <p className="text-sm font-medium text-slate-900">{agreement?.title ?? `Type ${profile.agreementType}`}</p>
+              <p className="text-sm leading-relaxed text-slate-500">{agreement?.explanation}</p>
+              <p className="text-xs text-slate-400">
+                The {agreement?.rateLabel.toLowerCase()} is entered on each invoice, so it can differ per shipment.
+              </p>
+              <dl className="mt-2 grid grid-cols-3 gap-4 border-t border-slate-100 pt-3 text-sm">
+                <div>
+                  <dt className="text-xs text-slate-400">Supplier currency</dt>
+                  <dd className="font-medium text-slate-900">{profile.supplierCurrency}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-400">Buyer currency</dt>
+                  <dd className="font-medium text-slate-900">{profile.buyerCurrency}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-400">Exchange rate</dt>
+                  <dd className="font-medium text-slate-900">{breakdown?.rateLabel || "Not set"}</dd>
+                </div>
+              </dl>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label={`Sourcing (${profile.supplierCurrency})`}
+              value={money(breakdown?.groups.sourcing.amount, profile.supplierCurrency)}
+              sub={money(breakdown?.groups.sourcing.amountBuyer, profile.buyerCurrency)}
+            />
+            <StatCard
+              label={`Warehouse (${profile.supplierCurrency})`}
+              value={money(breakdown?.groups.warehouse.amount, profile.supplierCurrency)}
+              sub={money(breakdown?.groups.warehouse.amountBuyer, profile.buyerCurrency)}
+            />
+            <StatCard
+              label={`QC & other (${profile.supplierCurrency})`}
+              value={money(
+                breakdown
+                  ? String(Number(breakdown.groups.qc.amount) + Number(breakdown.groups.other.amount))
+                  : undefined,
+                profile.supplierCurrency,
+              )}
+              sub={money(
+                breakdown
+                  ? String(Number(breakdown.groups.qc.amountBuyer) + Number(breakdown.groups.other.amountBuyer))
+                  : undefined,
+                profile.buyerCurrency,
+              )}
+            />
+            <StatCard
+              label="Total spent"
+              value={money(breakdown?.total.amount, profile.supplierCurrency)}
+              sub={money(breakdown?.total.amountBuyer, profile.buyerCurrency)}
+            />
+          </div>
+
+          {!!breakdown?.units.totalOrderQty && (
+            <Card>
+              <CardHeader><CardTitle>Cost per piece</CardTitle></CardHeader>
+              <CardContent className="pt-0 text-sm text-slate-600">
+                {breakdown.units.totalOrderQty.toLocaleString()} pcs on order ·{" "}
+                <span className="font-medium text-slate-900">
+                  {money(breakdown.units.unitCost, profile.supplierCurrency)}
+                </span>{" "}
+                <span className="text-slate-400">
+                  ({money(breakdown.units.unitCostBuyer, profile.buyerCurrency)}) per piece in recorded costs
+                </span>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -321,18 +396,116 @@ export function SisterProfileDetailPage() {
           </table>
         </ListCard>
       )}
+
+      {editOpen && <EditSisterProfileDialog profile={profile} onClose={() => setEditOpen(false)} />}
     </div>
   )
 }
 
-function StatCard({ label, value, tone }: { label: string; value: string; tone?: "success" | "danger" }) {
+function StatCard({ label, value, sub, tone }: {
+  label: string; value: string; sub?: string; tone?: "success" | "danger"
+}) {
   return (
     <Card>
       <CardHeader><CardTitle>{label}</CardTitle></CardHeader>
-      <CardContent className={cn("pt-0 text-xl font-semibold", tone === "danger" ? "text-red-600" : tone === "success" ? "text-emerald-600" : "text-slate-900")}>
-        {value}
+      <CardContent className={cn("pt-0", tone === "danger" ? "text-red-600" : tone === "success" ? "text-emerald-600" : "text-slate-900")}>
+        <div className="text-xl font-semibold">{value}</div>
+        {sub && <div className="mt-0.5 text-sm font-normal text-slate-400">{sub}</div>}
       </CardContent>
     </Card>
+  )
+}
+
+function EditSisterProfileDialog({ profile, onClose }: { profile: SisterProfile; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [poReference, setPoReference] = useState(profile.poReference)
+  const [supplierCurrency, setSupplierCurrency] = useState(profile.supplierCurrency)
+  const [buyerCurrency, setBuyerCurrency] = useState(profile.buyerCurrency)
+  const [exchangeRate, setExchangeRate] = useState(String(profile.exchangeRate ?? ""))
+  const [status, setStatus] = useState(profile.status)
+
+  const mutation = useMutation({
+    mutationFn: async (input: SisterProfileUpdateInput) => {
+      const { data } = await api.patch<SisterProfile>(`/sister-profiles/${profile.id}/`, input)
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sister-profiles"] })
+      onClose()
+    },
+  })
+
+  return (
+    <Dialog open onClose={onClose} title="Edit Sister Profile">
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          mutation.mutate({
+            poReference,
+            supplierCurrency: supplierCurrency.trim().toUpperCase(),
+            buyerCurrency: buyerCurrency.trim().toUpperCase(),
+            exchangeRate: exchangeRate.trim() || "0",
+            status,
+          })
+        }}
+      >
+        {mutation.error && (
+          <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{extractErrorMessage(mutation.error)}</div>
+        )}
+        {profile.rateLocked && (
+          <div className="rounded-md bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+            Costs have already been recorded against this order, so its currency configuration is frozen — changing
+            it would restate money the buyer was already charged. Invoices already issued keep their own locked rate
+            regardless.
+          </div>
+        )}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">PO Reference</label>
+          <Input value={poReference} onChange={(e) => setPoReference(e.target.value)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Supplier currency</label>
+            <Input
+              maxLength={8} value={supplierCurrency} disabled={profile.rateLocked}
+              onChange={(e) => setSupplierCurrency(e.target.value.toUpperCase())}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Buyer currency</label>
+            <Input
+              maxLength={8} value={buyerCurrency} disabled={profile.rateLocked}
+              onChange={(e) => setBuyerCurrency(e.target.value.toUpperCase())}
+            />
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Exchange rate</label>
+          <Input
+            type="number" min={0} step="0.000001" value={exchangeRate} disabled={profile.rateLocked}
+            onChange={(e) => setExchangeRate(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-slate-400">
+            {Number(exchangeRate) > 0
+              ? `1 ${buyerCurrency} = ${exchangeRate} ${supplierCurrency}`
+              : "No rate — costs pass through unconverted."}
+          </p>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Status</label>
+          <Select value={status} onChange={(e) => setStatus(e.target.value as SisterProfile["status"])}>
+            <option value="active">Active</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </Select>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Saving..." : "Save"}</Button>
+        </div>
+      </form>
+    </Dialog>
   )
 }
 

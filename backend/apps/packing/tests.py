@@ -50,7 +50,7 @@ class PackingCalculationTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Some Buyer Co")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="002F25BV",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.employee = User.objects.create_user(username="emp", password="pass12345", role=Roles.EMPLOYEE)
@@ -216,11 +216,11 @@ class PackingTenantIsolationTests(APITestCase):
         self.buyer_b = BuyerProfile.objects.create(name="Buyer B")
         self.sister_a = SisterProfile.objects.create(
             buyerProfile=self.buyer_a, poReference="PO-A",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.sister_b = SisterProfile.objects.create(
             buyerProfile=self.buyer_b, poReference="PO-B",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.buyer_a_user = User.objects.create_user(
@@ -267,7 +267,7 @@ class StyleNoReferenceNotCopyTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Buyer")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-1",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.product = Product.objects.create(sisterProfile=self.sister, name="Shirt", styleNumber="STY-ORIGINAL", createdBy=self.rep)
@@ -313,7 +313,7 @@ class PoNoAndExportGroupingTests(APITestCase):
         self.buyer = BuyerProfile.objects.create(name="Buyer")
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-1",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.product_a = Product.objects.create(sisterProfile=self.sister, name="Shirt", poNo="002F25BV", createdBy=self.rep)

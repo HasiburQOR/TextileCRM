@@ -141,28 +141,15 @@ def adjust_cost_item(item: SourcingCostItem, old_custom_costs: list, actor) -> N
     ))
 
     if old_expenses:
-        from apps.wallet.models import WalletTransaction, WalletTransactionType
-        from apps.wallet.services import create_wallet, record_refund
+        from apps.expenses.services import _refund_for_expenses
+        from apps.wallet.services import create_wallet
 
-        wallet = create_wallet(sister_profile.buyerProfile)
-        for expense in old_expenses:
-            deduction = WalletTransaction.objects.filter(
-                wallet=wallet, type=WalletTransactionType.DEDUCTION, sourceExpense=expense
-            ).first()
-            if deduction:
-                record_refund(
-                    wallet=wallet, amount=-deduction.amount,
-                    source_type=expense.sourceType,
-                    sister_profile=sister_profile,
-                    source_expense=expense,
-                    created_by=actor or deduction.createdBy,
-                    currency=deduction.currency,
-                    reason=f"Sourcing cost item updated for {product.name}",
-                )
+        _refund_for_expenses(
+            wallet=create_wallet(sister_profile.buyerProfile), expenses=old_expenses,
+            sister_profile=sister_profile, actor=actor,
+            reason=f"Sourcing cost item updated for {product.name}",
+        )
         Expense.objects.filter(id__in=[e.id for e in old_expenses]).delete()
-
-        from apps.ledger.services import recompute_settlement
-        recompute_settlement(sister_profile)
 
     # Deduct new costs
     deduct_cost_item(item, actor)
@@ -183,29 +170,15 @@ def refund_cost_item(item: SourcingCostItem, actor) -> None:
     ))
 
     if expenses:
-        from apps.wallet.models import WalletTransaction, WalletTransactionType
-        from apps.wallet.services import create_wallet, record_refund
+        from apps.expenses.services import _refund_for_expenses
+        from apps.wallet.services import create_wallet
 
-        wallet = create_wallet(sister_profile.buyerProfile)
-        for expense in expenses:
-            deduction = WalletTransaction.objects.filter(
-                wallet=wallet, type=WalletTransactionType.DEDUCTION, sourceExpense=expense
-            ).first()
-            if deduction:
-                record_refund(
-                    wallet=wallet, amount=-deduction.amount,
-                    source_type=expense.sourceType,
-                    sister_profile=sister_profile,
-                    source_expense=expense,
-                    created_by=actor or deduction.createdBy,
-                    currency=deduction.currency,
-                    reason=f"Sourcing cost item deleted for {product.name}",
-                )
-
+        _refund_for_expenses(
+            wallet=create_wallet(sister_profile.buyerProfile), expenses=expenses,
+            sister_profile=sister_profile, actor=actor,
+            reason=f"Sourcing cost item deleted for {product.name}",
+        )
         Expense.objects.filter(id__in=[e.id for e in expenses]).delete()
-
-        from apps.ledger.services import recompute_settlement
-        recompute_settlement(sister_profile)
 
 
 @transaction.atomic

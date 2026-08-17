@@ -21,13 +21,11 @@ class TenantIsolationTests(APITestCase):
             buyerProfile=self.buyer_a,
             poReference="PO-A-001",
             agreementType=AgreementType.TYPE_1,
-            agreementRateConfig={"percentage_rate": 8},
         )
         self.sister_b = SisterProfile.objects.create(
             buyerProfile=self.buyer_b,
             poReference="PO-B-001",
             agreementType=AgreementType.TYPE_2,
-            agreementRateConfig={"rate_per_unit": 1.5},
         )
 
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
@@ -91,7 +89,6 @@ class TenantIsolationTests(APITestCase):
             {
                 "buyerProfile": str(self.buyer_a.id),
                 "agreementType": AgreementType.TYPE_1,
-                "agreementRateConfig": {"percentage_rate": 5},
             },
             format="json",
         )
@@ -150,7 +147,6 @@ class TenantIsolationTests(APITestCase):
             {
                 "buyerProfile": str(self.buyer_a.id),
                 "agreementType": AgreementType.TYPE_1,
-                "agreementRateConfig": {"percentage_rate": 5},
             },
             format="json",
         )
@@ -162,19 +158,89 @@ class TenantIsolationTests(APITestCase):
 
     # ── Agreement rate config validation ────────────────────────────────
 
-    def test_sister_profile_requires_matching_rate_key(self):
+    def test_sister_profile_rejects_negative_exchange_rate(self):
         self.auth_as(self.admin)
         resp = self.client.post(
             reverse("sister-profile-list"),
             {
                 "buyerProfile": str(self.buyer_a.id),
                 "agreementType": AgreementType.TYPE_2,
-                "agreementRateConfig": {"percentage_rate": 8},  # wrong key for TYPE_2
+                "exchangeRate": -5,
             },
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("agreementRateConfig", resp.data)
+        self.assertIn("exchangeRate", resp.data)
+
+    def test_buyer_currency_must_match_the_buyers_pooled_wallet(self):
+        """The wallet is one pooled account per buyer holding one currency,
+        and its balance sums every profile's converted deductions — so a
+        profile in a different buyer currency would corrupt that total."""
+        from apps.wallet.services import create_wallet
+
+        create_wallet(self.buyer_a)  # USD by default
+        self.auth_as(self.admin)
+        resp = self.client.post(
+            reverse("sister-profile-list"),
+            {
+                "buyerProfile": str(self.buyer_a.id),
+                "agreementType": AgreementType.TYPE_1,
+                "supplierCurrency": "BDT",
+                "buyerCurrency": "EUR",
+                "exchangeRate": "131",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("buyerCurrency", resp.data)
+
+    def test_cost_breakdown_reports_groups_in_both_currencies(self):
+        from apps.expenses.models import SourceType
+        from apps.expenses.services import record_expense
+
+        sister = SisterProfile.objects.create(
+            buyerProfile=self.buyer_a, poReference="PO-CB", agreementType=AgreementType.TYPE_1,
+            supplierCurrency="BDT", buyerCurrency="USD", exchangeRate=Decimal("120"),
+        )
+        record_expense(sister_profile=sister, source_type=SourceType.SOURCING_ADVANCE, amount=24000, created_by=self.admin)
+        record_expense(sister_profile=sister, source_type=SourceType.WAREHOUSE_LOADER, amount=12000, created_by=self.admin)
+
+        self.auth_as(self.admin)
+        resp = self.client.get(reverse("sister-profile-cost-breakdown", args=[sister.id]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["rateLabel"], "1 USD = 120 BDT")
+        self.assertEqual(resp.data["groups"]["sourcing"]["amount"], Decimal("24000"))
+        self.assertEqual(resp.data["groups"]["sourcing"]["amountBuyer"], Decimal("200.00"))
+        self.assertEqual(resp.data["groups"]["warehouse"]["amount"], Decimal("12000"))
+        self.assertEqual(resp.data["groups"]["warehouse"]["amountBuyer"], Decimal("100.00"))
+        self.assertEqual(resp.data["total"]["amount"], Decimal("36000"))
+        self.assertEqual(resp.data["total"]["amountBuyer"], Decimal("300.00"))
+
+    def test_cost_breakdown_is_tenant_scoped(self):
+        sister = SisterProfile.objects.create(
+            buyerProfile=self.buyer_a, poReference="PO-CB2", agreementType=AgreementType.TYPE_1,
+        )
+        self.auth_as(self.buyer_b_user)
+        resp = self.client.get(reverse("sister-profile-cost-breakdown", args=[sister.id]))
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_sister_profile_currency_config_round_trip(self):
+        self.auth_as(self.admin)
+        resp = self.client.post(
+            reverse("sister-profile-list"),
+            {
+                "buyerProfile": str(self.buyer_a.id),
+                "agreementType": AgreementType.TYPE_1,
+                "supplierCurrency": "BDT",
+                "buyerCurrency": "USD",
+                "exchangeRate": "120.5",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data["supplierCurrency"], "BDT")
+        self.assertEqual(resp.data["buyerCurrency"], "USD")
+        self.assertEqual(Decimal(resp.data["exchangeRate"]), Decimal("120.5"))
 
 
 class JWTAuthTests(APITestCase):
@@ -224,7 +290,7 @@ class BuyerPortalDashboardTests(APITestCase):
         )
         self.sister = SisterProfile.objects.create(
             buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         Product.objects.create(sisterProfile=self.sister, name="T-Shirt", createdBy=self.rep)
         Product.objects.create(sisterProfile=self.sister, name="Shorts", createdBy=self.rep)
@@ -233,14 +299,15 @@ class BuyerPortalDashboardTests(APITestCase):
         record_expense(sister_profile=self.sister, source_type=SourceType.QC_CARRYING, amount=100, created_by=self.admin)
 
         invoicing_services.create_invoice(
-            sister_profile=self.sister, created_by=self.employee, line_items=[{"description": "Goods", "amount": "1000"}],
+            sister_profile=self.sister, created_by=self.employee,
+            line_items=[{"description": "Goods", "amount": "1000"}], commission_rate=8,
         )
 
         # Another buyer entirely -- must never leak into the first buyer's dashboard.
         other_buyer = BuyerProfile.objects.create(name="Other Buyer")
         SisterProfile.objects.create(
             buyerProfile=other_buyer, poReference="PO-OTHER",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
 
     def test_dashboard_shape_and_scoping(self):
@@ -253,8 +320,6 @@ class BuyerPortalDashboardTests(APITestCase):
         row = resp.data["sisterProfiles"][0]
         self.assertEqual(row["poReference"], "PO-001")
         self.assertEqual(row["productCount"], 2)
-        self.assertEqual(row["settlement"]["totalAdvance"], Decimal("500.00"))
-        self.assertEqual(row["settlement"]["totalExpense"], Decimal("100.00"))
         self.assertEqual(row["invoices"]["total"], 1)
         self.assertEqual(row["invoices"]["pending"], 1)
 
@@ -283,7 +348,7 @@ class ReferenceCodeTests(APITestCase):
         buyer = BuyerProfile.objects.create(name="Buyer")
         sister = SisterProfile.objects.create(
             buyerProfile=buyer, poReference="002F25BV",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.assertRegex(sister.referenceCode, r"^SIS-\d{4}$")
         # These must never be confused/merged (BR: "never auto-filled" from one to the other).
@@ -307,12 +372,12 @@ class ReferenceCodeTests(APITestCase):
         buyer = BuyerProfile.objects.create(name="Buyer")
         SisterProfile.objects.create(
             buyerProfile=buyer, referenceCode="SIS-DUPE",
-            agreementType=AgreementType.TYPE_1, agreementRateConfig={"percentage_rate": 8},
+            agreementType=AgreementType.TYPE_1,
         )
         self.client.force_authenticate(user=self.admin)
         resp = self.client.post(
             reverse("sister-profile-list"),
-            {"buyerProfile": str(buyer.id), "referenceCode": "SIS-DUPE", "agreementType": AgreementType.TYPE_1, "agreementRateConfig": {"percentage_rate": 5}},
+            {"buyerProfile": str(buyer.id), "referenceCode": "SIS-DUPE", "agreementType": AgreementType.TYPE_1},
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)

@@ -25,7 +25,6 @@ import { PackingListsPage } from "@/pages/PackingListsPage"
 // import { QCCostsPage } from "@/pages/QCCostsPage"
 import { WarehouseCostsPage } from "@/pages/WarehouseCostsPage"
 import { ExpensesPage } from "@/pages/ExpensesPage"
-import { SettlementLedgerPage } from "@/pages/SettlementLedgerPage"
 import { InvoicesPage } from "@/pages/InvoicesPage"
 import { InvoiceDetailPage } from "@/pages/InvoiceDetailPage"
 import { ExchangeRatesPage } from "@/pages/ExchangeRatesPage"
@@ -84,7 +83,6 @@ function ProtectedApp() {
         {/* <Route path="/qc-reports" element={<QCCostsPage />} /> */}
         <Route path="/warehouse-costs" element={<WarehouseCostsPage />} />
         <Route path="/expenses" element={<ExpensesPage />} />
-        <Route path="/settlements" element={<SettlementLedgerPage />} />
         <Route path="/invoices" element={<InvoicesPage />} />
         <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
         <Route path="/exchange-rates" element={<ExchangeRatesPage />} />
