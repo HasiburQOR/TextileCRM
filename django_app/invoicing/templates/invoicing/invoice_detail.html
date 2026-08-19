@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block page_title %}{{ invoice.invoiceNo }}{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h5 class="mb-1">{{ invoice.invoiceNo }}</h5>
+            <div class="text-muted small">{{ invoice.buyerName }}</div>
+          </div>
+          <span class="badge bg-secondary align-self-start">{{ invoice.get_status_display }}</span>
+        </div>
+        {% if invoice.rejectionReason %}<div class="alert alert-warning mt-3 mb-0">{{ invoice.rejectionReason }}</div>{% endif %}
+      </div>
+    </div>
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h6 class="card-title">Line Items</h6>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead><tr><th>Description</th><th>Brand</th><th>CTN</th><th>Qty/CTN</th><th>Unit Price</th><th>Amount</th></tr></thead>
+            <tbody>
+              {% for li in invoice.lineItems.all %}
+              <tr><td>{{ li.description }}</td><td>{{ li.brand }}</td><td>{{ li.ctn }}</td><td>{{ li.qtyPerCtn }}</td><td>{{ li.unitPrice }}</td><td>{{ li.amount }}</td></tr>
+              {% empty %}<tr><td colspan="6" class="text-muted text-center">No line items.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title">Payments</h6>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead><tr><th>Amount</th><th>Currency</th><th>Date</th><th>Bank Ref</th></tr></thead>
+            <tbody>
+              {% for p in invoice.payments.all %}
+              <tr><td>{{ p.amount }}</td><td>{{ p.currency }}</td><td>{{ p.paymentDate|date:"M j, Y" }}</td><td>{{ p.bankReference }}</td></tr>
+              {% empty %}<tr><td colspan="4" class="text-muted text-center">No payments recorded.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if invoice.status == "ISSUED" %}
+        <form method="post" action="{% url 'invoicing:add_payment' invoice.pk %}" class="row g-2 mt-2">
+          {% csrf_token %}
+          <div class="col-md-4"><input type="number" step="0.01" name="amount" class="form-control form-control-sm" placeholder="Amount" required></div>
+          <div class="col-md-3"><input type="text" name="bankReference" class="form-control form-control-sm" placeholder="Bank reference"></div>
+          <div class="col-md-2"><button type="submit" class="btn btn-sm btn-outline-primary w-100">Record Payment</button></div>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <dl class="row small mb-0">
+          <dt class="col-7">Total Value</dt><dd class="col-5 text-end">{{ invoice.totalValue }}</dd>
+          <dt class="col-7">Commission</dt><dd class="col-5 text-end">{{ invoice.commissionValue }} ({{ invoice.get_commissionType_display }})</dd>
+          <dt class="col-7">Converted Total</dt><dd class="col-5 text-end">{{ invoice.convertedTotal }} {{ invoice.targetCurrency }}</dd>
+          <dt class="col-7">Outstanding</dt><dd class="col-5 text-end fw-bold">{{ invoice.outstandingBalance }}</dd>
+        </dl>
+      </div>
+    </div>
+    {% if is_admin and invoice.status == "PENDING_APPROVAL" %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-body d-grid gap-2">
+        <form method="post" action="{% url 'invoicing:approve' invoice.pk %}"><button class="btn btn-success w-100" type="submit">{% csrf_token %}<i class="bi bi-check-lg"></i> Approve &amp; Issue</button></form>
+        <button class="btn btn-outline-danger w-100" data-bs-toggle="modal" data-bs-target="#rejectInvModal"><i class="bi bi-x-lg"></i> Reject</button>
+      </div>
+    </div>
+    {% endif %}
+    {% if is_admin and invoice.status == "ISSUED" %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <button class="btn btn-outline-secondary w-100" data-bs-toggle="modal" data-bs-target="#voidInvModal"><i class="bi bi-slash-circle"></i> Void Invoice</button>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="modal fade" id="rejectInvModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <form method="post" action="{% url 'invoicing:reject' invoice.pk %}">
+      {% csrf_token %}
+      <div class="modal-header"><h6 class="modal-title">Reject Invoice</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body"><textarea name="reason" class="form-control" rows="2" required></textarea></div>
+      <div class="modal-footer"><button class="btn btn-danger" type="submit">Reject</button></div>
+    </form>
+  </div></div>
+</div>
+<div class="modal fade" id="voidInvModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <form method="post" action="{% url 'invoicing:void' invoice.pk %}">
+      {% csrf_token %}
+      <div class="modal-header"><h6 class="modal-title">Void Invoice</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body"><textarea name="reason" class="form-control" rows="2" required></textarea></div>
+      <div class="modal-footer"><button class="btn btn-danger" type="submit">Void</button></div>
+    </form>
+  </div></div>
+</div>
+{% endblock %}

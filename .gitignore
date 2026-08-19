@@ -1,0 +1,45 @@
+# ── Environment / secrets ──────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ──────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+backend_venv/
+django_app_venv/
+backend/.venv_local/
+db.sqlite3
+db.sqlite3-journal
+
+# ── Django ──────────────────────────────────────────────────────────
+backend/media/
+backend/staticfiles/
+django_app/media/
+django_app/staticfiles/
+
+# ── Node / Vite / Next ───────────────────────────────────────────────
+node_modules/
+frontend-admin/node_modules/
+frontend-admin/dist/
+.next/
+out/
+
+# ── Docker / editor / OS ─────────────────────────────────────────────
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── Office lock files (created while a .docx/.xlsx is open) ──────────
+~$*
+
+# ── Claude Code local session state (not part of the app) ────────────
+.claude/

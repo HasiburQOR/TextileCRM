@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block page_title %}Sourcing Intake{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="btn-group btn-group-sm">
+            <a class="btn btn-outline-secondary {% if status_filter == 'ALL' %}active{% endif %}" href="?status=ALL">All</a>
+            {% for value, label in statuses %}
+            <a class="btn btn-outline-secondary {% if status_filter == value %}active{% endif %}" href="?status={{ value }}">{{ label }}</a>
+            {% endfor %}
+          </div>
+          <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#newRequestModal"><i class="bi bi-plus-lg me-1"></i>New Request</button>
+        </div>
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead><tr><th>Product</th><th>Style #</th><th>Status</th><th>Created</th><th></th></tr></thead>
+            <tbody>
+              {% for r in requests %}
+              <tr>
+                <td class="fw-semibold">{{ r.productName }}</td>
+                <td><code>{{ r.styleNumber }}</code></td>
+                <td><span class="badge bg-secondary">{{ r.get_status_display }}</span></td>
+                <td>{{ r.createdAt|date:"M j, Y" }}</td>
+                <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'sourcing:detail' r.pk %}"><i class="bi bi-eye"></i></a></td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="5" class="text-center text-muted py-4">No sourcing requests yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title">About this stage</h6>
+        <p class="text-muted small mb-0">Submit a new product for admin approval before QC and warehouse processing begin. Add one row per style/color/size variant.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="newRequestModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title">New Sourcing Request</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label small">Product Name</label>
+              {{ form.productName }}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Brand Name</label>
+              {{ form.brandName }}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Sister Profile</label>
+              {{ form.sisterProfile }}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Photo</label>
+              {{ form.photo }}
+            </div>
+            <div class="col-12">
+              <label class="form-label small">Packing List Notes</label>
+              {{ form.packingListNotes }}
+            </div>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Variants</h6>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addVariantRow()"><i class="bi bi-plus"></i> Add Variant</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm" id="variantTable">
+              <thead><tr><th>Style No</th><th>Buyer</th><th>PO No</th><th>Color</th><th>Item #</th><th>Size</th><th>Qty</th><th></th></tr></thead>
+              <tbody id="variantTbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">Create Request</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<template id="variantRowTemplate">
+  <tr>
+    <td><input class="form-control form-control-sm" name="variant_styleNo"></td>
+    <td><input class="form-control form-control-sm" name="variant_buyer"></td>
+    <td><input class="form-control form-control-sm" name="variant_poNo"></td>
+    <td><input class="form-control form-control-sm" name="variant_color"></td>
+    <td><input class="form-control form-control-sm" name="variant_itemNumber"></td>
+    <td><input class="form-control form-control-sm" name="variant_size"></td>
+    <td><input class="form-control form-control-sm" type="number" name="variant_qtyOrdered" value="0"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+  </tr>
+</template>
+{% endblock %}
+{% block extra_js %}
+<script>
+function addVariantRow() {
+  const tpl = document.getElementById('variantRowTemplate');
+  document.getElementById('variantTbody').appendChild(tpl.content.cloneNode(true));
+}
+addVariantRow();
+</script>
+{% endblock %}

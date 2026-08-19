@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block page_title %}Sister Profiles{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead><tr><th>Name</th><th>Buyer</th><th>Agreement</th><th>Rate</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {% for sister in sisters %}
+              <tr>
+                <td><a href="{% url 'buyers:sister_detail' sister.pk %}" class="fw-semibold text-decoration-none">{{ sister.name }}</a></td>
+                <td>{{ sister.buyerProfile.name }}</td>
+                <td><span class="badge bg-info text-dark">{{ sister.get_agreementType_display }}</span></td>
+                <td>{{ sister.negotiatedRate }}</td>
+                <td><span class="badge {% if sister.status == 'ACTIVE' %}bg-success{% else %}bg-secondary{% endif %}">{{ sister.get_status_display }}</span></td>
+                <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'buyers:sister_detail' sister.pk %}"><i class="bi bi-eye"></i></a></td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="6" class="text-center text-muted py-4">No sister profiles yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title mb-3"><i class="bi bi-plus-circle me-1"></i>New Sister Profile</h6>
+        <form method="post">
+          {% csrf_token %}
+          <div class="mb-2"><label class="form-label small">Buyer</label>{{ form.buyerProfile }}</div>
+          <div class="mb-2"><label class="form-label small">Name</label>{{ form.name }}</div>
+          <div class="mb-2"><label class="form-label small">PO Reference</label>{{ form.poReference }}</div>
+          <div class="mb-2"><label class="form-label small">Agreement Type</label>{{ form.agreementType }}</div>
+          <div class="mb-2"><label class="form-label small">Negotiated Rate</label>{{ form.negotiatedRate }}</div>
+          <div class="mb-2"><label class="form-label small">Terms</label>{{ form.terms }}</div>
+          <div class="mb-3"><label class="form-label small">Status</label>{{ form.status }}</div>
+          <button type="submit" class="btn btn-primary w-100">Create Sister Profile</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

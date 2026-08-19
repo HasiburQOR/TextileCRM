@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block page_title %}Notifications{% endblock %}
+{% block content %}
+<div class="card shadow-sm">
+  <div class="list-group list-group-flush">
+    {% for n in notifications %}
+    {% include "notifications/_notification_row.html" with n=n %}
+    {% empty %}
+    <div class="list-group-item text-muted text-center py-4">No notifications.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

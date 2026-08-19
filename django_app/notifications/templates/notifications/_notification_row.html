@@ -1,0 +1,16 @@
+<div id="notif-{{ n.pk }}" class="list-group-item d-flex justify-content-between align-items-start {% if not n.isRead %}bg-light{% endif %}">
+  <div>
+    <div class="fw-semibold small">{{ n.title }}</div>
+    <div class="text-muted small">{{ n.message }}</div>
+    <div class="text-muted" style="font-size:0.75rem;">{{ n.createdAt|date:"M j, Y H:i" }}</div>
+  </div>
+  {% if not n.isRead %}
+  <button class="btn btn-sm btn-outline-secondary"
+          hx-post="{% url 'notifications:mark_read' n.pk %}"
+          hx-target="#notif-{{ n.pk }}" hx-swap="outerHTML">
+    Mark read
+  </button>
+  {% else %}
+  <span class="badge bg-success align-self-center">Read</span>
+  {% endif %}
+</div>

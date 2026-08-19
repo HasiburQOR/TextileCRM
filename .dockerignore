@@ -1,0 +1,13 @@
+node_modules/
+.next/
+backend/
+django_app/
+frontend-admin/
+backend_venv/
+django_app_venv/
+.git/
+.claude/
+*.md
+.env
+.env.*
+!prisma/

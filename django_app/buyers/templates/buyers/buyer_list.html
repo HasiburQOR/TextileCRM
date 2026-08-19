@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block page_title %}Buyers{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead><tr><th>Name</th><th>Portal Username</th><th>Sister Profiles</th><th>Created</th><th></th></tr></thead>
+            <tbody>
+              {% for buyer in buyers %}
+              <tr>
+                <td class="fw-semibold">{{ buyer.name }}</td>
+                <td><code>{{ buyer.portalUsername }}</code></td>
+                <td><span class="badge bg-secondary">{{ buyer.sisterProfiles.count }}</span></td>
+                <td>{{ buyer.createdAt|date:"M j, Y" }}</td>
+                <td class="text-end">
+                  <form method="post" action="{% url 'buyers:delete' buyer.pk %}" onsubmit="return confirm('Delete this buyer profile?');">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="5" class="text-center text-muted py-4">No buyer profiles yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title mb-3"><i class="bi bi-plus-circle me-1"></i>New Buyer Profile</h6>
+        <form method="post">
+          {% csrf_token %}
+          <div class="mb-2">
+            <label class="form-label small">Name</label>
+            {{ form.name }}
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Contact Info</label>
+            {{ form.contactInfo }}
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Branding</label>
+            {{ form.branding }}
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Portal Username</label>
+            {{ form.portalUsername }}
+          </div>
+          <div class="mb-3">
+            <label class="form-label small">Portal Password</label>
+            {{ form.portalPassword }}
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Create Buyer</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

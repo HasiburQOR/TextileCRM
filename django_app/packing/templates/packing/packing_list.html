@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block page_title %}Packing Lists{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead><tr><th>Product</th><th>Order Qty</th><th>Ship Qty</th><th>Short %</th><th>Total CBM</th></tr></thead>
+            <tbody>
+              {% for pl in lists %}
+              <tr>
+                <td>{{ pl.request.productName }}</td>
+                <td>{{ pl.orderQty }}</td>
+                <td>{{ pl.shipmentQty }}</td>
+                <td>{{ pl.shortPct|floatformat:1 }}%</td>
+                <td>{{ pl.totalCbm }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="5" class="text-center text-muted py-4">No packing lists yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title mb-3"><i class="bi bi-plus-circle me-1"></i>New Packing List</h6>
+        <form method="post" id="packingForm">
+          {% csrf_token %}
+          <div class="mb-2">
+            <label class="form-label small">Approved Request</label>
+            <select name="requestId" id="requestSelect" class="form-select" required>
+              <option value="">Select…</option>
+              {% for r in pending_requests %}
+              <option value="{{ r.pk }}" data-variants='{{ r.variants_json }}'>{{ r.productName }} ({{ r.styleNumber }})</option>
+              {% empty %}<option disabled>No requests ready for packing</option>{% endfor %}
+            </select>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-6"><label class="form-label small">Order Qty</label><input type="number" name="orderQty" id="orderQty" class="form-control" value="0"></div>
+            <div class="col-6"><label class="form-label small">Shipment Qty</label><input type="number" name="shipmentQty" id="shipmentQty" class="form-control" value="0"></div>
+            <div class="col-6"><label class="form-label small">Front Mark</label><input type="text" name="frontMark" class="form-control"></div>
+            <div class="col-6"><label class="form-label small">Side Mark</label><input type="text" name="sideMark" class="form-control"></div>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0 small">Cartons</h6>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCartonRow()"><i class="bi bi-plus"></i></button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead><tr><th>#From</th><th>#To</th><th>Color</th><th>Qty/Ctn</th><th>Order Qty</th><th>L</th><th>W</th><th>H</th><th>Net</th><th>Gross</th><th></th></tr></thead>
+              <tbody id="cartonTbody"></tbody>
+            </table>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">Create Packing List</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<template id="cartonRowTemplate">
+  <tr>
+    <td><input class="form-control form-control-sm" style="width:60px" type="number" name="ctn_cartonNoFrom" value="1"></td>
+    <td><input class="form-control form-control-sm" style="width:60px" type="number" name="ctn_cartonNoTo" value="1"></td>
+    <td><input class="form-control form-control-sm" style="width:80px" name="ctn_color"></td>
+    <td><input class="form-control form-control-sm" style="width:70px" type="number" name="ctn_qtyPerCarton" value="0"></td>
+    <td><input class="form-control form-control-sm" style="width:70px" type="number" name="ctn_orderQty" value="0"></td>
+    <td><input class="form-control form-control-sm" style="width:60px" type="number" step="0.01" name="ctn_ctnLength" value="0"></td>
+    <td><input class="form-control form-control-sm" style="width:60px" type="number" step="0.01" name="ctn_ctnWidth" value="0"></td>
+    <td><input class="form-control form-control-sm" style="width:60px" type="number" step="0.01" name="ctn_ctnHeight" value="0"></td>
+    <td><input class="form-control form-control-sm" style="width:60px" type="number" step="0.01" name="ctn_netWeight" value="0"></td>
+    <td><input class="form-control form-control-sm" style="width:60px" type="number" step="0.01" name="ctn_grossWeight" value="0"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+    <input type="hidden" name="ctn_assortId" value="">
+    <input type="hidden" name="ctn_itemNumber" value="">
+    <input type="hidden" name="ctn_sizeBreakdown" value="">
+  </tr>
+</template>
+{% endblock %}
+{% block extra_js %}
+<script>
+function addCartonRow(prefill) {
+  const row = document.getElementById('cartonRowTemplate').content.cloneNode(true);
+  if (prefill) {
+    row.querySelector('[name=ctn_cartonNoFrom]').value = prefill.idx;
+    row.querySelector('[name=ctn_cartonNoTo]').value = prefill.idx;
+    row.querySelector('[name=ctn_color]').value = prefill.color || '';
+    row.querySelector('[name=ctn_qtyPerCarton]').value = prefill.qtyOrdered || 0;
+    row.querySelector('[name=ctn_orderQty]').value = prefill.qtyOrdered || 0;
+    row.querySelector('[name=ctn_assortId]').value = prefill.styleNo || '';
+    row.querySelector('[name=ctn_itemNumber]').value = prefill.itemNumber || '';
+    row.querySelector('[name=ctn_sizeBreakdown]').value = prefill.size || '';
+  }
+  document.getElementById('cartonTbody').appendChild(row);
+}
+
+document.getElementById('requestSelect').addEventListener('change', function () {
+  document.getElementById('cartonTbody').innerHTML = '';
+  const opt = this.options[this.selectedIndex];
+  let variants = [];
+  try { variants = JSON.parse(opt.dataset.variants || '[]'); } catch (e) { variants = []; }
+  let total = 0;
+  variants.forEach((v, i) => { addCartonRow({ ...v, idx: i + 1 }); total += v.qtyOrdered || 0; });
+  document.getElementById('orderQty').value = total;
+  document.getElementById('shipmentQty').value = total;
+  if (!variants.length) addCartonRow();
+});
+</script>
+{% endblock %}

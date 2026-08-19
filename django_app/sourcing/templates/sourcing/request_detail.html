@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block page_title %}{{ req.productName }}{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h5 class="mb-1">{{ req.productName }}</h5>
+            <div class="text-muted small">Style #: <code>{{ req.styleNumber }}</code> · Brand: {{ req.brandName }}</div>
+          </div>
+          <span class="badge bg-secondary align-self-start">{{ req.get_status_display }}</span>
+        </div>
+        {% if req.photoUrl %}<img src="{{ req.photoUrl }}" class="img-fluid rounded mt-3" style="max-height:220px;">{% endif %}
+        {% if req.packingListNotes %}<p class="mt-3 mb-0">{{ req.packingListNotes }}</p>{% endif %}
+        {% if req.status == "REJECTED" %}<div class="alert alert-danger mt-3 mb-0">{{ req.rejectionReason }}</div>{% endif %}
+      </div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title">Variants</h6>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead><tr><th>Style</th><th>Buyer</th><th>PO</th><th>Color</th><th>Item #</th><th>Size</th><th>Qty</th></tr></thead>
+            <tbody>
+              {% for v in req.variants.all %}
+              <tr><td>{{ v.styleNo }}</td><td>{{ v.buyer }}</td><td>{{ v.poNo }}</td><td>{{ v.color }}</td><td>{{ v.itemNumber }}</td><td>{{ v.size }}</td><td>{{ v.qtyOrdered }}</td></tr>
+              {% empty %}<tr><td colspan="7" class="text-muted text-center">No variants.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title">Details</h6>
+        <dl class="row small mb-0">
+          <dt class="col-6">Created by</dt><dd class="col-6">{{ req.createdBy.display_name }}</dd>
+          <dt class="col-6">Created</dt><dd class="col-6">{{ req.createdAt|date:"M j, Y" }}</dd>
+          {% if req.reviewedBy %}<dt class="col-6">Reviewed by</dt><dd class="col-6">{{ req.reviewedBy.display_name }}</dd>{% endif %}
+          {% if req.sisterProfile %}<dt class="col-6">Sister Profile</dt><dd class="col-6">{{ req.sisterProfile.name }}</dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

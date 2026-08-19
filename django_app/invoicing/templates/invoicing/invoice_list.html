@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block page_title %}Invoices{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div class="btn-group btn-group-sm">
+    <a class="btn btn-outline-secondary {% if status_filter == 'ALL' %}active{% endif %}" href="?status=ALL">All</a>
+    {% for value, label in statuses %}
+    <a class="btn btn-outline-secondary {% if status_filter == value %}active{% endif %}" href="?status={{ value }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newInvoiceModal"><i class="bi bi-plus-lg me-1"></i>New Invoice</button>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead><tr><th>Invoice #</th><th>Buyer</th><th>Status</th><th>Total</th><th>Outstanding</th><th>Created</th><th></th></tr></thead>
+        <tbody>
+          {% for inv in invoices %}
+          <tr>
+            <td><code>{{ inv.invoiceNo }}</code></td>
+            <td>{{ inv.buyerName }}</td>
+            <td><span class="badge bg-secondary">{{ inv.get_status_display }}</span></td>
+            <td>{{ inv.totalValue }}</td>
+            <td>{{ inv.outstandingBalance }}</td>
+            <td>{{ inv.createdAt|date:"M j, Y" }}</td>
+            <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'invoicing:detail' inv.pk %}"><i class="bi bi-eye"></i></a></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No invoices yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="newInvoiceModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title">New Invoice</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2 mb-3">
+            <div class="col-md-4">
+              <label class="form-label small">Buyer Name</label>
+              <input type="text" name="buyerName" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">Exchange Rate</label>
+              <select name="exchangeRateId" class="form-select">
+                <option value="">None</option>
+                {% for r in exchange_rates %}
+                <option value="{{ r.pk }}">{{ r.sourceCurrency }} → {{ r.targetCurrency }} @ {{ r.rate }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Commission Type</label>
+              <select name="commissionType" class="form-select">
+                <option value="NONE">None</option>
+                <option value="PERCENTAGE">Percentage</option>
+                <option value="FLAT">Flat</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Commission Value</label>
+              <input type="number" step="0.01" name="commissionValue" class="form-control" value="0">
+            </div>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Line Items</h6>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addLineItemRow()"><i class="bi bi-plus"></i> Add Line</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead><tr><th>Description</th><th>Brand</th><th>CTN</th><th>Qty/CTN</th><th>Unit Price</th><th>Material</th><th></th></tr></thead>
+              <tbody id="lineItemTbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">Create Invoice</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<template id="lineItemRowTemplate">
+  <tr>
+    <td><input class="form-control form-control-sm" name="li_description"></td>
+    <td><input class="form-control form-control-sm" name="li_brand"></td>
+    <td><input class="form-control form-control-sm" type="number" name="li_ctn" value="0"></td>
+    <td><input class="form-control form-control-sm" type="number" name="li_qtyPerCtn" value="0"></td>
+    <td><input class="form-control form-control-sm" type="number" step="0.01" name="li_unitPrice" value="0"></td>
+    <td><input class="form-control form-control-sm" name="li_material"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+    <input type="hidden" name="li_netWeight" value="0">
+    <input type="hidden" name="li_grossWeight" value="0">
+    <input type="hidden" name="li_cbm" value="0">
+    <input type="hidden" name="li_styleItemCode" value="">
+    <input type="hidden" name="li_remarks" value="">
+  </tr>
+</template>
+{% endblock %}
+{% block extra_js %}
+<script>
+function addLineItemRow() {
+  document.getElementById('lineItemTbody').appendChild(document.getElementById('lineItemRowTemplate').content.cloneNode(true));
+}
+addLineItemRow();
+</script>
+{% endblock %}
