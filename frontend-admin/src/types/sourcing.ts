@@ -118,14 +118,11 @@ export interface ProductCreateInput {
   variants: ProductVariantInput[]
 }
 
-export interface SisterProfile {
-  id: string
-  buyerProfile: string
-  buyerProfileName: string
-  poReference: string
-  agreementType: string
-  status: string
-}
+// The canonical SisterProfile (incl. currency config) lives in types/buyers.ts
+// — re-exported here so existing imports across the sourcing/packing pages
+// don't need to change. This used to be a separate, stale duplicate missing
+// supplierCurrency/buyerCurrency/exchangeRate.
+export type { SisterProfile } from "@/types/buyers"
 
 export interface CustomCostField {
   name: string

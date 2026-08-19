@@ -53,11 +53,19 @@ class PackingListSerializer(serializers.ModelSerializer):
 
     cartons = PackingCartonSerializer(many=True, required=False)
     sisterProfilePoReference = serializers.CharField(source="sisterProfile.poReference", read_only=True)
+    # For the buyer-currency Unit Price/Amount columns: one currency pair and
+    # rate per order (set on the Sister Profile), applying to every carton on
+    # this list — no need to look it up separately just to render them.
+    sisterProfileSupplierCurrency = serializers.CharField(source="sisterProfile.supplierCurrency", read_only=True)
+    sisterProfileBuyerCurrency = serializers.CharField(source="sisterProfile.buyerCurrency", read_only=True)
+    sisterProfileExchangeRate = serializers.DecimalField(source="sisterProfile.exchangeRate", max_digits=14, decimal_places=6, read_only=True)
 
     class Meta:
         model = PackingList
         fields = [
-            "id", "sisterProfile", "sisterProfilePoReference", "referenceCode", "packingRule", "poNo",
+            "id", "sisterProfile", "sisterProfilePoReference",
+            "sisterProfileSupplierCurrency", "sisterProfileBuyerCurrency", "sisterProfileExchangeRate",
+            "referenceCode", "packingRule", "poNo",
             "brandName", "date", "frontMark", "sideMark", "totalOrderQty", "totalShipQty", "shortExcessQty",
             "shortExcessPct", "totalCartonQty", "totalGrossWeight", "totalNetWeight", "totalCbm", "cartons",
             "createdBy", "createdAt", "updatedAt",

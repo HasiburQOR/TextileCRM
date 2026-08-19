@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
+import { convertToBuyerCurrency } from "@/lib/currency"
 import { extractErrorMessage } from "@/lib/errors"
 import { pickProductImage, resolveMediaUrl } from "@/lib/media"
 import type { Paginated } from "@/types/api"
@@ -574,8 +575,10 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
                 <th className="px-2 py-1.5 font-medium">Description</th>
                 <th className="px-2 py-1.5 font-medium">CTN</th>
                 <th className="px-2 py-1.5 font-medium">Qty</th>
-                <th className="px-2 py-1.5 font-medium">Unit Price</th>
-                <th className="px-2 py-1.5 font-medium">Amount</th>
+                <th className="px-2 py-1.5 font-medium">Unit Price ({sourceCurrency || "Supplier"})</th>
+                <th className="px-2 py-1.5 font-medium">Amount ({sourceCurrency || "Supplier"})</th>
+                <th className="px-2 py-1.5 font-medium text-indigo-600">Unit Price ({targetCurrency || "Buyer"})</th>
+                <th className="px-2 py-1.5 font-medium text-indigo-600">Amount ({targetCurrency || "Buyer"})</th>
                 <th className="px-2 py-1.5 font-medium">Remarks</th>
                 <th className="w-8" />
               </tr></thead>
@@ -610,6 +613,18 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
                     <td className="p-1 text-center">{l.totalQty}</td>
                     <td className="p-1"><Input className="h-7 w-24 text-xs" type="number" min={0} step="0.01" value={l.unitPrice} onChange={(e) => updateLine(l.tempId, { unitPrice: Number(e.target.value) })} /></td>
                     <td className="p-1 text-center font-medium text-slate-700">{(Number(l.amount) || 0).toFixed(2)}</td>
+                    <td className="p-1 text-center font-medium text-indigo-600">
+                      {(() => {
+                        const v = convertToBuyerCurrency(Number(l.unitPrice) || 0, selectedProfile?.exchangeRate)
+                        return v === null ? "—" : v.toFixed(2)
+                      })()}
+                    </td>
+                    <td className="p-1 text-center font-medium text-indigo-600">
+                      {(() => {
+                        const v = convertToBuyerCurrency(Number(l.amount) || 0, selectedProfile?.exchangeRate)
+                        return v === null ? "—" : v.toFixed(2)
+                      })()}
+                    </td>
                     <td className="p-1"><Input className="h-7 w-32 text-xs" value={l.remarks} onChange={(e) => updateLine(l.tempId, { remarks: e.target.value })} /></td>
                     <td className="p-1 text-center"><button type="button" onClick={() => removeLine(l.tempId)} className="text-slate-400 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
@@ -668,12 +683,12 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
                 <div className="font-semibold text-slate-900">{commissionAmount.toFixed(2)} {sourceCurrency}</div>
               </div>
               <div>
-                <span className="text-slate-500">Total Value</span>
+                <span className="text-slate-500">Total Value ({sourceCurrency || "Supplier"})</span>
                 <div className="font-semibold text-slate-900">{grandTotal.toFixed(2)} {sourceCurrency}</div>
               </div>
               <div>
-                <span className="text-slate-500">In {targetCurrency || "buyer currency"}</span>
-                <div className="font-semibold text-slate-900">
+                <span className="text-slate-500">Total Value ({targetCurrency || "Buyer"})</span>
+                <div className="font-semibold text-indigo-600">
                   {convertedTotal === null ? "—" : `${convertedTotal.toFixed(2)} ${targetCurrency}`}
                 </div>
               </div>

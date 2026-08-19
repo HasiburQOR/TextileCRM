@@ -14,6 +14,7 @@ import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
+import { convertToBuyerCurrency } from "@/lib/currency"
 import { extractErrorMessage } from "@/lib/errors"
 import { resolveMediaUrl } from "@/lib/media"
 import { PRODUCT_STATUS_BADGE_VARIANT, PRODUCT_STATUS_LABEL } from "@/lib/status"
@@ -453,6 +454,7 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
           onChange={setVariants}
           onAddColumn={addColumn}
           onAddRow={() => setVariants((prev) => [...prev, emptyVariant(prev[prev.length - 1]?.cartonNoTo, columns)])}
+          sisterProfile={sisterProfilesQuery.data?.find((sp) => sp.id === sisterProfile)}
         />
 
         <div className="flex justify-end gap-2 pt-2">
@@ -468,12 +470,13 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow }: {
+function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow, sisterProfile }: {
   variants: VariantRowDraft[]
   columns: ProductTemplateFieldEntry[]
   onChange: (rows: VariantRowDraft[]) => void
   onAddColumn: (column: ProductTemplateFieldEntry) => void
   onAddRow: () => void
+  sisterProfile?: SisterProfile
 }) {
   const [addColumnOpen, setAddColumnOpen] = useState(false)
 
@@ -519,8 +522,10 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow 
               <th className="px-3 py-2 font-medium">CTN To</th>
               <th className="px-3 py-2 font-medium">CTNS</th>
               <th className="px-3 py-2 font-medium">TTL PCS</th>
-              <th className="px-3 py-2 font-medium">Unit Price</th>
-              <th className="px-3 py-2 font-medium">Amount</th>
+              <th className="px-3 py-2 font-medium">Unit Price ({sisterProfile?.supplierCurrency || "Supplier"})</th>
+              <th className="px-3 py-2 font-medium">Amount ({sisterProfile?.supplierCurrency || "Supplier"})</th>
+              <th className="px-3 py-2 font-medium text-indigo-600">Unit Price ({sisterProfile?.buyerCurrency || "Buyer"})</th>
+              <th className="px-3 py-2 font-medium text-indigo-600">Amount ({sisterProfile?.buyerCurrency || "Buyer"})</th>
               <th className="px-3 py-2 font-medium">G.W(kg)</th>
               <th className="px-3 py-2 font-medium">N.W(kg)</th>
               <th className="px-3 py-2 font-medium">TTL G.W</th>
@@ -605,6 +610,18 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow 
                     />
                   </td>
                   <td className="p-1.5 text-center text-sm font-medium text-slate-600">{d.totalAmount.toFixed(2)}</td>
+                  <td className="p-1.5 text-center text-sm font-medium text-indigo-600">
+                    {(() => {
+                      const v = convertToBuyerCurrency(row.unitPrice, sisterProfile?.exchangeRate)
+                      return v === null ? "—" : v.toFixed(2)
+                    })()}
+                  </td>
+                  <td className="p-1.5 text-center text-sm font-medium text-indigo-600">
+                    {(() => {
+                      const v = convertToBuyerCurrency(d.totalAmount, sisterProfile?.exchangeRate)
+                      return v === null ? "—" : v.toFixed(2)
+                    })()}
+                  </td>
                   <td className="p-1.5">
                     <Input className="h-9 w-20 text-sm" type="number" step="0.01" min={0} max={999999} value={row.grossWeight ?? ""} onChange={(e) => updateVariant(i, { grossWeight: e.target.value ? Number(e.target.value) : null })} />
                   </td>
@@ -650,7 +667,13 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow 
         <span>Total Order Qty: <strong>{variants.reduce((s, v) => s + v.orderQty, 0)}</strong></span>
         <span>Total Cartons: <strong>{variants.reduce((s, v) => s + computeVariantDerived(v).noOfCartons, 0)}</strong></span>
         <span>Total CBM: <strong>{variants.reduce((s, v) => s + computeVariantDerived(v).totalCbm, 0).toFixed(4)}</strong></span>
-        <span>Total Amount: <strong>{variants.reduce((s, v) => s + computeVariantDerived(v).totalAmount, 0).toFixed(2)}</strong></span>
+        <span>Total Amount: <strong>{variants.reduce((s, v) => s + computeVariantDerived(v).totalAmount, 0).toFixed(2)} {sisterProfile?.supplierCurrency}</strong></span>
+        {(() => {
+          const total = convertToBuyerCurrency(variants.reduce((s, v) => s + computeVariantDerived(v).totalAmount, 0), sisterProfile?.exchangeRate)
+          return total === null ? null : (
+            <span>Total Amount ({sisterProfile?.buyerCurrency}): <strong className="text-indigo-600">{total.toFixed(2)}</strong></span>
+          )
+        })()}
       </div>
       {addColumnOpen && (
         <AddColumnDialog
@@ -970,6 +993,7 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
           onChange={setVariants}
           onAddColumn={addColumn}
           onAddRow={() => setVariants((prev) => [...prev, emptyVariant(prev[prev.length - 1]?.cartonNoTo, columns)])}
+          sisterProfile={sisterProfilesQuery.data?.find((sp) => sp.id === form.sisterProfile)}
         />
 
         <div className="flex justify-end gap-2 pt-2">

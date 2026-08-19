@@ -33,7 +33,12 @@ export interface PackingCarton {
 }
 
 export interface PackingList {
-  id: string; sisterProfile: string; sisterProfilePoReference: string; referenceCode: string
+  id: string; sisterProfile: string; sisterProfilePoReference: string
+  // One currency pair + rate per order, snapshotted from the Sister Profile —
+  // drives the buyer-currency Unit Price/Amount columns.
+  sisterProfileSupplierCurrency: string; sisterProfileBuyerCurrency: string
+  sisterProfileExchangeRate: string
+  referenceCode: string
   packingRule: string | null; poNo: string; brandName: string
   date: string | null; frontMark: string; sideMark: string
   totalOrderQty: number; totalShipQty: number

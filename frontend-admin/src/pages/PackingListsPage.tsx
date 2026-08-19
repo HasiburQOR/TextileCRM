@@ -14,6 +14,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
+import { convertToBuyerCurrency } from "@/lib/currency"
 import { downloadFile } from "@/lib/download"
 import { extractErrorMessage } from "@/lib/errors"
 import { pickProductImage, resolveMediaUrl } from "@/lib/media"
@@ -325,6 +326,7 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
   function updateRow(index: number, patch: Partial<CartonRowDraft>) { onRowsChange(rows.map((r, i) => (i === index ? { ...r, ...patch } : r))) }
   function removeRow(index: number) { onRowsChange(rows.filter((_, i) => i !== index)) }
   const activeRule = rulesQuery.data?.find((r) => r.id === form.packingRule)
+  const sisterProfile = profilesQuery.data?.find((sp) => sp.id === form.sisterProfile)
   function addRow() {
     const lastRow = rows[rows.length - 1]
     const nextFrom = lastRow ? lastRow.cartonNoTo + 1 : 1
@@ -412,8 +414,10 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
             <th className="px-2 py-1.5 font-medium">PC/CTN</th>
             <th className="px-2 py-1.5 font-medium">Inner Bdl</th>
             <th className="px-2 py-1.5 font-medium">TTL PCS</th>
-            <th className="px-2 py-1.5 font-medium">Unit Price</th>
-            <th className="px-2 py-1.5 font-medium">Amount</th>
+            <th className="px-2 py-1.5 font-medium">Unit Price ({sisterProfile?.supplierCurrency || "Supplier"})</th>
+            <th className="px-2 py-1.5 font-medium">Amount ({sisterProfile?.supplierCurrency || "Supplier"})</th>
+            <th className="px-2 py-1.5 font-medium text-indigo-600">Unit Price ({sisterProfile?.buyerCurrency || "Buyer"})</th>
+            <th className="px-2 py-1.5 font-medium text-indigo-600">Amount ({sisterProfile?.buyerCurrency || "Buyer"})</th>
             <th className="px-2 py-1.5 font-medium">G.W(kg)</th>
             <th className="px-2 py-1.5 font-medium">N.W(kg)</th>
             <th className="px-2 py-1.5 font-medium">TTL G.W</th>
@@ -493,6 +497,18 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
                       />
                     </td>
                     <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalAmount.toFixed(2)}</td>
+                    <td className="p-1 text-center text-xs font-medium text-indigo-600">
+                      {(() => {
+                        const v = convertToBuyerCurrency(row.unitPrice, sisterProfile?.exchangeRate)
+                        return v === null ? "—" : v.toFixed(2)
+                      })()}
+                    </td>
+                    <td className="p-1 text-center text-xs font-medium text-indigo-600">
+                      {(() => {
+                        const v = convertToBuyerCurrency(d.totalAmount, sisterProfile?.exchangeRate)
+                        return v === null ? "—" : v.toFixed(2)
+                      })()}
+                    </td>
                     <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" step="0.01" min={0} max={999999} value={row.grossWeight} onChange={(e) => updateRow(i, { grossWeight: Number(e.target.value) })} /></td>
                     <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" step="0.01" min={0} max={999999} value={row.netWeight} onChange={(e) => updateRow(i, { netWeight: Number(e.target.value) })} /></td>
                     <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalGrossWeight.toFixed(2)}</td>
@@ -519,6 +535,13 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
                 <td className="px-2 py-1.5 text-center">{grandTotals.orderQty}</td>
                 <td colSpan={3} /><td className="px-2 py-1.5 text-center">{grandTotals.pcs}</td>
                 <td /><td className="px-2 py-1.5 text-center">{grandTotals.totalAmount.toFixed(2)}</td>
+                <td className="px-2 py-1.5 text-center text-indigo-600" />
+                <td className="px-2 py-1.5 text-center text-indigo-600">
+                  {(() => {
+                    const v = convertToBuyerCurrency(grandTotals.totalAmount, sisterProfile?.exchangeRate)
+                    return v === null ? "—" : v.toFixed(2)
+                  })()}
+                </td>
                 <td colSpan={2} /><td className="px-2 py-1.5 text-center">{grandTotals.grossWeight.toFixed(2)}</td>
                 <td className="px-2 py-1.5 text-center">{grandTotals.netWeight.toFixed(2)}</td>
                 <td colSpan={3} /><td className="px-2 py-1.5 text-center">{grandTotals.cbm.toFixed(4)}</td>
@@ -536,7 +559,11 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
         <SummaryField label="Total Gross Weight" value={grandTotals.grossWeight} unit="KGS" decimals={2} />
         <SummaryField label="Total Net Weight" value={grandTotals.netWeight} unit="KGS" decimals={2} />
         <SummaryField label="Total CBM" value={grandTotals.cbm} unit="CBM" decimals={4} />
-        <SummaryField label="Total Amount" value={grandTotals.totalAmount} unit="" decimals={2} />
+        <SummaryField label="Total Amount" value={grandTotals.totalAmount} unit={sisterProfile?.supplierCurrency || ""} decimals={2} />
+        {(() => {
+          const v = convertToBuyerCurrency(grandTotals.totalAmount, sisterProfile?.exchangeRate)
+          return v === null ? null : <SummaryField label="Total Amount (Buyer)" value={v} unit={sisterProfile?.buyerCurrency || ""} decimals={2} />
+        })()}
       </div>
 
       {photoLightbox && (
@@ -662,6 +689,8 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
   const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
   const columns = useMemo(() => columnsFromValues(packingList.cartons.map((c) => c.customFieldValues)), [packingList.cartons])
+  const totalAmount = useMemo(() => packingList.cartons.reduce((s, c) => s + Number(c.totalAmount), 0), [packingList.cartons])
+  const totalAmountBuyerCurrency = convertToBuyerCurrency(totalAmount, packingList.sisterProfileExchangeRate)
 
   async function handleExport(filetype: "pdf" | "xlsx") {
     setExporting(filetype)
@@ -702,6 +731,10 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
           <Field label="Total Ship Qty" value={String(packingList.totalShipQty)} />
           <Field label="Total Carton Qty" value={String(packingList.totalCartonQty)} />
           <Field label="Total CBM" value={Number(packingList.totalCbm).toFixed(4)} />
+          <Field label={`Total Amount (${packingList.sisterProfileSupplierCurrency})`} value={totalAmount.toFixed(2)} />
+          {totalAmountBuyerCurrency !== null && (
+            <Field label={`Total Amount (${packingList.sisterProfileBuyerCurrency})`} value={totalAmountBuyerCurrency.toFixed(2)} />
+          )}
           {packingList.frontMark && <Field label="Front Mark" value={packingList.frontMark} />}
           {packingList.sideMark && <Field label="Side Mark" value={packingList.sideMark} />}
         </div>
@@ -721,8 +754,10 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
                 <th className="px-2 py-1.5 font-medium">CTNS</th>
                 <th className="px-2 py-1.5 font-medium">Order Qty</th>
                 <th className="px-2 py-1.5 font-medium">Ship Qty</th>
-                <th className="px-2 py-1.5 font-medium">Unit Price</th>
-                <th className="px-2 py-1.5 font-medium">Amount</th>
+                <th className="px-2 py-1.5 font-medium">Unit Price ({packingList.sisterProfileSupplierCurrency})</th>
+                <th className="px-2 py-1.5 font-medium">Amount ({packingList.sisterProfileSupplierCurrency})</th>
+                <th className="px-2 py-1.5 font-medium text-indigo-600">Unit Price ({packingList.sisterProfileBuyerCurrency})</th>
+                <th className="px-2 py-1.5 font-medium text-indigo-600">Amount ({packingList.sisterProfileBuyerCurrency})</th>
                 <th className="px-2 py-1.5 font-medium">TTL G.W</th>
                 <th className="px-2 py-1.5 font-medium">TTL N.W</th>
                 <th className="px-2 py-1.5 font-medium">CBM</th>
@@ -731,7 +766,7 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
             </thead>
             <tbody>
               {packingList.cartons.length === 0 ? (
-                <tr><td colSpan={16 + columns.length} className="px-2 py-6 text-center text-slate-400">No carton rows recorded.</td></tr>
+                <tr><td colSpan={18 + columns.length} className="px-2 py-6 text-center text-slate-400">No carton rows recorded.</td></tr>
               ) : (
                 packingList.cartons.map((c) => (
                   <tr key={c.id} className="border-b border-slate-100 last:border-0">
@@ -750,6 +785,18 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
                     <td className="px-2 py-2 text-slate-500">{c.shipQty}</td>
                     <td className="px-2 py-2 text-slate-500">{c.unitPrice != null ? Number(c.unitPrice).toFixed(2) : "—"}</td>
                     <td className="px-2 py-2 text-slate-500">{Number(c.totalAmount).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-indigo-600">
+                      {(() => {
+                        const v = convertToBuyerCurrency(c.unitPrice, packingList.sisterProfileExchangeRate)
+                        return v === null ? "—" : v.toFixed(2)
+                      })()}
+                    </td>
+                    <td className="px-2 py-2 text-indigo-600">
+                      {(() => {
+                        const v = convertToBuyerCurrency(Number(c.totalAmount), packingList.sisterProfileExchangeRate)
+                        return v === null ? "—" : v.toFixed(2)
+                      })()}
+                    </td>
                     <td className="px-2 py-2 text-slate-500">{Number(c.totalGrossWeight).toFixed(2)}</td>
                     <td className="px-2 py-2 text-slate-500">{Number(c.totalNetWeight).toFixed(2)}</td>
                     <td className="px-2 py-2 text-slate-500">{Number(c.totalCbm).toFixed(4)}</td>

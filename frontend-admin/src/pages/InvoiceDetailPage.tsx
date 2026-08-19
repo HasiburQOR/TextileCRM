@@ -12,6 +12,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
+import { convertToBuyerCurrency } from "@/lib/currency"
 import { downloadFile } from "@/lib/download"
 import { extractErrorMessage } from "@/lib/errors"
 import type { Paginated } from "@/types/api"
@@ -198,12 +199,12 @@ export function InvoiceDetailPage() {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Line Total" value={Number(inv.totalValue).toLocaleString()} />
-        <StatCard label="Commission" value={Number(inv.commissionAmount).toLocaleString()} />
-        <StatCard label="Total Value" value={Number(inv.grandTotal).toLocaleString()} />
+        <StatCard label={`Line Total (${inv.sourceCurrency})`} value={Number(inv.totalValue).toLocaleString()} />
+        <StatCard label={`Commission (${inv.sourceCurrency})`} value={Number(inv.commissionAmount).toLocaleString()} />
+        <StatCard label={`Total Value (${inv.sourceCurrency})`} value={Number(inv.grandTotal).toLocaleString()} />
         {inv.targetCurrency && (
           <StatCard
-            label={`Converted (@ ${Number(inv.exchangeRateValueLocked).toLocaleString(undefined, { maximumFractionDigits: 6 })} → ${inv.targetCurrency})`}
+            label={`Total Value (${inv.targetCurrency}) @ ${Number(inv.exchangeRateValueLocked).toLocaleString(undefined, { maximumFractionDigits: 6 })}`}
             value={`${Number(inv.convertedTotal).toLocaleString()} ${inv.targetCurrency}`}
           />
         )}
@@ -220,8 +221,14 @@ export function InvoiceDetailPage() {
                 <th className="px-4 py-2 font-medium">Packing List</th>
                 <th className="px-4 py-2 font-medium">CTN</th>
                 <th className="px-4 py-2 font-medium">Qty</th>
-                <th className="px-4 py-2 font-medium">Unit Price</th>
-                <th className="px-4 py-2 font-medium">Amount</th>
+                <th className="px-4 py-2 font-medium">Unit Price ({inv.sourceCurrency})</th>
+                <th className="px-4 py-2 font-medium">Amount ({inv.sourceCurrency})</th>
+                {inv.targetCurrency && (
+                  <>
+                    <th className="px-4 py-2 font-medium text-indigo-600">Unit Price ({inv.targetCurrency})</th>
+                    <th className="px-4 py-2 font-medium text-indigo-600">Amount ({inv.targetCurrency})</th>
+                  </>
+                )}
                 <th className="px-4 py-2 font-medium">Remarks</th>
               </tr></thead>
               <tbody>
@@ -234,6 +241,22 @@ export function InvoiceDetailPage() {
                     <td className="px-4 py-2 text-slate-500">{li.totalQty}</td>
                     <td className="px-4 py-2 text-slate-500">{Number(li.unitPrice).toLocaleString()}</td>
                     <td className="px-4 py-2 font-medium text-slate-900">{Number(li.amount).toLocaleString()}</td>
+                    {inv.targetCurrency && (
+                      <>
+                        <td className="px-4 py-2 text-indigo-600">
+                          {(() => {
+                            const v = convertToBuyerCurrency(Number(li.unitPrice), inv.exchangeRateValueLocked)
+                            return v === null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                          })()}
+                        </td>
+                        <td className="px-4 py-2 font-medium text-indigo-600">
+                          {(() => {
+                            const v = convertToBuyerCurrency(Number(li.amount), inv.exchangeRateValueLocked)
+                            return v === null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                          })()}
+                        </td>
+                      </>
+                    )}
                     <td className="px-4 py-2 text-slate-400">{li.remarks || "—"}</td>
                   </tr>
                 ))}
