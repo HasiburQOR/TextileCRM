@@ -58,6 +58,7 @@ export type PortalOrderStatus = "active" | "completed" | "cancelled"
 
 export interface PortalOrder {
   id: string
+  referenceCode: string
   buyerProfileName: string
   poReference: string
   agreementType: string
@@ -138,6 +139,7 @@ export interface PortalLedger {
 
 export interface PortalPackingList {
   id: string
+  referenceCode: string
   poNo: string
   brandName: string
   date: string | null

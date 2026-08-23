@@ -1,3 +1,5 @@
+import { VariantCodeCell } from "@/components/VariantCodeCell"
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Camera, Eye, FileImage, Pencil, Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
@@ -12,19 +14,19 @@ import { Input } from "@/components/ui/input"
 import { Lightbox, type LightboxImage } from "@/components/ui/lightbox"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { SearchableSisterProfileSelect } from "@/components/SearchableSisterProfileSelect"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { convertToBuyerCurrency } from "@/lib/currency"
 import { extractErrorMessage } from "@/lib/errors"
 import { resolveMediaUrl } from "@/lib/media"
 import { PRODUCT_STATUS_BADGE_VARIANT, PRODUCT_STATUS_LABEL } from "@/lib/status"
-import { nextStyleNo } from "@/lib/style-no"
 import type { Paginated } from "@/types/api"
 import type { Product, ProductCreateInput, ProductStatus, ProductVariantInput, SisterProfile } from "@/types/sourcing"
 import type { ProductTemplate, ProductTemplateFieldEntry } from "@/types/templates"
 
-const CUBIC_INCHES_PER_CBM = 61023.7441
-
+// Dimensions entered at Sourcing Intake in centimetres. CBM = cm³ / 1,000,000.
+// When flowing to PackingCarton (inches), frontend converts ÷ 2.54 at boundary.
 type VariantRowDraft = ProductVariantInput & { tempId: string; imageFile: File | null }
 
 function computeVariantDerived(row: VariantRowDraft) {
@@ -39,8 +41,9 @@ function computeVariantDerived(row: VariantRowDraft) {
   const totalAmount = totalPcs * (row.unitPrice ?? 0)
   const totalGrossWeight = (row.grossWeight ?? 0) * noOfCartons
   const totalNetWeight = (row.netWeight ?? 0) * noOfCartons
-  const cubicInches = (row.ctnLength ?? 0) * (row.ctnWidth ?? 0) * (row.ctnHeight ?? 0)
-  const cbm = cubicInches > 0 ? cubicInches / CUBIC_INCHES_PER_CBM : 0
+  // Dimensions entered in cm — CBM = cubic_cm / 1,000,000
+  const cubicCm = (row.ctnLength ?? 0) * (row.ctnWidth ?? 0) * (row.ctnHeight ?? 0)
+  const cbm = cubicCm > 0 ? cubicCm / 1_000_000 : 0
   const totalCbm = cbm * noOfCartons
   return { pcsPerCarton, noOfCartons, totalPcs, totalAmount, totalGrossWeight, totalNetWeight, cbm, totalCbm }
 }
@@ -68,6 +71,7 @@ function emptyVariant(prevCartonTo: number | null | undefined, columns: ProductT
     cartonNoFrom: nextFrom, cartonNoTo: nextFrom,
     unitPrice: null,
     grossWeight: null, netWeight: null, ctnLength: null, ctnWidth: null, ctnHeight: null,
+    variantStyleNo: "", ctnSl: "", material: "", description: "", remarks: "",
     imageFile: null,
   }
 }
@@ -89,6 +93,11 @@ function variantToDraft(v: Product["variants"][number]): VariantRowDraft {
     ctnLength: v.ctnLength,
     ctnWidth: v.ctnWidth,
     ctnHeight: v.ctnHeight,
+    variantStyleNo: v.variantStyleNo ?? "",
+    ctnSl: v.ctnSl ?? "",
+    material: v.material ?? "",
+    description: v.description ?? "",
+    remarks: v.remarks ?? "",
     imageFile: null,
   }
 }
@@ -303,11 +312,9 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
     },
   })
 
-  const [styleNumber, setStyleNumber] = useState(nextStyleNo)
   const [sisterProfile, setSisterProfile] = useState("")
   const [name, setName] = useState("")
   const [brandName, setBrandName] = useState("")
-  const [material, setMaterial] = useState("")
   const [poNo, setPoNo] = useState("")
   const [templateId, setTemplateId] = useState("")
   const [columns, setColumns] = useState<ProductTemplateFieldEntry[]>([])
@@ -375,11 +382,10 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
     }
     createMutation.mutate({
       sisterProfile,
-      styleNumber,
       name,
       brandName: brandName || "NA",
       poNo,
-      material,
+      material: cleanVariants[0]?.material || "",
       template: templateId || null,
       resolvedTemplateFields: columns,
       variants: cleanVariants,
@@ -405,24 +411,8 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="flex flex-col gap-1.5 lg:col-span-2">
-            <label className="text-xs font-medium text-slate-600">Style No *</label>
-            <div className="flex items-center gap-2">
-              <Input className="flex-1" value={styleNumber} onChange={(e) => setStyleNumber(e.target.value)} required />
-              <Button type="button" variant="outline" size="sm" onClick={() => setStyleNumber(nextStyleNo())}>
-                Regenerate
-              </Button>
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5 lg:col-span-2">
             <label className="text-xs font-medium text-slate-600">Sister Profile *</label>
-            <Select value={sisterProfile} onChange={(e) => setSisterProfile(e.target.value)} required>
-              <option value="">Select…</option>
-              {sisterProfilesQuery.data?.map((sp) => (
-                <option key={sp.id} value={sp.id}>
-                  {sp.buyerProfileName} — {sp.poReference}
-                </option>
-              ))}
-            </Select>
+            <SearchableSisterProfileSelect required options={sisterProfilesQuery.data ?? []} value={sisterProfile} onChange={(v) => setSisterProfile(v)} placeholder="Select…" />
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-slate-600">PO No</label>
@@ -436,15 +426,7 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
             <label className="text-xs font-medium text-slate-600">Brand Name</label>
             <Input value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="NA" />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-slate-600">Material</label>
-            <Input
-              value={material}
-              onChange={(e) => setMaterial(e.target.value)}
-              placeholder="e.g. 100% Cotton"
-              title="Goods composition - pre-fills the Material column on invoices generated from this product."
-            />
-          </div>
+
         </div>
 
 
@@ -511,13 +493,16 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow,
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
+              <th className="px-3 py-2 font-medium">Style No</th>
+              <th className="px-3 py-2 font-medium">CTN SL</th>
               <th className="px-3 py-2 font-medium">Color</th>
+              <th className="px-3 py-2 font-medium">Description</th>
+              <th className="px-3 py-2 font-medium">Material</th>
               <th className="px-3 py-2 font-medium">Pattern No</th>
               <th className="px-3 py-2 font-medium">Order Qty</th>
               <th className="px-3 py-2 font-medium">Color Image</th>
               <th className="px-3 py-2 font-medium">Size Breakdown (per carton)</th>
               <th className="px-3 py-2 font-medium">PC/CTN</th>
-              <th className="px-3 py-2 font-medium">Inner Bdl</th>
               <th className="px-3 py-2 font-medium">CTN From</th>
               <th className="px-3 py-2 font-medium">CTN To</th>
               <th className="px-3 py-2 font-medium">CTNS</th>
@@ -527,14 +512,15 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow,
               <th className="px-3 py-2 font-medium text-indigo-600">Unit Price ({sisterProfile?.buyerCurrency || "Buyer"})</th>
               <th className="px-3 py-2 font-medium text-indigo-600">Amount ({sisterProfile?.buyerCurrency || "Buyer"})</th>
               <th className="px-3 py-2 font-medium">G.W(kg)</th>
-              <th className="px-3 py-2 font-medium">N.W(kg)</th>
               <th className="px-3 py-2 font-medium">TTL G.W</th>
+              <th className="px-3 py-2 font-medium">N.W(kg)</th>
               <th className="px-3 py-2 font-medium">TTL N.W</th>
-              <th className="px-3 py-2 font-medium">L(in)</th>
-              <th className="px-3 py-2 font-medium">W(in)</th>
-              <th className="px-3 py-2 font-medium">H(in)</th>
+              <th className="px-3 py-2 font-medium">L(cm)</th>
+              <th className="px-3 py-2 font-medium">W(cm)</th>
+              <th className="px-3 py-2 font-medium">H(cm)</th>
               <th className="px-3 py-2 font-medium">CBM</th>
               <th className="px-3 py-2 font-medium">TTL CBM</th>
+              <th className="px-3 py-2 font-medium">Remarks</th>
               {columns.map((c) => (
                 <th key={c.id} className="px-3 py-2 font-medium text-indigo-600">{c.label}</th>
               ))}
@@ -547,10 +533,22 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow,
               return (
                 <tr key={row.tempId} className="border-b border-slate-100 last:border-0">
                   <td className="p-1.5">
+                    <Input className="h-9 w-28 text-sm" placeholder="Style No" value={row.variantStyleNo} onChange={(e) => updateVariant(i, { variantStyleNo: e.target.value })} />
+                  </td>
+                  <td className="p-1.5">
+                    <Input className="h-9 w-24 text-sm" placeholder="CTN SL" value={row.ctnSl} onChange={(e) => updateVariant(i, { ctnSl: e.target.value })} />
+                  </td>
+                  <td className="p-1.5">
                     <Input
                       className="h-9 w-32 text-sm" placeholder="Color name"
                       value={row.colorName} onChange={(e) => updateVariant(i, { colorName: e.target.value })}
                     />
+                  </td>
+                  <td className="p-1.5">
+                    <Input className="h-9 w-36 text-sm" placeholder="Description" value={row.description} onChange={(e) => updateVariant(i, { description: e.target.value })} />
+                  </td>
+                  <td className="p-1.5">
+                    <Input className="h-9 w-36 text-sm" placeholder="e.g. 100% Cotton" value={row.material} onChange={(e) => updateVariant(i, { material: e.target.value })} />
                   </td>
                   <td className="p-1.5">
                     <Input className="h-9 w-28 text-sm" value={row.patternNo} onChange={(e) => updateVariant(i, { patternNo: e.target.value })} />
@@ -590,9 +588,6 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow,
                   </td>
                   <td className="p-1.5 text-center text-sm font-medium text-slate-600">{d.pcsPerCarton}</td>
                   <td className="p-1.5">
-                    <Input className="h-9 w-20 text-sm" type="number" min={1} value={row.innerBundle} onChange={(e) => updateVariant(i, { innerBundle: Number(e.target.value) || 1 })} />
-                  </td>
-                  <td className="p-1.5">
                     <Input className="h-9 w-20 text-sm" type="number" min={1} value={row.cartonNoFrom ?? ""} onChange={(e) => updateVariant(i, { cartonNoFrom: e.target.value ? Number(e.target.value) : null })} />
                   </td>
                   <td className="p-1.5">
@@ -625,10 +620,10 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow,
                   <td className="p-1.5">
                     <Input className="h-9 w-20 text-sm" type="number" step="0.01" min={0} max={999999} value={row.grossWeight ?? ""} onChange={(e) => updateVariant(i, { grossWeight: e.target.value ? Number(e.target.value) : null })} />
                   </td>
+                  <td className="p-1.5 text-center text-sm font-medium text-slate-600">{d.totalGrossWeight.toFixed(2)}</td>
                   <td className="p-1.5">
                     <Input className="h-9 w-20 text-sm" type="number" step="0.01" min={0} max={999999} value={row.netWeight ?? ""} onChange={(e) => updateVariant(i, { netWeight: e.target.value ? Number(e.target.value) : null })} />
                   </td>
-                  <td className="p-1.5 text-center text-sm font-medium text-slate-600">{d.totalGrossWeight.toFixed(2)}</td>
                   <td className="p-1.5 text-center text-sm font-medium text-slate-600">{d.totalNetWeight.toFixed(2)}</td>
                   <td className="p-1.5">
                     <Input className="h-9 w-16 text-sm" type="number" step="0.01" min={0} max={999999} value={row.ctnLength ?? ""} onChange={(e) => updateVariant(i, { ctnLength: e.target.value ? Number(e.target.value) : null })} />
@@ -641,6 +636,9 @@ function VariantRowsEditor({ variants, columns, onChange, onAddColumn, onAddRow,
                   </td>
                   <td className="p-1.5 text-center text-sm font-medium text-slate-600">{d.cbm.toFixed(4)}</td>
                   <td className="p-1.5 text-center text-sm font-medium text-slate-600">{d.totalCbm.toFixed(4)}</td>
+                  <td className="p-1.5">
+                    <Input className="h-9 w-36 text-sm" placeholder="Remarks" value={row.remarks} onChange={(e) => updateVariant(i, { remarks: e.target.value })} />
+                  </td>
                   {columns.map((c) => (
                     <td key={c.id} className="p-1">
                       <ColumnCellInput
@@ -742,7 +740,11 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+                  <th className="px-3 py-2 font-medium">Style No</th>
+                  <th className="px-3 py-2 font-medium">CTN SL</th>
                   <th className="px-3 py-2 font-medium">Color</th>
+                  <th className="px-3 py-2 font-medium">Description</th>
+                  <th className="px-3 py-2 font-medium">Material</th>
                   <th className="px-3 py-2 font-medium">Pattern No</th>
                   <th className="px-3 py-2 font-medium">Order Qty</th>
                   <th className="px-3 py-2 font-medium">Size Breakdown</th>
@@ -754,22 +756,28 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
                   <th className="px-3 py-2 font-medium">TTL G.W</th>
                   <th className="px-3 py-2 font-medium">TTL N.W</th>
                   <th className="px-3 py-2 font-medium">CBM</th>
+                  <th className="px-3 py-2 font-medium">Remarks</th>
                   {columns.map((c) => (
                     <th key={c.id} className="px-3 py-2 font-medium text-indigo-500">{c.label}</th>
                   ))}
+                  <th className="px-3 py-2 font-medium">Barcode / QR</th>
                 </tr>
               </thead>
               <tbody>
                 {product.variants.length === 0 ? (
                   <tr>
-                    <td colSpan={12 + columns.length} className="px-3 py-6 text-center text-sm text-slate-400">
+                    <td colSpan={18 + columns.length} className="px-3 py-6 text-center text-sm text-slate-400">
                       No color rows recorded.
                     </td>
                   </tr>
                 ) : (
                   product.variants.map((v) => (
                     <tr key={v.id} className="border-b border-slate-100 last:border-0">
+                      <td className="px-3 py-2 text-slate-500">{v.variantStyleNo || "—"}</td>
+                      <td className="px-3 py-2 text-slate-500">{v.ctnSl || "—"}</td>
                       <td className="px-3 py-2 font-medium text-slate-900">{v.colorName || "—"}</td>
+                      <td className="px-3 py-2 text-slate-500">{v.description || "—"}</td>
+                      <td className="px-3 py-2 text-slate-500">{v.material || "—"}</td>
                       <td className="px-3 py-2 text-slate-500">{v.patternNo || "—"}</td>
                       <td className="px-3 py-2 text-slate-500">{v.orderQty}</td>
                       <td className="px-3 py-2 text-slate-500">
@@ -785,9 +793,11 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
                       <td className="px-3 py-2 text-slate-500">{Number(v.totalGrossWeight).toFixed(2)}</td>
                       <td className="px-3 py-2 text-slate-500">{Number(v.totalNetWeight).toFixed(2)}</td>
                       <td className="px-3 py-2 text-slate-500">{Number(v.totalCbm).toFixed(4)}</td>
+                      <td className="px-3 py-2 text-slate-500">{v.remarks || "—"}</td>
                       {columns.map((c) => (
                         <td key={c.id} className="px-3 py-2 text-slate-500">{getCellValue(v.customFieldValues, c) || "—"}</td>
                       ))}
+                      <VariantCodeCell product={product} variant={v} templateColumns={columns} />
                     </tr>
                   ))
                 )}
@@ -890,7 +900,6 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
     name: product.name,
     brandName: product.brandName,
     poNo: product.poNo,
-    material: product.material,
   })
   const [columns, setColumns] = useState<ProductTemplateFieldEntry[]>(product.resolvedTemplateFields)
   const [variants, setVariants] = useState<VariantRowDraft[]>(
@@ -913,6 +922,7 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
         }))
       const { data } = await api.patch<Product>(`/products/${product.id}/`, {
         ...form,
+        material: cleanVariants[0]?.material || product.material || "",
         resolvedTemplateFields: columns,
         variants: cleanVariants,
       })
@@ -956,14 +966,7 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
           </div>
           <div className="flex flex-col gap-1.5 lg:col-span-2">
             <label className="text-xs font-medium text-slate-600">Sister Profile *</label>
-            <Select value={form.sisterProfile} onChange={(e) => setForm({ ...form, sisterProfile: e.target.value })} required>
-              <option value="">Select…</option>
-              {sisterProfilesQuery.data?.map((sp) => (
-                <option key={sp.id} value={sp.id}>
-                  {sp.buyerProfileName} — {sp.poReference}
-                </option>
-              ))}
-            </Select>
+            <SearchableSisterProfileSelect required options={sisterProfilesQuery.data ?? []} value={form.sisterProfile} onChange={(v) => setForm({ ...form, sisterProfile: v })} placeholder="Select…" />
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-slate-600">PO No</label>
@@ -977,10 +980,7 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
             <label className="text-xs font-medium text-slate-600">Brand Name</label>
             <Input value={form.brandName} onChange={(e) => setForm({ ...form, brandName: e.target.value })} placeholder="NA" />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-slate-600">Material</label>
-            <Input value={form.material} onChange={(e) => setForm({ ...form, material: e.target.value })} placeholder="e.g. 100% Cotton" />
-          </div>
+
         </div>
 
         {product.templateName && (

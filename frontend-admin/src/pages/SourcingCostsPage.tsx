@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, Plus, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { SearchableSisterProfileSelect } from "@/components/SearchableSisterProfileSelect"
 import { api } from "@/lib/api"
 import { extractErrorMessage } from "@/lib/errors"
 import { COST_STATUS_BADGE_VARIANT, COST_STATUS_LABEL } from "@/lib/status"
@@ -24,6 +25,7 @@ export function SourcingCostsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
+  const [viewTarget, setViewTarget] = useState<SourcingCost | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<SourcingCost | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -73,7 +75,7 @@ export function SourcingCostsPage() {
                 <td className="px-4 py-2.5"><Badge variant={COST_STATUS_BADGE_VARIANT[t.status]}>{COST_STATUS_LABEL[t.status]}</Badge></td>
                 <td className="px-4 py-2.5 text-slate-500">{new Date(t.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-2.5"><div className="flex justify-end gap-1">
-                  <Button size="sm" variant="ghost" title="View" onClick={(e) => { e.stopPropagation(); navigate(`/sourcing-costs/${t.id}`) }}><Eye className="h-3.5 w-3.5" /></Button>
+                  <Button size="sm" variant="ghost" title="View" onClick={(e) => { e.stopPropagation(); setViewTarget(t) }}><Eye className="h-3.5 w-3.5" /></Button>
                   {canManage && t.status === "open" && (<Button size="sm" variant="ghost" title="Delete" onClick={(e) => { e.stopPropagation(); setDeleteTarget(t) }}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>)}
                 </div></td>
               </tr>
@@ -91,6 +93,61 @@ export function SourcingCostsPage() {
               <Button type="button" variant="outline" onClick={() => { setDeleteTarget(null); setDeleteError(null) }}>Cancel</Button>
               <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(deleteTarget.id)}>{deleteMutation.isPending ? "Deleting..." : "Delete"}</Button>
             </div>
+          </div>
+        </Dialog>
+      )}
+
+      {viewTarget && (
+        <Dialog open onClose={() => setViewTarget(null)} title={`Cost Breakdown — ${viewTarget.poReference}`}>
+          <div className="max-h-[70vh] overflow-y-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+                  <th className="px-3 py-2 font-medium">Product</th>
+                  <th className="px-3 py-2 font-medium">Location</th>
+                  <th className="px-3 py-2 font-medium">Qty</th>
+                  <th className="px-3 py-2 font-medium">Cost Field</th>
+                  <th className="px-3 py-2 font-medium text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {viewTarget.items.map((item) => {
+                  const costFields = item.customCostFields || []
+                  const itemSubtotal = costFields.reduce((s, cf) => s + (Number(cf.amount) || 0), 0)
+                  return (
+                    <Fragment key={item.id}>
+                      {costFields.map((cf, cfIdx) => (
+                        <tr key={cfIdx} className="border-b border-slate-100">
+                          {cfIdx === 0 ? (<>
+                            <td className="px-3 py-2 align-top" rowSpan={costFields.length + 1}>
+                              <div className="font-medium text-slate-900">{item.productName}</div>
+                              <div className="text-xs text-slate-400">{item.styleNumber} · {item.poNo} · {item.brandName}</div>
+                            </td>
+                            <td className="px-3 py-2 text-slate-500 align-top" rowSpan={costFields.length + 1}>{item.locationName}</td>
+                            <td className="px-3 py-2 text-slate-500 align-top" rowSpan={costFields.length + 1}>{item.quantity}</td>
+                          </>) : null}
+                          <td className="px-3 py-2 text-slate-600">{cf.name}</td>
+                          <td className="px-3 py-2 text-right font-medium text-slate-900">{Number(cf.amount).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                      {/* Item subtotal */}
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <td className="px-3 py-1.5 text-right text-xs font-semibold text-slate-500">Subtotal</td>
+                        <td className="px-3 py-1.5 text-right text-sm font-bold text-slate-900">{itemSubtotal.toLocaleString()}</td>
+                      </tr>
+                    </Fragment>
+                  )
+                })}
+                {/* Grand total */}
+                <tr className="border-t-2 border-slate-300 bg-indigo-50">
+                  <td colSpan={4} className="px-3 py-2 text-right text-sm font-bold text-indigo-700">Grand Total</td>
+                  <td className="px-3 py-2 text-right text-base font-bold text-indigo-700">{Number(viewTarget.totalAmount || 0).toLocaleString()}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end pt-3">
+            <Button variant="outline" onClick={() => setViewTarget(null)}>Close</Button>
           </div>
         </Dialog>
       )}
@@ -117,7 +174,7 @@ function CreateCostDialog({ onClose }: { onClose: () => void }) {
 
   const productsQuery = useQuery({
     queryKey: ["products", "by-sister", sisterProfile],
-    queryFn: async () => { const { data } = await api.get<Paginated<Product>>("/products/", { params: { sister_profile: sisterProfile, page_size: 500 } }); return data.results },
+    queryFn: async () => { const { data } = await api.get<Paginated<Product>>("/products/", { params: { sisterProfile: sisterProfile, page_size: 500 } }); return data.results },
     enabled: !!sisterProfile,
   })
 
@@ -142,10 +199,7 @@ function CreateCostDialog({ onClose }: { onClose: () => void }) {
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-medium text-slate-600">Sister Profile *</label>
-          <Select className="h-9" value={sisterProfile} onChange={(e) => setSisterProfile(e.target.value)}>
-            <option value="">Select sister profile...</option>
-            {(sisterProfilesQuery.data ?? []).map((sp) => (<option key={sp.id} value={sp.id}>{sp.buyerProfileName} — {sp.poReference}</option>))}
-          </Select>
+          <SearchableSisterProfileSelect className="h-9" options={sisterProfilesQuery.data ?? []} value={sisterProfile} onChange={(v) => setSisterProfile(v)} placeholder="Select sister profile..." />
         </div>
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between"><label className="text-xs font-medium text-slate-600">Items ({items.length})</label><Button type="button" variant="outline" size="sm" className="h-6 text-xs" onClick={() => setItems((rows) => [...rows, emptyItem()])}><Plus className="h-3 w-3" />Add Item</Button></div>
@@ -156,11 +210,11 @@ function CreateCostDialog({ onClose }: { onClose: () => void }) {
                 <option value="">Select product...</option>
                 {(productsQuery.data ?? []).map((p) => (<option key={p.id} value={p.id}>{productOptionLabel(p)}</option>))}
               </Select>
-              <div className="grid grid-cols-3 gap-2">
-                <Input className="h-8 text-sm" placeholder="Location *" value={item.locationName} onChange={(e) => updateItem(idx, { locationName: e.target.value })} />
-                <Input className="h-8 text-sm" type="number" min={0} placeholder="Qty" value={item.quantity} onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) })} />
-                <Input className="h-8 text-sm" type="datetime-local" value={item.date} onChange={(e) => updateItem(idx, { date: e.target.value })} />
+              <div className="grid grid-cols-2 gap-2">
+                <Input className="h-9 text-sm" placeholder="Location *" value={item.locationName} onChange={(e) => updateItem(idx, { locationName: e.target.value })} />
+                <Input className="h-9 text-sm" type="number" min={0} placeholder="Qty" value={item.quantity} onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) })} />
               </div>
+              <Input className="h-10 text-sm" type="datetime-local" value={item.date} onChange={(e) => updateItem(idx, { date: e.target.value })} />
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between"><span className="text-xs text-slate-500">Custom Costs</span><Button type="button" variant="outline" size="sm" className="h-5 px-1.5 text-[11px]" onClick={() => addCustomCost(idx)}><Plus className="h-2.5 w-2.5" />Add</Button></div>
                 {item.customCostFields.map((cf, cfIdx) => (

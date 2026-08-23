@@ -319,11 +319,22 @@ class ProductVariant(UUIDModel, TimeStampedModel):
     unitPrice = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     totalAmount = models.DecimalField(max_digits=14, decimal_places=2, default=0)  # computed: totalPcs * unitPrice
 
-    ctnLength = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # inches
-    ctnWidth = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # inches
-    ctnHeight = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # inches
+    # Carton dimensions entered at Sourcing Intake in centimetres.
+    # Stored as-is; CBM computed as L×W×H / 1,000,000 (cm³ → m³).
+    # When flowing to PackingCarton (which stores inches), the frontend
+    # converts cm → inches at the boundary (÷ 2.54).
+    ctnLength = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # cm
+    ctnWidth = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # cm
+    ctnHeight = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # cm
     cbm = models.DecimalField(max_digits=10, decimal_places=4, default=0)  # computed, single carton
     totalCbm = models.DecimalField(max_digits=10, decimal_places=4, default=0)  # computed
+
+    # Per-row intake fields (not shared across colors)
+    variantStyleNo = models.CharField(max_length=64, blank=True, default="")
+    ctnSl = models.CharField(max_length=64, blank=True, default="")
+    material = models.CharField(max_length=255, blank=True, default="")
+    description = models.TextField(blank=True, default="")
+    remarks = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["createdAt"]

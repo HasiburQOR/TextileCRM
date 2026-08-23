@@ -36,6 +36,12 @@ export interface ProductVariant {
   ctnHeight: number | null
   cbm: number
   totalCbm: number
+  // Per-row intake fields
+  variantStyleNo: string
+  ctnSl: string
+  material: string
+  description: string
+  remarks: string
 }
 
 export interface ProductImage {
@@ -104,11 +110,17 @@ export interface ProductVariantInput {
   ctnLength: number | null
   ctnWidth: number | null
   ctnHeight: number | null
+  // Per-row intake fields
+  variantStyleNo: string
+  ctnSl: string
+  material: string
+  description: string
+  remarks: string
 }
 
 export interface ProductCreateInput {
   sisterProfile: string
-  styleNumber: string
+  styleNumber?: string
   name: string
   brandName: string
   poNo: string

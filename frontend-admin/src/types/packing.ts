@@ -18,6 +18,7 @@ export interface PackingCarton {
   styleNumber: string; productName: string; productMaterial: string; packingListReferenceCode: string
   cartonNoFrom: number; cartonNoTo: number; noOfCartons: number
   colorName: string; patternNo: string; assortId: string
+  ctnSl: string; description: string; material: string; remarks: string
   sizeBreakdown: SizeBreakdownEntry[]
   customFieldValues: CustomFieldEntry[]
   totalPcsPerCarton: number; innerBundle: number
@@ -54,6 +55,7 @@ export interface CartonInput {
   // (Reference_Numbers_Identifier_System.md "Reference, Don't Copy").
   product: string; poNo: string; cartonNoFrom: number; cartonNoTo: number
   colorName: string; patternNo: string; assortId: string
+  ctnSl: string; description: string; material: string; remarks: string
   sizeBreakdown: SizeBreakdownEntry[]; customFieldValues: CustomFieldEntry[]
   innerBundle: number
   orderQty: number; unitPrice: number | null; grossWeight: number; netWeight: number

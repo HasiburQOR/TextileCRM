@@ -92,6 +92,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "unitPrice", "totalAmount",
             "grossWeight", "netWeight", "totalGrossWeight", "totalNetWeight",
             "ctnLength", "ctnWidth", "ctnHeight", "cbm", "totalCbm",
+            "variantStyleNo", "ctnSl", "material", "description", "remarks",
         ]
         read_only_fields = [
             "id", "pcsPerCarton", "noOfCartons", "totalPcs", "totalAmount",

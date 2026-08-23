@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react"
-import { useState, type Dispatch, type SetStateAction } from "react"
+import { Fragment, useState, type Dispatch, type SetStateAction } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -67,20 +67,45 @@ export function SourcingCostDetailPage() {
         {canManage && isOpen && (<><Button variant="outline" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" />Add Item</Button><Button onClick={() => setCloseConfirmOpen(true)} disabled={closeMutation.isPending}>{closeMutation.isPending ? "Closing..." : "Close Cost"}</Button></>)}
       </div>
       {actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
-      <Card><CardHeader><CardTitle>Items ({cost.items.length})</CardTitle></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead>
-        <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400"><th className="px-4 py-2 font-medium">Product</th><th className="px-4 py-2 font-medium">Location</th><th className="px-4 py-2 font-medium">Qty</th><th className="px-4 py-2 font-medium">Custom Costs</th><th className="px-4 py-2 font-medium">Total</th><th className="px-4 py-2 font-medium">Date</th>{canManage && isOpen && <th className="px-4 py-2 font-medium" />}</tr>
+      <Card><CardHeader><CardTitle>Cost Breakdown ({cost.items.length} {cost.items.length === 1 ? "item" : "items"})</CardTitle></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead>
+        <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400"><th className="px-4 py-2 font-medium">Product</th><th className="px-4 py-2 font-medium">Location</th><th className="px-4 py-2 font-medium">Qty</th><th className="px-4 py-2 font-medium">Cost Field</th><th className="px-4 py-2 font-medium text-right">Amount</th><th className="px-4 py-2 font-medium">Date</th>{canManage && isOpen && <th className="px-4 py-2 font-medium" />}</tr>
       </thead><tbody>
-        {cost.items.map((item) => (
-          <tr key={item.id} className="border-b border-slate-100 last:border-0">
-            <td className="px-4 py-2"><div className="font-medium text-slate-900">{item.productName}</div><div className="text-xs text-slate-400">{item.styleNumber} · {item.poNo} · {item.brandName}</div></td>
-            <td className="px-4 py-2 text-slate-500">{item.locationName}</td>
-            <td className="px-4 py-2 text-slate-500">{item.quantity}</td>
-            <td className="px-4 py-2"><div className="flex flex-wrap gap-1">{(item.customCostFields || []).map((cf, i) => (<Badge key={i} variant="info" className="text-xs">{cf.name}: {Number(cf.amount).toLocaleString()}</Badge>))}</div></td>
-            <td className="px-4 py-2 font-medium text-slate-900">{Number(item.totalAmount || 0).toLocaleString()}</td>
-            <td className="px-4 py-2 text-slate-500">{new Date(item.date).toLocaleDateString()}</td>
-            {canManage && isOpen && (<td className="px-4 py-2"><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" title="Edit item" onClick={() => setEditTarget(item)}><Pencil className="h-3.5 w-3.5" /></Button><Button size="sm" variant="ghost" title="Delete item" onClick={() => setDeleteTarget(item)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button></div></td>)}
-          </tr>
-        ))}
+        {cost.items.map((item) => {
+          const costFields = item.customCostFields || []
+          const itemSubtotal = costFields.reduce((s, cf) => s + (Number(cf.amount) || 0), 0)
+          return (
+            <Fragment key={item.id}>
+              {costFields.map((cf, cfIdx) => (
+                <tr key={cfIdx} className="border-b border-slate-100">
+                  {cfIdx === 0 ? (<>
+                    <td className="px-4 py-2 align-top" rowSpan={costFields.length + 1}>
+                      <div className="font-medium text-slate-900">{item.productName}</div>
+                      <div className="text-xs text-slate-400">{item.styleNumber} · {item.poNo} · {item.brandName}</div>
+                    </td>
+                    <td className="px-4 py-2 text-slate-500 align-top" rowSpan={costFields.length + 1}>{item.locationName}</td>
+                    <td className="px-4 py-2 text-slate-500 align-top" rowSpan={costFields.length + 1}>{item.quantity}</td>
+                  </>) : null}
+                  <td className="px-4 py-2 text-slate-600">{cf.name}</td>
+                  <td className="px-4 py-2 text-right font-medium text-slate-900">{Number(cf.amount).toLocaleString()}</td>
+                  {cfIdx === 0 ? (<td className="px-4 py-2 text-slate-500 align-top" rowSpan={costFields.length + 1}>{new Date(item.date).toLocaleDateString()}</td>) : null}
+                  {cfIdx === 0 && canManage && isOpen ? (<td className="px-4 py-2 align-top" rowSpan={costFields.length + 1}><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" title="Edit item" onClick={() => setEditTarget(item)}><Pencil className="h-3.5 w-3.5" /></Button><Button size="sm" variant="ghost" title="Delete item" onClick={() => setDeleteTarget(item)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button></div></td>) : null}
+                </tr>
+              ))}
+              {/* Item subtotal row */}
+              <tr className="border-b border-slate-200 bg-slate-50">
+                <td className="px-4 py-1.5 text-right text-xs font-semibold text-slate-500">Subtotal</td>
+                <td className="px-4 py-1.5 text-right text-sm font-bold text-slate-900">{itemSubtotal.toLocaleString()}</td>
+                {canManage && isOpen && <td />}
+              </tr>
+            </Fragment>
+          )
+        })}
+        {/* Grand total row */}
+        <tr className="border-t-2 border-slate-300 bg-indigo-50">
+          <td colSpan={5} className="px-4 py-2 text-right text-sm font-bold text-indigo-700">Grand Total</td>
+          <td className="px-4 py-2 text-right text-base font-bold text-indigo-700">{totalAmount.toLocaleString()}</td>
+          {canManage && isOpen && <td />}
+        </tr>
       </tbody></table></div></CardContent></Card>
 
       {deleteTarget && (<Dialog open onClose={() => { setDeleteTarget(null); setActionError(null) }} title="Delete Item"><div className="flex flex-col gap-3">{actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}<p className="text-sm text-slate-600">Delete <strong>{deleteTarget.productName}</strong> at {deleteTarget.locationName}? The wallet will be refunded.</p><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setDeleteTarget(null); setActionError(null) }}>Cancel</Button><Button variant="destructive" disabled={deleteItemMutation.isPending} onClick={() => deleteItemMutation.mutate(deleteTarget.id)}>{deleteItemMutation.isPending ? "Deleting..." : "Delete"}</Button></div></div></Dialog>)}
@@ -117,11 +142,11 @@ function ItemFormFields({ form, setForm, products }: { form: SourcingCostItemInp
   return (
     <>
       <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-slate-600">Product *</label><Select className="h-9" value={form.product} onChange={(e) => setForm((f) => ({ ...f, product: e.target.value }))}><option value="">Select product...</option>{(products ?? []).map((p) => (<option key={p.id} value={p.id}>{productOptionLabel(p)}</option>))}</Select></div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-slate-600">Location *</label><Input value={form.locationName} onChange={(e) => setForm((f) => ({ ...f, locationName: e.target.value }))} required /></div>
         <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-slate-600">Quantity</label><Input type="number" min={0} value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))} /></div>
-        <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-slate-600">Date</label><Input type="datetime-local" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
       </div>
+      <div className="flex flex-col gap-1.5"><label className="text-xs font-medium text-slate-600">Date</label><Input className="h-10" type="datetime-local" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between"><label className="text-xs font-medium text-slate-600">Custom Cost Fields</label><Button type="button" variant="outline" size="sm" className="h-6 text-xs" onClick={addCustomCost}><Plus className="h-3 w-3" />Add Cost</Button></div>
         <div className="overflow-x-auto rounded border border-slate-200"><table className="w-full text-left text-xs"><thead><tr className="border-b border-slate-200 bg-slate-50 text-slate-500"><th className="px-2 py-1.5 font-medium">Name</th><th className="px-2 py-1.5 font-medium">Amount</th><th className="w-8" /></tr></thead><tbody>

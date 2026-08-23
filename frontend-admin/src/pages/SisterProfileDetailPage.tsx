@@ -144,7 +144,7 @@ export function SisterProfileDetailPage() {
         </Button>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold text-slate-900">{profile.poReference || profile.id}</h1>
+            <h1 className="text-xl font-semibold text-slate-900">{profile.poReference || profile.referenceCode}</h1>
             <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{profile.referenceCode}</code>
             <Badge variant={profile.status === "active" ? "info" : profile.status === "completed" ? "success" : "danger"}>
               {profile.status}

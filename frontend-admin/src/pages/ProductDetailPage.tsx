@@ -1,3 +1,5 @@
+import { VariantCodeCell } from "@/components/VariantCodeCell"
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Check, FileImage, ImagePlus, Pencil, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
@@ -198,7 +200,11 @@ export function ProductDetailPage() {
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+                    <th className="px-4 py-2 font-medium">Style No</th>
+                    <th className="px-4 py-2 font-medium">CTN SL</th>
                     <th className="px-4 py-2 font-medium">Color</th>
+                    <th className="px-4 py-2 font-medium">Description</th>
+                    <th className="px-4 py-2 font-medium">Material</th>
                     <th className="px-4 py-2 font-medium">Pattern No</th>
                     <th className="px-4 py-2 font-medium">Order Qty</th>
                     <th className="px-4 py-2 font-medium">Size Breakdown</th>
@@ -208,19 +214,25 @@ export function ProductDetailPage() {
                     <th className="px-4 py-2 font-medium">TTL G.W</th>
                     <th className="px-4 py-2 font-medium">TTL N.W</th>
                     <th className="px-4 py-2 font-medium">CBM</th>
+                    <th className="px-4 py-2 font-medium">Remarks</th>
+                    <th className="px-4 py-2 font-medium">Barcode / QR</th>
                   </tr>
                 </thead>
                 <tbody>
                   {product.variants.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-6 text-center text-sm text-slate-400">
+                      <td colSpan={16} className="px-4 py-6 text-center text-sm text-slate-400">
                         No color rows recorded.
                       </td>
                     </tr>
                   ) : (
                     product.variants.map((v) => (
                       <tr key={v.id} className="border-b border-slate-100 last:border-0">
+                        <td className="px-4 py-2 text-slate-500">{v.variantStyleNo || "—"}</td>
+                        <td className="px-4 py-2 text-slate-500">{v.ctnSl || "—"}</td>
                         <td className="px-4 py-2 font-medium text-slate-900">{v.colorName || "—"}</td>
+                        <td className="px-4 py-2 text-slate-500">{v.description || "—"}</td>
+                        <td className="px-4 py-2 text-slate-500">{v.material || "—"}</td>
                         <td className="px-4 py-2 text-slate-500">{v.patternNo || "—"}</td>
                         <td className="px-4 py-2 text-slate-500">{v.orderQty}</td>
                         <td className="px-4 py-2 text-slate-500">
@@ -234,6 +246,8 @@ export function ProductDetailPage() {
                         <td className="px-4 py-2 text-slate-500">{Number(v.totalGrossWeight).toFixed(2)}</td>
                         <td className="px-4 py-2 text-slate-500">{Number(v.totalNetWeight).toFixed(2)}</td>
                         <td className="px-4 py-2 text-slate-500">{Number(v.totalCbm).toFixed(4)}</td>
+                        <td className="px-4 py-2 text-slate-500">{v.remarks || "—"}</td>
+                        <VariantCodeCell product={product} variant={v} templateColumns={[]} />
                       </tr>
                     ))
                   )}

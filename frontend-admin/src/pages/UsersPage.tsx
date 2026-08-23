@@ -8,6 +8,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { SearchableBuyerSelect } from "@/components/SearchableBuyerSelect"
 import { api } from "@/lib/api"
 import type { Role } from "@/lib/auth-store"
 import { extractErrorMessage } from "@/lib/errors"
@@ -171,10 +172,7 @@ function UserFormDialog({ existing, onClose, onSuccess }: {
         {role === "buyer" && (
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">Buyer Profile *</label>
-            <Select required value={buyerProfile} onChange={(e) => setBuyerProfile(e.target.value)}>
-              <option value="">Select buyer...</option>
-              {buyersQuery.data?.map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
-            </Select>
+            <SearchableBuyerSelect required options={buyersQuery.data ?? []} value={buyerProfile} onChange={(v) => setBuyerProfile(v)} placeholder="Select buyer..." />
           </div>
         )}
         {isEdit && (

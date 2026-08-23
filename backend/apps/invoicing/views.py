@@ -90,6 +90,7 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         from apps.buyers.models import SisterProfile
         from apps.packing.models import PackingCarton
+        from apps.sourcing.models import SourcingCost
         from apps.warehouse.models import WarehouseCost
 
         data = request.data
@@ -106,6 +107,8 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
                 row["packingCarton"] = PackingCarton.objects.filter(pk=row["packingCarton"]).first()
             if row.get("warehouseCost"):
                 row["warehouseCost"] = WarehouseCost.objects.filter(pk=row["warehouseCost"]).first()
+            if row.get("sourcingCost"):
+                row["sourcingCost"] = SourcingCost.objects.filter(pk=row["sourcingCost"]).first()
             line_items.append(row)
 
         try:

@@ -103,7 +103,7 @@ export function BuyerOrderDetailPage() {
         </Button>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold text-slate-900">{order.poReference || order.id}</h1>
+            <h1 className="text-xl font-semibold text-slate-900">{order.poReference || order.referenceCode}</h1>
             <Badge variant={order.status === "active" ? "info" : order.status === "completed" ? "success" : "danger"}>{order.status}</Badge>
           </div>
           <p className="text-sm text-slate-500">Agreement Type {order.agreementType} · Ordered {new Date(order.createdAt).toLocaleDateString()}</p>
@@ -244,19 +244,19 @@ export function BuyerOrderDetailPage() {
             {packingQuery.data?.map((pl) => (
               <Card key={pl.id}>
                 <CardHeader className="flex-row items-center justify-between">
-                  <CardTitle>{pl.poNo || pl.id} — {pl.brandName || "—"}</CardTitle>
+                  <CardTitle>{pl.poNo || pl.referenceCode} — {pl.brandName || "—"}</CardTitle>
                   <div className="inline-flex gap-1">
                     <Button
                       size="sm" variant="outline"
                       disabled={exportingKey === `packing-list:${pl.id}:pdf`}
-                      onClick={() => handleExport("packing-list", pl.id, "pdf", `${pl.poNo || pl.id}.pdf`)}
+                      onClick={() => handleExport("packing-list", pl.id, "pdf", `${pl.poNo || pl.referenceCode}.pdf`)}
                     >
                       <Download className="h-3 w-3" /> PDF
                     </Button>
                     <Button
                       size="sm" variant="outline"
                       disabled={exportingKey === `packing-list:${pl.id}:xlsx`}
-                      onClick={() => handleExport("packing-list", pl.id, "xlsx", `${pl.poNo || pl.id}.xlsx`)}
+                      onClick={() => handleExport("packing-list", pl.id, "xlsx", `${pl.poNo || pl.referenceCode}.xlsx`)}
                     >
                       <FileSpreadsheet className="h-3 w-3" /> Excel
                     </Button>

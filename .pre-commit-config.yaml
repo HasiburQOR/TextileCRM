@@ -1,0 +1,23 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pytest-fast
+        name: pytest (unit only, fast feedback)
+        entry: pytest -m unit -q
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: pytest-tenant-isolation
+        name: pytest (tenant isolation — non-negotiable)
+        entry: pytest -m tenant -q
+        language: system
+        pass_filenames: false
+        always_run: true

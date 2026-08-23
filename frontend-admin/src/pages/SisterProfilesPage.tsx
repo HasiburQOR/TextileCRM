@@ -9,6 +9,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { SearchableBuyerSelect } from "@/components/SearchableBuyerSelect"
 import { api } from "@/lib/api"
 import { extractErrorMessage } from "@/lib/errors"
 import type { Paginated } from "@/types/api"
@@ -122,7 +123,7 @@ export function SisterProfilesPage() {
                 {filtered.map((sp) => (
                   <tr key={sp.id} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/sister-profiles/${sp.id}`)}>
                     <td className="px-4 py-3"><code className="text-xs text-slate-500">{sp.referenceCode}</code></td>
-                    <td className="px-4 py-3 font-medium text-slate-900">{sp.poReference || sp.id}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{sp.poReference || sp.referenceCode}</td>
                     <td className="px-4 py-3 text-slate-500">{sp.buyerProfileName}</td>
                     <td className="px-4 py-3 text-slate-500" title={AGREEMENTS[sp.agreementType]?.title}>
                       {AGREEMENTS[sp.agreementType]?.short ?? `Type ${sp.agreementType}`}
@@ -198,10 +199,7 @@ function CreateSisterProfileDialog({ initialBuyer, onClose, onSubmit, loading, e
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Buyer *</label>
-          <Select required value={buyerProfile} onChange={(e) => setBuyerProfile(e.target.value)}>
-            <option value="">Select buyer...</option>
-            {buyersQuery.data?.map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
-          </Select>
+          <SearchableBuyerSelect required options={buyersQuery.data ?? []} value={buyerProfile} onChange={(v) => setBuyerProfile(v)} placeholder="Select buyer..." />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">PO Reference</label>

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Lightbox, type LightboxImage } from "@/components/ui/lightbox"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { SearchableSisterProfileSelect } from "@/components/SearchableSisterProfileSelect"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { convertToBuyerCurrency } from "@/lib/currency"
@@ -21,6 +22,7 @@ import type { PackingCarton, PackingList } from "@/types/packing"
 import type { CostBreakdown, SisterProfile } from "@/types/buyers"
 import { AGREEMENTS } from "@/types/buyers"
 import type { Product } from "@/types/sourcing"
+import type { SourcingCost } from "@/types/sourcing"
 import type { WarehouseCost } from "@/types/warehouse"
 
 const STATUS_BADGE: Record<InvoiceStatus, "warning" | "success" | "danger" | "default"> = {
@@ -197,7 +199,9 @@ function cartonToLine(carton: PackingCarton, packingList?: PackingList): LineDra
     cbm: Number(carton.totalCbm ?? 0),
     // Captured at Sourcing Intake (Product.material) - a starting point the
     // invoice editor can still override per line.
-    material: carton.productMaterial ?? "",
+    // Per-carton material (from Sourcing Intake variant) preferred;
+    // falls back to Product-level material for older packing lists.
+    material: carton.material || carton.productMaterial || "",
     styleItemCode: carton.styleNumber,
     packingListRef: carton.packingListReferenceCode,
     remarks: "",
@@ -263,10 +267,46 @@ function warehouseCostToLine(wc: WarehouseCost): LineDraft {
   }
 }
 
+function sourcingCostToLine(sc: SourcingCost): LineDraft {
+  // Same "cost as a single line" pattern as warehouseCostToLine.
+  // A sourcing cost's totalAmount is a string from the API.
+  const total = Number(sc.totalAmount)
+  return {
+    tempId: crypto.randomUUID(),
+    sourcingCost: sc.id,
+    product: null,
+    description: `Sourcing Cost — ${sc.poReference || ""}`,
+    brand: "",
+    ctn: 0,
+    qtyPerCtn: 0,
+    totalQty: 0,
+    unitPrice: total,
+    amount: total,
+    netWeight: 0,
+    grossWeight: 0,
+    cbm: 0,
+    material: "",
+    styleItemCode: "",
+    packingListRef: "",
+    remarks: "",
+    colorSizeNote: "",
+    markRef: "",
+    hsCode: "",
+    netWeightPerCtn: 0,
+    grossWeightPerCtn: 0,
+    cbmPerCtn: 0,
+    ctnLengthCm: 0,
+    ctnWidthCm: 0,
+    ctnHeightCm: 0,
+    dimensionsInCm: true,
+  }
+}
+
 function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: (id: string) => void }) {
   const [sisterProfile, setSisterProfile] = useState("")
   const [selectedLists, setSelectedLists] = useState<Set<string>>(new Set())
   const [selectedWarehouseCosts, setSelectedWarehouseCosts] = useState<Set<string>>(new Set())
+  const [selectedSourcingCosts, setSelectedSourcingCosts] = useState<Set<string>>(new Set())
   const [lines, setLines] = useState<LineDraft[]>([])
   // The agreement type decides HOW this rate applies (percentage of the line
   // value, per piece, or percentage of the reimbursed costs); the operator
@@ -301,6 +341,15 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
       return data.results
     },
     enabled: !!sisterProfile,
+  })
+  const sourcingCostsQuery = useQuery({
+    queryKey: ["sourcing-costs", "all"],
+    queryFn: async () => {
+      const { data } = await api.get<Paginated<SourcingCost>>("/sourcing-costs/", { params: { page_size: 200 } })
+      return data.results
+    },
+    enabled: !!sisterProfile,
+    select: (all) => all.filter((sc) => sc.sisterProfile === sisterProfile),
   })
   const breakdownQuery = useQuery({
     queryKey: ["sister-profiles", sisterProfile, "cost-breakdown"],
@@ -361,6 +410,20 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
       } else {
         next.add(wc.id)
         setLines((ls) => [...ls, warehouseCostToLine(wc)])
+      }
+      return next
+    })
+  }
+
+  function toggleSourcingCost(sc: SourcingCost) {
+    setSelectedSourcingCosts((prev) => {
+      const next = new Set(prev)
+      if (next.has(sc.id)) {
+        next.delete(sc.id)
+        setLines((ls) => ls.filter((l) => l.sourcingCost !== sc.id))
+      } else {
+        next.add(sc.id)
+        setLines((ls) => [...ls, sourcingCostToLine(sc)])
       }
       return next
     })
@@ -439,7 +502,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
     e.preventDefault()
     if (!sisterProfile) { setError("Select a Sister Profile."); return }
     if (lines.length === 0 && !pullExpenses) {
-      setError("Select at least one Packing List or Warehouse Cost to pull line items from.")
+      setError("Select at least one Packing List, Warehouse Cost, or Sourcing Cost to pull line items from.")
       return
     }
     if (!(Number(commissionRate) > 0)) {
@@ -457,13 +520,13 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
 
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile *</label>
-          <Select
-            required value={sisterProfile}
-            onChange={(e) => { setSisterProfile(e.target.value); setSelectedLists(new Set()); setSelectedWarehouseCosts(new Set()); setLines([]) }}
-          >
-            <option value="">Select...</option>
-            {profilesQuery.data?.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id} — {sp.buyerProfileName}</option>))}
-          </Select>
+          <SearchableSisterProfileSelect
+            required
+            options={profilesQuery.data ?? []}
+            value={sisterProfile}
+            onChange={(v) => { setSisterProfile(v); setSelectedLists(new Set()); setSelectedWarehouseCosts(new Set()); setSelectedSourcingCosts(new Set()); setLines([]) }}
+            placeholder="Select..."
+          />
         </div>
 
         {/* ── Buyer Details (printed top-left, after company banner) ─── */}
@@ -560,6 +623,27 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
                       <span className="text-xs text-slate-400">(no packing list)</span>
                     )}
                     {" "}Total {Number(wc.totalCost).toLocaleString()}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {sisterProfile && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Sourcing Costs (optional)</label>
+            {sourcingCostsQuery.isLoading ? (
+              <p className="text-xs text-slate-400">Loading...</p>
+            ) : !sourcingCostsQuery.data?.length ? (
+              <p className="text-xs text-slate-400">No sourcing costs recorded yet for this Sister Profile.</p>
+            ) : (
+              <div className="flex flex-col gap-1.5 rounded-md border border-slate-200 p-2">
+                {sourcingCostsQuery.data.map((sc) => (
+                  <label key={sc.id} className="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" checked={selectedSourcingCosts.has(sc.id)} onChange={() => toggleSourcingCost(sc)} />
+                    <code className="text-xs text-indigo-600">{sc.poReference}</code>
+                    {" — "}{sc.items.length} item{sc.items.length !== 1 ? "s" : ""}{" "}Total {Number(sc.totalAmount).toLocaleString()}
                   </label>
                 ))}
               </div>

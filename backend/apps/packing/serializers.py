@@ -35,6 +35,7 @@ class PackingCartonSerializer(serializers.ModelSerializer):
             "id", "packingList", "product", "styleNo", "poNo", "styleNumber", "productName", "productMaterial",
             "packingListReferenceCode",
             "cartonNoFrom", "cartonNoTo", "noOfCartons", "colorName", "patternNo", "assortId",
+            "ctnSl", "description", "material", "remarks",
             "sizeBreakdown", "totalPcsPerCarton", "innerBundle", "customFieldValues",
             "orderQty", "shipQty", "shortExcessQty", "shortExcessPct",
             "unitPrice", "totalAmount",

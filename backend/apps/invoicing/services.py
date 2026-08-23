@@ -235,6 +235,7 @@ def create_invoice(
             product=li.get("product"),
             packingCarton=li.get("packingCarton"),
             warehouseCost=li.get("warehouseCost"),
+            sourcingCost=li.get("sourcingCost"),
             description=li.get("description", ""),
             brand=li.get("brand", ""),
             ctn=li.get("ctn") or 0,

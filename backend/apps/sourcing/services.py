@@ -81,11 +81,14 @@ def _round2(value: Decimal) -> Decimal:
 
 
 def compute_variant_derived(variant: ProductVariant) -> None:
-    """Mirrors apps.packing.services.compute_carton_derived — every color
-    row here carries the same packing-detail shape as a PackingCarton, so
-    the calc must match exactly (Module Documentation Pack §4)."""
-    from apps.packing.models import CUBIC_INCHES_PER_CBM
+    """Computes derived fields on a ProductVariant.
 
+    Dimensions (ctnLength/Width/Height) are entered at Sourcing Intake in
+    centimetres. CBM = L×W×H / 1,000,000 (cm³ → m³).
+
+    NOTE: PackingCarton still stores dimensions in inches. When the
+    frontend pre-fills a PackingCarton row from a ProductVariant, it
+    converts cm → inches at the boundary (÷ 2.54)."""
     variant.pcsPerCarton = sum_size_breakdown(variant.sizeBreakdown)
 
     if variant.cartonNoTo is not None and variant.cartonNoFrom is not None and variant.cartonNoTo >= variant.cartonNoFrom:
@@ -100,8 +103,9 @@ def compute_variant_derived(variant: ProductVariant) -> None:
     # is always TTL PCS x Unit Price, never a per-size price.
     variant.totalAmount = _round2(_dec(variant.unitPrice) * variant.totalPcs)
 
-    cubic_inches = _dec(variant.ctnLength) * _dec(variant.ctnWidth) * _dec(variant.ctnHeight)
-    per_carton_cbm = cubic_inches / Decimal(str(CUBIC_INCHES_PER_CBM)) if cubic_inches else Decimal("0")
+    # Dimensions entered in cm — CBM = cubic_cm / 1,000,000
+    cubic_cm = _dec(variant.ctnLength) * _dec(variant.ctnWidth) * _dec(variant.ctnHeight)
+    per_carton_cbm = cubic_cm / Decimal("1000000") if cubic_cm else Decimal("0")
     variant.cbm = _round4(per_carton_cbm)
     variant.totalCbm = _round4(per_carton_cbm * variant.noOfCartons)
 

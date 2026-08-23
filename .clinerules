@@ -1,0 +1,34 @@
+# Testing rules for this project (Textile Sourcing/CRM)
+
+When writing or modifying code that touches models, views, serializers,
+or services, follow these rules without being asked each time:
+
+1. Every new DRF viewset or queryset MUST filter by `tenant` explicitly.
+   Never rely on a default manager to do this silently. If you can't find
+   an existing tenant-scoping mixin, ask before inventing a new pattern.
+
+2. Any change to `apps/crm/services/invoicing.py` requires updating
+   `tests/unit/test_invoice_logic.py` in the SAME change. Add a new
+   parametrize case for any new AgreementType rather than a new test
+   function — keep the branches in one table.
+
+3. Any change to `apps/wallet/models.py` (BuyerWallet) requires a test
+   proving balance cannot go negative and that `select_for_update` is
+   still used in `deduct()`/`credit()`.
+
+4. Use factories from `tests/factories.py` for all test data. Do not
+   hand-construct model instances with `Model.objects.create(...)` in
+   test files — if a factory is missing a field you need, add it to the
+   factory, don't work around it inline.
+
+5. Mark every test with exactly one of: `unit`, `integration`, `tenant`,
+   `celery`. Untagged tests will be rejected in review.
+
+6. Do not write a test that only asserts the code does what the code
+   currently does. Write the assertion from the spec (BRD/SRS), then
+   check it fails before the implementation and passes after.
+
+7. After generating code, run:
+   `pytest -m unit -q` for fast feedback, then
+   `pytest -m "unit or tenant" -q` before considering the task done.
+   Do not report a task as complete without showing the test output.

@@ -43,6 +43,9 @@ CARTON_ROW_COLUMNS = [
     ("poNo", "PO No", True),
     ("colorName", "Color", False),
     ("patternNo", "Pattern No", False),
+    ("ctnSl", "CTN SL", False),
+    ("description", "Description", False),
+    ("material", "Material", False),
     ("cartonNoFrom", "CTN From", False),
     ("cartonNoTo", "CTN To", False),
     ("noOfCartons", "CTNS", False),
@@ -76,6 +79,9 @@ def _carton_row_values(c: PackingCarton) -> list:
         c.poNo or "—",
         c.colorName or "—",
         c.patternNo or "—",
+        c.ctnSl or "—",
+        c.description or "—",
+        c.material or "—",
         c.cartonNoFrom,
         c.cartonNoTo,
         c.noOfCartons,
@@ -239,12 +245,12 @@ def render_packing_list_pdf(pl: PackingList) -> bytes:
         # Format the decimal columns for display (raw model values are what
         # _carton_row_values returns, shared with the XLSX renderer which
         # wants numbers rather than pre-formatted strings).
-        row_values[12] = _num(row_values[12])
-        row_values[13] = _num(row_values[13])
-        row_values[14] = _num(row_values[14], 4)
+        row_values[15] = _num(row_values[15])
+        row_values[16] = _num(row_values[16])
+        row_values[17] = _num(row_values[17], 4)
         data.append([str(v) for v in row_values])
 
-    col_widths = [16, 22, 14, 20, 14, 10, 10, 8, 10, 10, 20, 8, 13, 13, 10]
+    col_widths = [16, 22, 14, 20, 14, 10, 20, 16, 10, 10, 8, 10, 10, 20, 8, 13, 13, 10]
     col_widths = [w * mm for w in col_widths]
     table_style_commands = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LINE_HEADER_FILL_HEX)),

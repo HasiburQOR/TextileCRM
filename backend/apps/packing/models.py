@@ -130,6 +130,14 @@ class PackingCarton(UUIDModel):
     patternNo = models.CharField(max_length=100, blank=True, default="")
     assortId = models.CharField(max_length=100, blank=True, default="")
 
+    # Per-variant intake fields carried from Sourcing Intake (ProductVariant)
+    # so each color row retains its own values, matching the Sourcing Intake
+    # grid layout and enabling correct field mapping on import.
+    ctnSl = models.CharField(max_length=64, blank=True, default="")
+    description = models.TextField(blank=True, default="")
+    material = models.CharField(max_length=255, blank=True, default="")
+    remarks = models.CharField(max_length=255, blank=True, default="")
+
     # "SIZE RANG" columns + "TOTAL PC/PER CTN" + "INNER Bundle"
     # Custom_Size_Breakdown_Feature.md: a per-color, free-form array — not a
     # fixed S/M/L/XL/XXL dict — e.g. [{"size_label": "S", "quantity": 1}, ...].

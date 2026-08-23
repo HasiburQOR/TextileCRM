@@ -24,6 +24,7 @@ export interface InvoiceLineItem {
   product: string | null
   packingCarton: string | null
   warehouseCost: string | null
+  sourcingCost: string | null
   description: string
   brand: string
   ctn: number
@@ -44,6 +45,7 @@ export interface InvoiceLineItemInput {
   product?: string | null
   packingCarton?: string | null
   warehouseCost?: string | null
+  sourcingCost?: string | null
   description: string
   brand: string
   ctn: number

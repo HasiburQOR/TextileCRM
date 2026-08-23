@@ -1,0 +1,10 @@
+pytest==8.3.3
+pytest-django==4.9.0
+pytest-cov==5.0.0
+pytest-xdist==3.6.1        # parallel test runs
+pytest-mock==3.14.0
+factory-boy==3.3.1
+Faker==28.4.1
+freezegun==1.5.1           # freeze time for wallet/invoice date logic
+responses==0.25.3          # mock outbound HTTP if you call external APIs
+django-test-migrations==1.4.0  # only if you want to test actual migrations later

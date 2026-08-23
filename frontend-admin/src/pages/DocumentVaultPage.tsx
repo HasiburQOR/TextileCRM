@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { SearchableSisterProfileSelect } from "@/components/SearchableSisterProfileSelect"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { extractErrorMessage } from "@/lib/errors"
@@ -69,10 +70,7 @@ export function DocumentVaultPage() {
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <Select className="w-56" value={sisterProfileFilter} onChange={(e) => setSisterProfileFilter(e.target.value)}>
-          <option value="">All Sister Profiles</option>
-          {profilesQuery.data?.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id}</option>))}
-        </Select>
+        <SearchableSisterProfileSelect className="w-56" options={profilesQuery.data ?? []} value={sisterProfileFilter} onChange={(v) => setSisterProfileFilter(v)} placeholder="All Sister Profiles" />
         <Select className="w-48" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as DocumentType | "")}>
           <option value="">All Types</option>
           {Object.entries(DOCUMENT_TYPE_LABEL).map(([v, l]) => (<option key={v} value={v}>{l}</option>))}
@@ -155,10 +153,7 @@ function UploadDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile *</label>
-          <Select required value={sisterProfile} onChange={(e) => setSisterProfile(e.target.value)}>
-            <option value="">Select...</option>
-            {profilesQuery.data?.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id} — {sp.buyerProfileName}</option>))}
-          </Select>
+          <SearchableSisterProfileSelect required options={profilesQuery.data ?? []} value={sisterProfile} onChange={(v) => setSisterProfile(v)} placeholder="Select..." />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Document Type *</label>

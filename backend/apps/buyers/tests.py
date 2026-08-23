@@ -311,21 +311,32 @@ class BuyerPortalDashboardTests(APITestCase):
         )
 
     def test_dashboard_shape_and_scoping(self):
+        # PortalDashboardView.get() (apps/buyers/portal_views.py) returns
+        # buyerProfile/kpis/activeSourcingCosts/recentActivity — the old
+        # bare sisterProfiles-list shape this test asserted was replaced by
+        # the KPI-tile dashboard (see that view's docstring) without the
+        # test being updated to match.
         self.client.force_authenticate(user=self.buyer_user)
-        resp = self.client.get(reverse("buyer-portal-dashboard"))
+        resp = self.client.get(reverse("portal-dashboard"))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["buyerProfile"]["name"], "Zara Textiles")
-        self.assertEqual(len(resp.data["sisterProfiles"]), 1)  # not the other buyer's
 
-        row = resp.data["sisterProfiles"][0]
-        self.assertEqual(row["poReference"], "PO-001")
-        self.assertEqual(row["productCount"], 2)
-        self.assertEqual(row["invoices"]["total"], 1)
-        self.assertEqual(row["invoices"]["pending"], 1)
+        kpis = resp.data["kpis"]
+        # Scoping: only this buyer's one Sister Profile counts, never the
+        # other buyer's — this is the check the test exists for (FR-79).
+        self.assertEqual(kpis["totalOrders"], 1)
+        self.assertEqual(kpis["ordersInProgress"], 1)  # default status is "active"
+        self.assertEqual(kpis["ordersCompleted"], 0)
+        # The invoice from setUp is still pending_approval (never issued),
+        # so it doesn't count toward outstanding balance yet.
+        self.assertEqual(Decimal(str(kpis["invoicesOutstanding"])), Decimal("0"))
+
+        self.assertEqual(resp.data["activeSourcingCosts"], [])
+        self.assertIsInstance(resp.data["recentActivity"], list)
 
     def test_non_buyer_role_gets_403(self):
         self.client.force_authenticate(user=self.admin)
-        resp = self.client.get(reverse("buyer-portal-dashboard"))
+        resp = self.client.get(reverse("portal-dashboard"))
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 

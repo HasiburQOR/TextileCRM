@@ -8,6 +8,8 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { SearchableBuyerSelect } from "@/components/SearchableBuyerSelect"
+import { SearchableSisterProfileSelect } from "@/components/SearchableSisterProfileSelect"
 import { api } from "@/lib/api"
 import { downloadFile } from "@/lib/download"
 import { extractErrorMessage } from "@/lib/errors"
@@ -328,14 +330,8 @@ export function ExpensesPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Select className="w-56" value={buyerFilter} onChange={(e) => handleBuyerChange(e.target.value)}>
-          <option value="">All Buyers</option>
-          {buyersQuery.data?.map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
-        </Select>
-        <Select className="w-56" value={sisterProfileFilter} onChange={(e) => setSisterProfileFilter(e.target.value)}>
-          <option value="">All Sister Profiles</option>
-          {sisterProfileOptions.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id}</option>))}
-        </Select>
+        <SearchableBuyerSelect className="w-56" options={buyersQuery.data ?? []} value={buyerFilter} onChange={(v) => handleBuyerChange(v)} placeholder="All Buyers" />
+        <SearchableSisterProfileSelect className="w-56" options={sisterProfileOptions} value={sisterProfileFilter} onChange={(v) => setSisterProfileFilter(v)} placeholder="All Sister Profiles" />
         <Select
           className="w-48"
           value={sourceTypes.length === 1 ? sourceTypes[0] : sourceTypes.length ? "__multi__" : ""}
@@ -469,17 +465,11 @@ export function ExpensesPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Buyer Profile</label>
-              <Select value={buyerFilter} onChange={(e) => handleBuyerChange(e.target.value)}>
-                <option value="">All Buyers</option>
-                {buyersQuery.data?.map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
-              </Select>
+              <SearchableBuyerSelect options={buyersQuery.data ?? []} value={buyerFilter} onChange={(v) => handleBuyerChange(v)} placeholder="All Buyers" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-500">Sister Profile / PO</label>
-              <Select value={sisterProfileFilter} onChange={(e) => setSisterProfileFilter(e.target.value)}>
-                <option value="">All Sister Profiles</option>
-                {sisterProfileOptions.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id}</option>))}
-              </Select>
+              <SearchableSisterProfileSelect options={sisterProfileOptions} value={sisterProfileFilter} onChange={(v) => setSisterProfileFilter(v)} placeholder="All Sister Profiles" />
             </div>
           </div>
 

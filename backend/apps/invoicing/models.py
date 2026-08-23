@@ -208,6 +208,12 @@ class InvoiceLineItem(UUIDModel):
     warehouseCost = models.ForeignKey(
         "warehouse.WarehouseCost", related_name="invoiceLineItems", null=True, blank=True, on_delete=models.SET_NULL
     )
+    # Same pattern as warehouseCost — a Sourcing Cost selected by the
+    # operator becomes a single cost line on the invoice.  SET_NULL so
+    # deleting the source SourcingCost later never breaks an issued invoice.
+    sourcingCost = models.ForeignKey(
+        "sourcing.SourcingCost", related_name="invoiceLineItems", null=True, blank=True, on_delete=models.SET_NULL
+    )
 
     description = models.CharField(max_length=255, blank=True, default="")
     brand = models.CharField(max_length=255, blank=True, default="")

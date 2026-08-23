@@ -6,7 +6,6 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from apps.accounts.views import MeView, TokenObtainPairWithClaimsView, UserViewSet
 from apps.audit.views import AuditLogEntryViewSet
 from apps.buyers.portal_views import (
-    BuyerPortalDashboardView,
     PortalDashboardView,
     PortalOrderCostsView,
     PortalOrderDetailView,
@@ -73,7 +72,6 @@ urlpatterns = [
     path("sourcing-costs/<uuid:cost_pk>/items/<uuid:pk>/", cost_items_detail, name="sourcing-cost-items-detail"),
     path("packing-lists/<uuid:list_pk>/cartons/", packing_cartons_list, name="packing-list-cartons-list"),
     path("packing-lists/<uuid:list_pk>/cartons/<uuid:pk>/", packing_cartons_detail, name="packing-list-cartons-detail"),
-    path("buyer-portal/dashboard/", BuyerPortalDashboardView.as_view(), name="buyer-portal-dashboard"),
     path("portal/dashboard/", PortalDashboardView.as_view(), name="portal-dashboard"),
     path("portal/orders/", PortalOrdersListView.as_view(), name="portal-orders"),
     path("portal/orders/<uuid:order_id>/", PortalOrderDetailView.as_view(), name="portal-order-detail"),

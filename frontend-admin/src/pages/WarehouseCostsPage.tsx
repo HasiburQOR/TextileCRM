@@ -7,6 +7,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { SearchableSisterProfileSelect } from "@/components/SearchableSisterProfileSelect"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { extractErrorMessage } from "@/lib/errors"
@@ -299,10 +300,7 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile *</label>
-              <Select required value={sisterProfile} onChange={(e) => { setSisterProfile(e.target.value); setPackingList("") }}>
-                <option value="">Select...</option>
-                {profilesQuery.data?.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id} — {sp.buyerProfileName}</option>))}
-              </Select>
+              <SearchableSisterProfileSelect required options={profilesQuery.data ?? []} value={sisterProfile} onChange={(v) => { setSisterProfile(v); setPackingList("") }} placeholder="Select..." />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">Packing List (optional)</label>

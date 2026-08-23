@@ -49,7 +49,7 @@ export function BuyerOrdersPage() {
               <tbody className="divide-y divide-slate-100">
                 {ordersQuery.data.map((o) => (
                   <tr key={o.id} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/portal/orders/${o.id}`)}>
-                    <td className="px-4 py-3 font-medium text-slate-900">{o.poReference || o.id}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{o.poReference || o.referenceCode}</td>
                     <td className="px-4 py-3 text-slate-500">Type {o.agreementType}</td>
                     <td className="px-4 py-3"><Badge variant={STATUS_BADGE[o.status]}>{o.status}</Badge></td>
                     <td className="px-4 py-3 text-slate-400">{new Date(o.createdAt).toLocaleDateString()}</td>

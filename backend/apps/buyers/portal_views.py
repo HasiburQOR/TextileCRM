@@ -22,58 +22,6 @@ from apps.sourcing.models import Product, SourcingCost
 from apps.sourcing.serializers import ProductSelfSerializer
 
 
-class BuyerPortalDashboardView(APIView):
-    """FR-79: "Buyer dashboard shows an overview across all of the buyer's
-    own Sister Profiles, with drill-down into one." One aggregation
-    endpoint rather than making the frontend stitch together 4-5 separate
-    list calls per Sister Profile — the tenant scoping this relies on
-    (`request.user.buyer_profile`) is the same guarantee TenantScopedViewSet
-    gives every other buyer-reachable endpoint, just applied directly since
-    this isn't a ModelViewSet over one queryset."""
-
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        if request.user.role != Roles.BUYER or not request.user.buyer_profile_id:
-            return Response({"detail": "Buyer role required."}, status=403)
-
-        buyer_profile = request.user.buyer_profile
-        sister_profiles = buyer_profile.sisterProfiles.all()
-
-        rows = []
-        for sister in sister_profiles:
-            invoice_agg = Invoice.objects.filter(sisterProfile=sister).aggregate(
-                total=Count("id"),
-                pending=Count("id", filter=Q(status=InvoiceStatus.PENDING_APPROVAL)),
-                issued=Count("id", filter=Q(status=InvoiceStatus.ISSUED)),
-                outstanding=Sum("outstandingBalance"),
-            )
-            latest_cost = (
-                SourcingCost.objects.filter(sisterProfile=sister).order_by("-createdAt").first()
-            )
-            rows.append(
-                {
-                    "id": str(sister.id),
-                    "poReference": sister.poReference,
-                    "agreementType": sister.agreementType,
-                    "status": sister.status,
-                    "productCount": sister.products.count(),
-                    "latestCostStatus": latest_cost.status if latest_cost else None,
-                    "invoices": {
-                        "total": invoice_agg["total"], "pending": invoice_agg["pending"],
-                        "issued": invoice_agg["issued"], "totalOutstanding": invoice_agg["outstanding"] or 0,
-                    },
-                }
-            )
-
-        return Response(
-            {
-                "buyerProfile": BuyerProfileSelfSerializer(buyer_profile).data,
-                "sisterProfiles": rows,
-            }
-        )
-
-
 class BuyerPortalPermission(IsAuthenticated):
     """Every /api/v1/portal/ endpoint is buyer-only — this is a distinct,
     dedicated surface from the Admin endpoints (Buyer_Portal_Documentation.md:

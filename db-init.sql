@@ -1,3 +1,2 @@
--- Create separate databases for each Django backend
+-- Create database for the Django REST API backend
 CREATE DATABASE backend_db;
-CREATE DATABASE django_app_db;

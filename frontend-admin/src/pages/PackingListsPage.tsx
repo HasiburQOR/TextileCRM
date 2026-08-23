@@ -3,6 +3,7 @@ import { Download, Eye, FileSpreadsheet, Pencil, Plus, Trash2 } from "lucide-rea
 import { useMemo, useState } from "react"
 import { SizeBreakdownInput, emptySizeBreakdownRows, sizeRowsClean, sizeRowsTotalQty, type SizeBreakdownEntry } from "@/components/packing/SizeBreakdownInput"
 import { AddColumnDialog, ColumnCellInput, columnsFromValues, getCellValue, mergeColumns, setCellValue } from "@/components/sourcing/GridColumns"
+import { CodeCell } from "@/components/CodeCell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -12,6 +13,7 @@ import { Lightbox, type LightboxImage } from "@/components/ui/lightbox"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
+import { SearchableSisterProfileSelect } from "@/components/SearchableSisterProfileSelect"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { convertToBuyerCurrency } from "@/lib/currency"
@@ -34,6 +36,7 @@ export interface CartonRowDraft {
   // draft only ever displays that value, never edits it.
   tempId: string; product: string; poNo: string; cartonNoFrom: number; cartonNoTo: number
   colorName: string; patternNo: string; assortId: string
+  ctnSl: string; description: string; material: string; remarks: string
   sizeBreakdown: SizeBreakdownEntry[]; customFieldValues: CustomFieldEntry[]
   orderQty: number; innerBundle: number
   unitPrice: number | null
@@ -47,6 +50,7 @@ function emptyCartonRow(prevProduct?: string): CartonRowDraft {
     product: prevProduct ?? "", poNo: "",
     cartonNoFrom: 1, cartonNoTo: 1,
     colorName: "", patternNo: "", assortId: "",
+    ctnSl: "", description: "", material: "", remarks: "",
     sizeBreakdown: emptySizeBreakdownRows(), customFieldValues: [],
     orderQty: 0, innerBundle: 1,
     unitPrice: null,
@@ -64,6 +68,10 @@ function cartonToDraft(c: PackingCarton): CartonRowDraft {
     colorName: c.colorName,
     patternNo: c.patternNo,
     assortId: c.assortId,
+    ctnSl: c.ctnSl,
+    description: c.description,
+    material: c.material,
+    remarks: c.remarks,
     sizeBreakdown: c.sizeBreakdown.map((e) => ({ ...e })),
     customFieldValues: c.customFieldValues.map((e) => ({ ...e })),
     orderQty: c.orderQty,
@@ -100,6 +108,10 @@ function rowsFromProduct(product: Product, baseRow: CartonRowDraft): CartonRowDr
       poNo: template.poNo || product.poNo,
       colorName: v.colorName,
       patternNo: v.patternNo,
+      ctnSl: v.ctnSl ?? "",
+      description: v.description ?? "",
+      material: v.material ?? "",
+      remarks: v.remarks ?? "",
       sizeBreakdown: v.sizeBreakdown.map((e) => ({ ...e })),
       customFieldValues: v.customFieldValues.map((e) => ({ ...e })),
       orderQty: v.orderQty,
@@ -110,9 +122,11 @@ function rowsFromProduct(product: Product, baseRow: CartonRowDraft): CartonRowDr
       cartonNoFrom, cartonNoTo,
       grossWeight: v.grossWeight ?? 0,
       netWeight: v.netWeight ?? 0,
-      ctnLength: v.ctnLength ?? 0,
-      ctnWidth: v.ctnWidth ?? 0,
-      ctnHeight: v.ctnHeight ?? 0,
+      // ProductVariant dimensions are now in cm; PackingCarton stores inches.
+      // Convert cm -> inches at the boundary.
+      ctnLength: v.ctnLength ? v.ctnLength / 2.54 : 0,
+      ctnWidth: v.ctnWidth ? v.ctnWidth / 2.54 : 0,
+      ctnHeight: v.ctnHeight ? v.ctnHeight / 2.54 : 0,
     }
   })
 }
@@ -229,7 +243,7 @@ export function PackingListsPage() {
                     </Button>
                     <Button
                       size="sm" variant="ghost" title="Download PDF"
-                      onClick={(e) => { e.stopPropagation(); downloadFile(`/packing-lists/${pl.id}/export/`, `${pl.poNo || pl.id}.pdf`) }}
+                      onClick={(e) => { e.stopPropagation(); downloadFile(`/packing-lists/${pl.id}/export/`, `${pl.poNo || pl.referenceCode}.pdf`) }}
                     >
                       <Download className="h-3.5 w-3.5" />
                     </Button>
@@ -265,7 +279,7 @@ export function PackingListsPage() {
       {editTarget && <EditPackingListDialog packingList={editTarget} onClose={() => setEditTarget(null)} />}
 
       {deleteTarget && (
-        <Dialog open onClose={() => setDeleteTarget(null)} title={`Delete "${deleteTarget.poNo || deleteTarget.brandName || deleteTarget.id}"?`}>
+        <Dialog open onClose={() => setDeleteTarget(null)} title={`Delete "${deleteTarget.poNo || deleteTarget.brandName || deleteTarget.referenceCode}"?`}>
           <div className="flex flex-col gap-4">
             {deleteError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{deleteError}</div>}
             <p className="text-sm text-slate-600">
@@ -356,21 +370,21 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-slate-600">Sister Profile *</label>
-          <Select
+          <SearchableSisterProfileSelect
+            required
+            options={profilesQuery.data ?? []}
             value={form.sisterProfile}
-            onChange={(e) => {
-              const sp = profilesQuery.data?.find((p) => p.id === e.target.value)
+            onChange={(v) => {
+              const sp = profilesQuery.data?.find((p) => p.id === v)
               // PO No below defaults to the Sister Profile's own PO reference
               // the moment one is picked — it stayed blank before unless the
               // user separately retyped a PO that was already right there,
               // which is how packing lists ended up showing "PO: --" despite
               // being correctly linked to a PO underneath.
-              updateForm({ sisterProfile: e.target.value, poNo: form.poNo || sp?.poReference || "" })
+              updateForm({ sisterProfile: v, poNo: form.poNo || sp?.poReference || "" })
             }}
-          >
-            <option value="">Select...</option>
-            {profilesQuery.data?.map((sp) => (<option key={sp.id} value={sp.id}>{sp.poReference || sp.id} — {sp.buyerProfileName}</option>))}
-          </Select>
+            placeholder="Select..."
+          />
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-slate-600">Packing Rule (optional)</label>
@@ -404,8 +418,12 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
             <th className="px-2 py-1.5 font-medium">Product</th>
             <th className="px-2 py-1.5 font-medium">PO No</th>
             <th className="px-2 py-1.5 font-medium">Photo</th>
+            <th className="px-2 py-1.5 font-medium">CTN SL</th>
+            <th className="px-2 py-1.5 font-medium">Description</th>
+            <th className="px-2 py-1.5 font-medium">Material</th>
             <th className="px-2 py-1.5 font-medium">Color</th>
             <th className="px-2 py-1.5 font-medium">Pattern No</th>
+            <th className="px-2 py-1.5 font-medium">Remarks</th>
             <th className="px-2 py-1.5 font-medium">CTN From</th>
             <th className="px-2 py-1.5 font-medium">CTN To</th>
             <th className="px-2 py-1.5 font-medium">CTNS</th>
@@ -419,8 +437,8 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
             <th className="px-2 py-1.5 font-medium text-indigo-600">Unit Price ({sisterProfile?.buyerCurrency || "Buyer"})</th>
             <th className="px-2 py-1.5 font-medium text-indigo-600">Amount ({sisterProfile?.buyerCurrency || "Buyer"})</th>
             <th className="px-2 py-1.5 font-medium">G.W(kg)</th>
-            <th className="px-2 py-1.5 font-medium">N.W(kg)</th>
             <th className="px-2 py-1.5 font-medium">TTL G.W</th>
+            <th className="px-2 py-1.5 font-medium">N.W(kg)</th>
             <th className="px-2 py-1.5 font-medium">TTL N.W</th>
             <th className="px-2 py-1.5 font-medium">L(in)</th>
             <th className="px-2 py-1.5 font-medium">W(in)</th>
@@ -478,8 +496,12 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
                         )
                       })()}
                     </td>
+                    <td className="p-1"><Input className="h-7 w-24 text-xs" placeholder="CTN SL" value={row.ctnSl} onChange={(e) => updateRow(i, { ctnSl: e.target.value })} /></td>
+                    <td className="p-1"><Input className="h-7 w-36 text-xs" placeholder="Description" value={row.description} onChange={(e) => updateRow(i, { description: e.target.value })} /></td>
+                    <td className="p-1"><Input className="h-7 w-36 text-xs" placeholder="e.g. 100% Cotton" value={row.material} onChange={(e) => updateRow(i, { material: e.target.value })} /></td>
                     <td className="p-1"><Input className="h-7 w-24 text-xs" placeholder="Color name" value={row.colorName} onChange={(e) => updateRow(i, { colorName: e.target.value })} /></td>
                     <td className="p-1"><Input className="h-7 w-24 text-xs" placeholder="Pattern" value={row.patternNo} onChange={(e) => updateRow(i, { patternNo: e.target.value })} /></td>
+                    <td className="p-1"><Input className="h-7 w-28 text-xs" placeholder="Remarks" value={row.remarks} onChange={(e) => updateRow(i, { remarks: e.target.value })} /></td>
                     <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" min={1} value={row.cartonNoFrom} onChange={(e) => updateRow(i, { cartonNoFrom: Number(e.target.value) })} /></td>
                     <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" min={1} value={row.cartonNoTo} onChange={(e) => updateRow(i, { cartonNoTo: Number(e.target.value) })} /></td>
                     <td className="p-1 text-center text-xs font-medium text-slate-600">{d.noOfCartons}</td>
@@ -510,8 +532,8 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
                       })()}
                     </td>
                     <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" step="0.01" min={0} max={999999} value={row.grossWeight} onChange={(e) => updateRow(i, { grossWeight: Number(e.target.value) })} /></td>
-                    <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" step="0.01" min={0} max={999999} value={row.netWeight} onChange={(e) => updateRow(i, { netWeight: Number(e.target.value) })} /></td>
                     <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalGrossWeight.toFixed(2)}</td>
+                    <td className="p-1"><Input className="h-7 w-14 text-xs" type="number" step="0.01" min={0} max={999999} value={row.netWeight} onChange={(e) => updateRow(i, { netWeight: Number(e.target.value) })} /></td>
                     <td className="p-1 text-center text-xs font-medium text-slate-600">{d.totalNetWeight.toFixed(2)}</td>
                     <td className="p-1"><Input className="h-7 w-12 text-xs" type="number" step="0.01" min={0} max={999999} value={row.ctnLength} onChange={(e) => updateRow(i, { ctnLength: Number(e.target.value) })} /></td>
                     <td className="p-1"><Input className="h-7 w-12 text-xs" type="number" step="0.01" min={0} max={999999} value={row.ctnWidth} onChange={(e) => updateRow(i, { ctnWidth: Number(e.target.value) })} /></td>
@@ -530,7 +552,7 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
                     <td className="p-1 text-center">{rows.length > 1 && (<button type="button" onClick={() => removeRow(i)} className="text-slate-400 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>)}</td>
                   </tr>) })}
               <tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold text-xs text-slate-700">
-                <td colSpan={8} className="px-2 py-1.5">G.TOTAL</td>
+                <td colSpan={12} className="px-2 py-1.5">G.TOTAL</td>
                 <td className="px-2 py-1.5 text-center">{grandTotals.cartons}</td>
                 <td className="px-2 py-1.5 text-center">{grandTotals.orderQty}</td>
                 <td colSpan={3} /><td className="px-2 py-1.5 text-center">{grandTotals.pcs}</td>
@@ -542,8 +564,8 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
                     return v === null ? "—" : v.toFixed(2)
                   })()}
                 </td>
-                <td colSpan={2} /><td className="px-2 py-1.5 text-center">{grandTotals.grossWeight.toFixed(2)}</td>
-                <td className="px-2 py-1.5 text-center">{grandTotals.netWeight.toFixed(2)}</td>
+                <td /><td className="px-2 py-1.5 text-center">{grandTotals.grossWeight.toFixed(2)}</td>
+                <td /><td className="px-2 py-1.5 text-center">{grandTotals.netWeight.toFixed(2)}</td>
                 <td colSpan={3} /><td className="px-2 py-1.5 text-center">{grandTotals.cbm.toFixed(4)}</td>
                 <td colSpan={columns.length} /><td />
               </tr>
@@ -698,7 +720,7 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
     try {
       await downloadFile(
         `/packing-lists/${packingList.id}/export/${filetype === "xlsx" ? "?filetype=xlsx" : ""}`,
-        `${packingList.poNo || packingList.id}.${filetype}`,
+`${packingList.poNo || packingList.referenceCode}.${filetype}`,
       )
     } catch (err) {
       setExportError(extractErrorMessage(err))
@@ -747,8 +769,12 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
                 <th className="px-2 py-1.5 font-medium">Product</th>
                 <th className="px-2 py-1.5 font-medium">PO No</th>
                 <th className="px-2 py-1.5 font-medium">Photo</th>
+                <th className="px-2 py-1.5 font-medium">CTN SL</th>
+                <th className="px-2 py-1.5 font-medium">Description</th>
+                <th className="px-2 py-1.5 font-medium">Material</th>
                 <th className="px-2 py-1.5 font-medium">Color</th>
                 <th className="px-2 py-1.5 font-medium">Pattern No</th>
+                <th className="px-2 py-1.5 font-medium">Remarks</th>
                 <th className="px-2 py-1.5 font-medium">CTN From</th>
                 <th className="px-2 py-1.5 font-medium">CTN To</th>
                 <th className="px-2 py-1.5 font-medium">CTNS</th>
@@ -762,11 +788,12 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
                 <th className="px-2 py-1.5 font-medium">TTL N.W</th>
                 <th className="px-2 py-1.5 font-medium">CBM</th>
                 {columns.map((c) => (<th key={c.id} className="px-2 py-1.5 font-medium text-indigo-500">{c.label}</th>))}
+                <th className="px-2 py-1.5 font-medium">Barcode / QR</th>
               </tr>
             </thead>
             <tbody>
               {packingList.cartons.length === 0 ? (
-                <tr><td colSpan={18 + columns.length} className="px-2 py-6 text-center text-slate-400">No carton rows recorded.</td></tr>
+                <tr><td colSpan={23 + columns.length} className="px-2 py-6 text-center text-slate-400">No carton rows recorded.</td></tr>
               ) : (
                 packingList.cartons.map((c) => (
                   <tr key={c.id} className="border-b border-slate-100 last:border-0">
@@ -776,8 +803,12 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
                     <td className="px-2 py-2">
                       <PackingListCartonPhoto carton={c} onOpen={setPhotoLightbox} />
                     </td>
+                    <td className="px-2 py-2 text-slate-500">{c.ctnSl || "—"}</td>
+                    <td className="px-2 py-2 text-slate-500">{c.description || "—"}</td>
+                    <td className="px-2 py-2 text-slate-500">{c.material || c.productMaterial || "—"}</td>
                     <td className="px-2 py-2 text-slate-500">{c.colorName || "—"}</td>
                     <td className="px-2 py-2 text-slate-500">{c.patternNo || "—"}</td>
+                    <td className="px-2 py-2 text-slate-500">{c.remarks || "—"}</td>
                     <td className="px-2 py-2 text-slate-500">{c.cartonNoFrom}</td>
                     <td className="px-2 py-2 text-slate-500">{c.cartonNoTo}</td>
                     <td className="px-2 py-2 text-slate-500">{c.noOfCartons}</td>
@@ -803,6 +834,7 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
                     {columns.map((col) => (
                       <td key={col.id} className="px-2 py-2 text-slate-500">{getCellValue(c.customFieldValues, col) || "—"}</td>
                     ))}
+                    <PackingCartonCodeCell carton={c} columns={columns} />
                   </tr>
                 ))
               )}
@@ -841,6 +873,46 @@ function PackingListCartonPhoto({ carton, onOpen }: { carton: PackingCarton; onO
       <img src={resolveMediaUrl(coverImage.image)} alt="" className="h-full w-full object-cover" />
     </button>
   )
+}
+
+/** Compact QR payload for one carton row — mirrors buildVariantQrPayload's
+ * shape/size discipline (VariantCodeCell.tsx) so both modules stay under the
+ * QR v40 EC-L capacity (~2 953 bytes). */
+function buildCartonQrPayload(carton: PackingCarton, columns: ProductTemplateFieldEntry[]): Record<string, unknown> {
+  const customFields: Record<string, string> = {}
+  for (const c of columns) {
+    const v = (getCellValue(carton.customFieldValues, c) as string) || ""
+    if (v) customFields[c.label] = v
+  }
+  return {
+    style: carton.styleNo || carton.styleNumber,
+    product: carton.productName,
+    po: carton.poNo || "",
+    ctnSl: carton.ctnSl || "",
+    color: carton.colorName || "",
+    pattern: carton.patternNo || "",
+    desc: carton.description || "",
+    material: carton.material || carton.productMaterial || "",
+    ctnFrom: carton.cartonNoFrom,
+    ctnTo: carton.cartonNoTo,
+    ctns: carton.noOfCartons,
+    orderQty: carton.orderQty,
+    shipQty: carton.shipQty,
+    sizes: carton.sizeBreakdown.map((e) => `${e.size_label}:${e.quantity}`).join("/"),
+    price: carton.unitPrice ?? "",
+    amt: carton.totalAmount,
+    gw: carton.totalGrossWeight,
+    nw: carton.totalNetWeight,
+    cbm: carton.totalCbm,
+    rmk: carton.remarks || "",
+    ...customFields,
+  }
+}
+
+function PackingCartonCodeCell({ carton, columns }: { carton: PackingCarton; columns: ProductTemplateFieldEntry[] }) {
+  const styleNo = carton.styleNo || carton.styleNumber
+  const payload = useMemo(() => buildCartonQrPayload(carton, columns), [carton, columns])
+  return <CodeCell barcodeText={styleNo} qrPayload={payload} label={styleNo || "—"} downloadPrefix={`${styleNo || "carton"}-${carton.ctnSl || carton.cartonNoFrom}`} />
 }
 
 function Field({ label, value }: { label: string; value: string }) {

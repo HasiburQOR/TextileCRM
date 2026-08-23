@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
+import { SearchableSisterProfileSelect } from "@/components/SearchableSisterProfileSelect"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { extractErrorMessage } from "@/lib/errors"
@@ -195,7 +196,7 @@ export function BuyerDetailPage() {
                   <Select value={txnSisterFilter} onChange={(e) => setTxnSisterFilter(e.target.value)} className="w-48">
                     <option value="">All orders</option>
                     {linkedProfiles.map((sp) => (
-                      <option key={sp.id} value={sp.id}>{sp.poReference || sp.id}</option>
+                      <option key={sp.id} value={sp.id}>{sp.poReference || sp.referenceCode}</option>
                     ))}
                   </Select>
                 </div>
@@ -300,7 +301,7 @@ export function BuyerDetailPage() {
                       className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50"
                       onClick={() => navigate(`/sister-profiles/${sp.id}`)}
                     >
-                      <td className="px-4 py-2 font-medium text-slate-900">{sp.poReference || sp.id}</td>
+                      <td className="px-4 py-2 font-medium text-slate-900">{sp.poReference || sp.referenceCode}</td>
                       <td className="px-4 py-2 text-slate-500">Type {sp.agreementType}</td>
                       <td className="px-4 py-2">
                         <Badge variant={sp.status === "active" ? "info" : sp.status === "completed" ? "success" : "default"}>
@@ -550,12 +551,7 @@ function WalletAdjustDialog({ buyerId, sisterProfiles, onClose, onSuccess }: {
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile (optional, for reporting only)</label>
-          <Select value={form.sisterProfile} onChange={(e) => setForm({ ...form, sisterProfile: e.target.value })}>
-            <option value="">Not tied to a specific order</option>
-            {sisterProfiles.map((sp) => (
-              <option key={sp.id} value={sp.id}>{sp.poReference || sp.id}</option>
-            ))}
-          </Select>
+          <SearchableSisterProfileSelect options={sisterProfiles} value={form.sisterProfile ?? ""} onChange={(v) => setForm({ ...form, sisterProfile: v })} placeholder="Not tied to a specific order" />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Reason *</label>
