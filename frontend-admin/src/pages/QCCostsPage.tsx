@@ -76,7 +76,8 @@ export function QCCostsPage() {
           ) : !reportsQuery.data?.length ? (
             <p className="py-10 text-center text-sm text-slate-400">No QC reports yet.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">Report ID</th>
@@ -123,6 +124,7 @@ export function QCCostsPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -171,7 +173,7 @@ export function QCCostsPage() {
             <p className="text-sm text-slate-600">
               This removes the report and its cost lines from the Central Expense Table. This cannot be undone.
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
               <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(deleteTarget.id)}>
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}
@@ -297,7 +299,7 @@ function QCReportFormDialog({ existing, existingReports, onClose, onSuccess }: {
           <span className="text-lg font-semibold text-slate-900">{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>
             {mutation.isPending ? "Saving..." : isEdit ? "Save Changes" : "Submit QC Report"}

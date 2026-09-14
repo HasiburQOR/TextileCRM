@@ -51,7 +51,7 @@ export function BuyersPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Buyers</h1>
           <p className="text-sm text-slate-500">Manage buyer profiles and portal credentials.</p>
@@ -73,7 +73,8 @@ export function BuyersPage() {
               {search.trim() ? "No buyers match your search." : "No buyers yet. Create one to get started."}
             </p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">Reference</th>
@@ -95,6 +96,7 @@ export function BuyersPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -139,7 +141,7 @@ function CreateBuyerDialog({ open, onClose, onSubmit, loading, error }: {
           <label className="mb-1 block text-xs font-medium text-slate-600">Reference Code</label>
           <Input value={referenceCode} onChange={(e) => setReferenceCode(e.target.value)} placeholder="Leave blank to auto-generate BUY-0001..." />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={loading || !name.trim()}>{loading ? "Creating..." : "Create Buyer"}</Button>
         </div>

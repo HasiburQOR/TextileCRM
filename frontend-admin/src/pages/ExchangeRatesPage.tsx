@@ -36,7 +36,7 @@ export function ExchangeRatesPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Exchange Rates</h1>
           <p className="text-sm text-slate-500">Manually published rates, used when generating invoices.</p>
@@ -51,7 +51,8 @@ export function ExchangeRatesPage() {
           ) : !ratesQuery.data?.length ? (
             <p className="py-10 text-center text-sm text-slate-400">No exchange rates published yet.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">Pair</th>
@@ -69,6 +70,7 @@ export function ExchangeRatesPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -120,7 +122,7 @@ function PublishRateDialog({ onClose, onSubmit, loading, error }: {
           <label className="mb-1 block text-xs font-medium text-slate-600">Effective Date *</label>
           <Input required type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={loading}>{loading ? "Publishing..." : "Publish Rate"}</Button>
         </div>

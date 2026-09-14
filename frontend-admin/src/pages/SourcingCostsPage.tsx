@@ -48,7 +48,7 @@ export function SourcingCostsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Sourcing Costs</h1>
           <p className="text-sm text-slate-500">Track sourcing costs per Sister Profile with product references and custom cost fields.</p>
@@ -57,7 +57,7 @@ export function SourcingCostsPage() {
       </div>
       <Card><CardContent className="p-0">
         {costsQuery.isLoading ? (<div className="flex justify-center py-10"><Spinner className="text-slate-400" /></div>) : (costsQuery.data?.length ?? 0) === 0 ? (<p className="py-10 text-center text-sm text-slate-400">No sourcing costs yet.</p>) : (
-          <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
+          <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
             <th className="px-4 py-2.5 font-medium">Sister Profile</th>
             <th className="px-4 py-2.5 font-medium">PO Reference</th>
             <th className="px-4 py-2.5 font-medium">Items</th>
@@ -89,7 +89,7 @@ export function SourcingCostsPage() {
           <div className="flex flex-col gap-3">
             {deleteError && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{deleteError}</div>}
             <p className="text-sm text-slate-600">Are you sure you want to delete this sourcing cost for <strong>{deleteTarget.poReference}</strong>? All items will be refunded from the buyer&apos;s wallet.</p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => { setDeleteTarget(null); setDeleteError(null) }}>Cancel</Button>
               <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(deleteTarget.id)}>{deleteMutation.isPending ? "Deleting..." : "Delete"}</Button>
             </div>
@@ -99,8 +99,8 @@ export function SourcingCostsPage() {
 
       {viewTarget && (
         <Dialog open onClose={() => setViewTarget(null)} title={`Cost Breakdown — ${viewTarget.poReference}`}>
-          <div className="max-h-[70vh] overflow-y-auto">
-            <table className="w-full text-left text-sm">
+          <div className="max-h-[70vh] overflow-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-3 py-2 font-medium">Product</th>
@@ -228,7 +228,7 @@ function CreateCostDialog({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </div>
-        <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={createMutation.isPending}>{createMutation.isPending ? "Creating..." : "Create Cost"}</Button></div>
+        <div className="flex flex-wrap justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={createMutation.isPending}>{createMutation.isPending ? "Creating..." : "Create Cost"}</Button></div>
       </form>
     </Dialog>
   )

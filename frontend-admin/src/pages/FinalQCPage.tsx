@@ -59,7 +59,8 @@ export function FinalQCPage() {
               {statusFilter === "ready_for_final_qc" ? "Nothing waiting on Final QC." : "No products match this filter."}
             </p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-2.5 font-medium">Style #</th>
@@ -95,6 +96,7 @@ export function FinalQCPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -262,7 +264,8 @@ function FinalQCDialog({ productId, canManage, onClose }: { productId: string; c
           ) : cartons.length === 0 ? (
             <p className="text-sm text-slate-400">No packing list rows for this product yet.</p>
           ) : (
-            <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] text-left text-xs">
               <thead><tr className="border-b border-slate-200 text-slate-400">
                 <th className="py-1 pr-3 font-medium">Color</th>
                 <th className="py-1 pr-3 font-medium">Cartons</th>
@@ -284,6 +287,7 @@ function FinalQCDialog({ productId, canManage, onClose }: { productId: string; c
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 

@@ -65,7 +65,7 @@ export function WarehouseCostsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Warehouse Costs</h1>
           <p className="text-sm text-slate-500">Loading, packaging, and extra costs per shipment — recorded against a Sister Profile and, optionally, one of its Packing Lists.</p>
@@ -82,7 +82,8 @@ export function WarehouseCostsPage() {
           ) : !costsQuery.data?.length ? (
             <p className="py-10 text-center text-sm text-slate-400">No warehouse costs recorded yet.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">Sister Profile</th>
@@ -125,6 +126,7 @@ export function WarehouseCostsPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -183,7 +185,7 @@ export function WarehouseCostsPage() {
             <p className="text-sm text-slate-600">
               This removes the warehouse cost and its lines from the Central Expense Table. This cannot be undone.
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
               <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(deleteTarget.id)}>
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}
@@ -383,7 +385,7 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
           <span className="text-lg font-semibold text-slate-900">{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>
             {mutation.isPending ? "Saving..." : isEdit ? "Save Changes" : "Submit Warehouse Cost"}

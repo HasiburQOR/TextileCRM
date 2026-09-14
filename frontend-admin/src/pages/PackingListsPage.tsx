@@ -199,7 +199,7 @@ export function PackingListsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Packing Lists</h1>
           <p className="text-sm text-slate-500">Build and manage packing lists with carton ranges, color x size breakdowns, weights, and CBM.</p>
@@ -209,7 +209,7 @@ export function PackingListsPage() {
         )}
       </div>
       <div className="flex flex-wrap gap-3">
-        <Input placeholder="Search by PO No, brand, or Sister Profile..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-72" />
+        <Input placeholder="Search by PO No, brand, or Sister Profile..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full sm:w-72" />
       </div>
       {listsQuery.isLoading ? (
         <div className="flex justify-center py-16"><Spinner className="text-slate-400" /></div>
@@ -285,7 +285,7 @@ export function PackingListsPage() {
             <p className="text-sm text-slate-600">
               This permanently removes this packing list and its {deleteTarget.cartons.length} carton row(s). This cannot be undone.
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
               <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(deleteTarget.id)}>
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}
@@ -413,7 +413,7 @@ function PackingListFormFields({ form, updateForm, rows, onRowsChange, extraColu
           </div>
         </div>
         <div className="overflow-x-auto rounded-md border border-slate-200">
-          <table className="w-full text-left text-xs"><thead><tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
+          <table className="w-full min-w-[1280px] text-left text-xs"><thead><tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
             <th className="px-2 py-1.5 font-medium">Style No</th>
             <th className="px-2 py-1.5 font-medium">Product</th>
             <th className="px-2 py-1.5 font-medium">PO No</th>
@@ -636,7 +636,7 @@ function CreatePackingListDialog({ onClose, onSuccess }: { onClose: () => void; 
           form={form} updateForm={updateForm} rows={rows} onRowsChange={setRows}
           extraColumns={extraColumns} onAddColumn={(c) => setExtraColumns((prev) => [...prev, c])}
         />
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={createMutation.isPending}>{createMutation.isPending ? "Creating..." : "Create Packing List"}</Button>
         </div>
@@ -697,7 +697,7 @@ function EditPackingListDialog({ packingList, onClose }: { packingList: PackingL
           form={form} updateForm={updateForm} rows={rows} onRowsChange={setRows}
           extraColumns={extraColumns} onAddColumn={(c) => setExtraColumns((prev) => [...prev, c])}
         />
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending ? "Saving..." : "Save Changes"}</Button>
         </div>
@@ -762,7 +762,7 @@ function ViewPackingListDialog({ packingList, onClose }: { packingList: PackingL
         </div>
 
         <div className="overflow-x-auto rounded-md border border-slate-200">
-          <table className="w-full text-left text-xs">
+          <table className="w-full min-w-[1280px] text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
                 <th className="px-2 py-1.5 font-medium">Style No</th>

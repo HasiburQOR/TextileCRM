@@ -105,11 +105,11 @@ export function InvoiceDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/invoices")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold text-slate-900">{inv.invoiceNo}</h1>
             <Badge variant={STATUS_BADGE[inv.status]}>{inv.status.replace(/_/g, " ")}</Badge>
@@ -214,7 +214,7 @@ export function InvoiceDetailPage() {
         <CardHeader><CardTitle>Line Items</CardTitle></CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                 <th className="px-4 py-2 font-medium">Description</th>
                 <th className="px-4 py-2 font-medium">Style/Item</th>
@@ -282,7 +282,8 @@ export function InvoiceDetailPage() {
           {inv.payments.length === 0 ? (
             <p className="py-6 text-center text-sm text-slate-400">No payments recorded yet.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
               <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                 <th className="px-4 py-2 font-medium">Date</th><th className="px-4 py-2 font-medium">Amount</th>
                 <th className="px-4 py-2 font-medium">Reference</th>
@@ -313,6 +314,7 @@ export function InvoiceDetailPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -325,7 +327,7 @@ export function InvoiceDetailPage() {
               This permanently removes the invoice — it never took effect (no payments possible against a
               {" "}{inv.status.replace(/_/g, " ")} invoice). This cannot be undone.
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
               <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}
@@ -385,7 +387,7 @@ export function InvoiceDetailPage() {
               This removes the {Number(deletePaymentTarget.amount).toLocaleString()} {deletePaymentTarget.currency} payment
               recorded on {deletePaymentTarget.paymentDate} and recalculates the outstanding balance. This cannot be undone.
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => setDeletePaymentTarget(null)}>Cancel</Button>
               <Button
                 variant="destructive" disabled={deletePaymentMutation.isPending}
@@ -432,7 +434,7 @@ function ReasonDialog({ title, label, onClose, onSubmit }: {
           <label className="mb-1 block text-xs font-medium text-slate-600">{label} *</label>
           <Textarea required rows={3} value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="destructive" disabled={loading}>{loading ? "Submitting..." : "Confirm"}</Button>
         </div>
@@ -479,7 +481,7 @@ function RecordPaymentDialog({ invoiceId, onClose, onSuccess }: {
           <label className="mb-1 block text-xs font-medium text-slate-600">Method / Reference</label>
           <Input value={bankReference} onChange={(e) => setBankReference(e.target.value)} placeholder="Bank transfer ref, cheque no..." />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Recording..." : "Record Payment"}</Button>
         </div>
@@ -532,7 +534,7 @@ function EditPaymentRecordDialog({ invoiceId, payment, onClose, onSuccess }: {
           <label className="mb-1 block text-xs font-medium text-slate-600">Method / Reference</label>
           <Input value={bankReference} onChange={(e) => setBankReference(e.target.value)} placeholder="Bank transfer ref, cheque no..." />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Saving..." : "Save Changes"}</Button>
         </div>
@@ -657,7 +659,7 @@ function EditPaymentDialog({ invoice, onClose, onSuccess }: {
             />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-4 rounded-md bg-slate-50 px-4 py-3 text-sm">
+        <div className="grid grid-cols-1 gap-3 rounded-md bg-slate-50 px-4 py-3 text-sm sm:grid-cols-3 sm:gap-4">
           <div><span className="text-slate-500">Line Total</span><div className="font-semibold text-slate-900">{totalValue.toFixed(2)} {sourceCurrency}</div></div>
           <div><span className="text-slate-500">Total Value</span><div className="font-semibold text-slate-900">{grandTotal.toFixed(2)} {sourceCurrency}</div></div>
           <div>
@@ -665,7 +667,7 @@ function EditPaymentDialog({ invoice, onClose, onSuccess }: {
             <div className="font-semibold text-slate-900">{convertedTotal === null ? "—" : `${convertedTotal.toFixed(2)} ${targetCurrency}`}</div>
           </div>
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Saving..." : "Save Changes"}</Button>
         </div>

@@ -133,11 +133,11 @@ export function BuyerDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/buyers")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold text-slate-900">{buyer.name}</h1>
             <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{buyer.referenceCode}</code>
@@ -286,7 +286,8 @@ export function BuyerDetailPage() {
             ) : linkedProfiles.length === 0 ? (
               <p className="py-8 text-center text-sm text-slate-400">No Sister Profiles yet for this buyer.</p>
             ) : (
-              <table className="w-full text-left text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                     <th className="px-4 py-2 font-medium">PO Reference</th>
@@ -312,6 +313,7 @@ export function BuyerDetailPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -402,7 +404,7 @@ export function BuyerDetailPage() {
             <label className="mb-1 block text-xs font-medium text-slate-600">Branding / Display Name</label>
             <Input value={form.branding} onChange={(e) => setForm({ ...form, branding: e.target.value })} />
           </div>
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Saving..." : "Save Changes"}</Button>
           </div>
@@ -446,7 +448,7 @@ export function BuyerDetailPage() {
             <label className="mb-1 block text-xs font-medium text-slate-600">Password *</label>
             <Input required type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           </div>
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Creating..." : "Create Login"}</Button>
           </div>
@@ -478,7 +480,7 @@ export function BuyerDetailPage() {
             <Input required type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
           </div>
           <p className="text-xs text-slate-400">This immediately replaces the buyer's portal password. It will not be shown again.</p>
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Resetting..." : "Reset Password"}</Button>
           </div>
@@ -517,7 +519,7 @@ function WalletTopUpDialog({ buyerId, onClose, onSuccess }: { buyerId: string; o
           <label className="mb-1 block text-xs font-medium text-slate-600">Method / Reference *</label>
           <Input required value={form.methodReference} onChange={(e) => setForm({ ...form, methodReference: e.target.value })} placeholder="Bank transfer ID, cheque no..." />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Adding..." : "Add Top-up"}</Button>
         </div>
@@ -557,7 +559,7 @@ function WalletAdjustDialog({ buyerId, sisterProfiles, onClose, onSuccess }: {
           <label className="mb-1 block text-xs font-medium text-slate-600">Reason *</label>
           <Textarea required rows={3} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Saving..." : "Adjust Balance"}</Button>
         </div>

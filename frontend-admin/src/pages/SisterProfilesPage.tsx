@@ -66,7 +66,7 @@ export function SisterProfilesPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Sister Profiles</h1>
           <p className="text-sm text-slate-500">One purchase order / shipment per buyer, each with its own agreement.</p>
@@ -79,7 +79,7 @@ export function SisterProfilesPage() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input className="w-64 pl-9" placeholder="Search PO or buyer..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input className="w-full pl-9 sm:w-64" placeholder="Search PO or buyer..." value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <Select className="w-44" value={agreementFilter} onChange={(e) => setAgreementFilter(e.target.value as AgreementType | "all")}>
           <option value="all">All Agreement Types</option>
@@ -107,7 +107,8 @@ export function SisterProfilesPage() {
           ) : filtered.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-400">No Sister Profiles match the current filters.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[800px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">Reference</th>
@@ -142,6 +143,7 @@ export function SisterProfilesPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -276,7 +278,7 @@ function CreateSisterProfileDialog({ initialBuyer, onClose, onSubmit, loading, e
           <label className="mb-1 block text-xs font-medium text-slate-600">Reference Code</label>
           <Input value={referenceCode} onChange={(e) => setReferenceCode(e.target.value)} placeholder="Leave blank to auto-generate SIS-0001..." />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={loading || !buyerProfile}>{loading ? "Creating..." : "Create Sister Profile"}</Button>
         </div>

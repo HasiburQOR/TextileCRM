@@ -57,9 +57,9 @@ export function SourcingCostDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/sourcing-costs")}><ArrowLeft className="h-4 w-4" /></Button>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2"><h1 className="text-xl font-semibold text-slate-900">{cost.poReference}</h1><Badge variant={COST_STATUS_BADGE_VARIANT[cost.status]}>{COST_STATUS_LABEL[cost.status]}</Badge></div>
           <p className="text-sm text-slate-500">{cost.sisterProfileName} · Total: {totalAmount.toLocaleString()}</p>
           {cost.fullPaymentConfirmedAt && (<p className="text-sm text-slate-500">Confirmed {new Date(cost.fullPaymentConfirmedAt).toLocaleString()}</p>)}
@@ -67,7 +67,7 @@ export function SourcingCostDetailPage() {
         {canManage && isOpen && (<><Button variant="outline" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" />Add Item</Button><Button onClick={() => setCloseConfirmOpen(true)} disabled={closeMutation.isPending}>{closeMutation.isPending ? "Closing..." : "Close Cost"}</Button></>)}
       </div>
       {actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
-      <Card><CardHeader><CardTitle>Cost Breakdown ({cost.items.length} {cost.items.length === 1 ? "item" : "items"})</CardTitle></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead>
+      <Card><CardHeader><CardTitle>Cost Breakdown ({cost.items.length} {cost.items.length === 1 ? "item" : "items"})</CardTitle></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead>
         <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400"><th className="px-4 py-2 font-medium">Product</th><th className="px-4 py-2 font-medium">Location</th><th className="px-4 py-2 font-medium">Qty</th><th className="px-4 py-2 font-medium">Cost Field</th><th className="px-4 py-2 font-medium text-right">Amount</th><th className="px-4 py-2 font-medium">Date</th>{canManage && isOpen && <th className="px-4 py-2 font-medium" />}</tr>
       </thead><tbody>
         {cost.items.map((item) => {
@@ -108,9 +108,9 @@ export function SourcingCostDetailPage() {
         </tr>
       </tbody></table></div></CardContent></Card>
 
-      {deleteTarget && (<Dialog open onClose={() => { setDeleteTarget(null); setActionError(null) }} title="Delete Item"><div className="flex flex-col gap-3">{actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}<p className="text-sm text-slate-600">Delete <strong>{deleteTarget.productName}</strong> at {deleteTarget.locationName}? The wallet will be refunded.</p><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setDeleteTarget(null); setActionError(null) }}>Cancel</Button><Button variant="destructive" disabled={deleteItemMutation.isPending} onClick={() => deleteItemMutation.mutate(deleteTarget.id)}>{deleteItemMutation.isPending ? "Deleting..." : "Delete"}</Button></div></div></Dialog>)}
+      {deleteTarget && (<Dialog open onClose={() => { setDeleteTarget(null); setActionError(null) }} title="Delete Item"><div className="flex flex-col gap-3">{actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}<p className="text-sm text-slate-600">Delete <strong>{deleteTarget.productName}</strong> at {deleteTarget.locationName}? The wallet will be refunded.</p><div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setDeleteTarget(null); setActionError(null) }}>Cancel</Button><Button variant="destructive" disabled={deleteItemMutation.isPending} onClick={() => deleteItemMutation.mutate(deleteTarget.id)}>{deleteItemMutation.isPending ? "Deleting..." : "Delete"}</Button></div></div></Dialog>)}
 
-      {closeConfirmOpen && (<Dialog open onClose={() => { setCloseConfirmOpen(false); setActionError(null) }} title="Close Sourcing Cost"><div className="flex flex-col gap-3">{actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}<p className="text-sm text-slate-600">Close this sourcing cost for <strong>{cost.poReference}</strong>?</p><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setCloseConfirmOpen(false); setActionError(null) }}>Cancel</Button><Button disabled={closeMutation.isPending} onClick={() => closeMutation.mutate()}>{closeMutation.isPending ? "Closing..." : "Close Cost"}</Button></div></div></Dialog>)}
+      {closeConfirmOpen && (<Dialog open onClose={() => { setCloseConfirmOpen(false); setActionError(null) }} title="Close Sourcing Cost"><div className="flex flex-col gap-3">{actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}<p className="text-sm text-slate-600">Close this sourcing cost for <strong>{cost.poReference}</strong>?</p><div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setCloseConfirmOpen(false); setActionError(null) }}>Cancel</Button><Button disabled={closeMutation.isPending} onClick={() => closeMutation.mutate()}>{closeMutation.isPending ? "Closing..." : "Close Cost"}</Button></div></div></Dialog>)}
 
       {addOpen && <AddItemDialog costId={id!} onClose={() => setAddOpen(false)} />}
       {editTarget && <EditItemDialog costId={id!} item={editTarget} onClose={() => setEditTarget(null)} />}
@@ -177,7 +177,7 @@ function AddItemDialog({ costId, onClose }: { costId: string; onClose: () => voi
       <form onSubmit={(e) => { e.preventDefault(); setError(null); if (!form.product) { setError("Product is required."); return } if (!form.locationName.trim()) { setError("Location name is required."); return } addMutation.mutate() }} className="flex flex-col gap-4">
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
         <ItemFormFields form={form} setForm={setForm} products={productsQuery.data} />
-        <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={addMutation.isPending}>{addMutation.isPending ? "Adding..." : "Add Item"}</Button></div>
+        <div className="flex flex-wrap justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={addMutation.isPending}>{addMutation.isPending ? "Adding..." : "Add Item"}</Button></div>
       </form>
     </Dialog>
   )
@@ -211,7 +211,7 @@ function EditItemDialog({ costId, item, onClose }: { costId: string; item: Sourc
       <form onSubmit={(e) => { e.preventDefault(); setError(null); if (!form.product) { setError("Product is required."); return } if (!form.locationName.trim()) { setError("Location name is required."); return } updateMutation.mutate() }} className="flex flex-col gap-4">
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
         <ItemFormFields form={form} setForm={setForm} products={productsQuery.data} />
-        <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending ? "Saving..." : "Save Changes"}</Button></div>
+        <div className="flex flex-wrap justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={updateMutation.isPending}>{updateMutation.isPending ? "Saving..." : "Save Changes"}</Button></div>
       </form>
     </Dialog>
   )

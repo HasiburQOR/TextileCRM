@@ -36,7 +36,8 @@ export function BuyerOrdersPage() {
           ) : !ordersQuery.data?.length ? (
             <p className="py-10 text-center text-sm text-slate-400">No orders yet.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">PO Reference</th>
@@ -60,6 +61,7 @@ export function BuyerOrdersPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>

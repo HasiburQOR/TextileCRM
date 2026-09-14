@@ -97,11 +97,11 @@ export function BuyerOrderDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/portal/orders")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold text-slate-900">{order.poReference || order.referenceCode}</h1>
             <Badge variant={order.status === "active" ? "info" : order.status === "completed" ? "success" : "danger"}>{order.status}</Badge>
@@ -205,7 +205,7 @@ export function BuyerOrderDetailPage() {
             </Card>
           )}
           <ListCard loading={costsQuery.isLoading} empty={!costsQuery.data?.items?.length} emptyText="No costs recorded yet.">
-            <table className="w-full text-left text-sm">
+            <table className="w-full min-w-[480px] text-left text-sm">
               <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                 <th className="px-4 py-2 font-medium">Source</th><th className="px-4 py-2 font-medium">Amount</th>
                 <th className="px-4 py-2 font-medium">Remarks</th><th className="px-4 py-2 font-medium">Date</th>
@@ -263,7 +263,8 @@ export function BuyerOrderDetailPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <table className="w-full text-left text-xs">
+                  <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-left text-xs">
                     <thead><tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
                       <th className="px-2 py-1.5 font-medium">Style</th><th className="px-2 py-1.5 font-medium">Color</th>
                       <th className="px-2 py-1.5 font-medium">Cartons</th><th className="px-2 py-1.5 font-medium">Ship Qty</th>
@@ -283,6 +284,7 @@ export function BuyerOrderDetailPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -292,7 +294,7 @@ export function BuyerOrderDetailPage() {
 
       {tab === "invoices" && (
         <ListCard loading={invoicesQuery.isLoading} empty={!invoicesQuery.data?.length} emptyText="No invoices issued yet.">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[480px] text-left text-sm">
             <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
               <th className="px-4 py-2 font-medium">Invoice No</th><th className="px-4 py-2 font-medium">Status</th>
               <th className="px-4 py-2 font-medium">Total Value</th>
@@ -335,7 +337,7 @@ export function BuyerOrderDetailPage() {
 
       {tab === "documents" && (
         <ListCard loading={documentsQuery.isLoading} empty={!documentsQuery.data?.length} emptyText="No documents uploaded yet.">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[480px] text-left text-sm">
             <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
               <th className="px-4 py-2 font-medium">File</th><th className="px-4 py-2 font-medium">Type</th><th className="px-4 py-2 font-medium">Uploaded</th>
             </tr></thead>

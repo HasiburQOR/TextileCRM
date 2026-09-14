@@ -89,7 +89,7 @@ export function ApprovalsPage() {
                         <Badge variant={PRODUCT_STATUS_BADGE_VARIANT[p.status]}>{PRODUCT_STATUS_LABEL[p.status]}</Badge>
                       </td>
                       <td className="px-4 py-2.5">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex flex-wrap justify-end gap-2">
                           <Button
                             size="sm"
                             onClick={() => setApproveTarget(p)}
@@ -128,7 +128,7 @@ export function ApprovalsPage() {
               This moves {approveTarget.styleNumber} to Approved for QC. It can't be rejected or sent back after
               this — the next step is a QC Report against it.
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => setApproveTarget(null)}>Cancel</Button>
               <Button disabled={approveMutation.isPending} onClick={() => approveMutation.mutate(approveTarget.id)}>
                 {approveMutation.isPending ? "Approving…" : "Approve"}
@@ -171,7 +171,7 @@ function RejectDialog({ product, onClose, onError }: { product: Product; onClose
           <label className="text-xs font-medium text-slate-600">Rejection Reason *</label>
           <Textarea value={reason} onChange={(e) => setReason(e.target.value)} required autoFocus />
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>

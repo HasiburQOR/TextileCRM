@@ -77,7 +77,8 @@ export function AuditLogPage() {
           ) : !entriesQuery.data?.length ? (
             <p className="py-10 text-center text-sm text-slate-400">No audit entries match the current filters.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="w-8" />
@@ -111,6 +112,7 @@ export function AuditLogPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -122,7 +124,8 @@ function SnapshotDiff({ before, after }: { before: Record<string, unknown>; afte
   const keys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]))
   if (keys.length === 0) return <p className="text-xs text-slate-400">No field-level detail recorded for this entry.</p>
   return (
-    <table className="w-full text-left text-xs">
+    <div className="overflow-x-auto">
+    <table className="w-full min-w-[420px] text-left text-xs">
       <thead><tr className="text-slate-400">
         <th className="py-1 pr-4 font-medium">Field</th><th className="py-1 pr-4 font-medium">Before</th><th className="py-1 font-medium">After</th>
       </tr></thead>
@@ -136,6 +139,7 @@ function SnapshotDiff({ before, after }: { before: Record<string, unknown>; afte
         ))}
       </tbody>
     </table>
+    </div>
   )
 }
 

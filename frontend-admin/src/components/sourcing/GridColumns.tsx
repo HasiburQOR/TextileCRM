@@ -146,7 +146,7 @@ export function AddColumnDialog({ onClose, onAdd }: {
         <p className="text-[11px] text-slate-400">
           Applies to every row in this table. Private to this product/list — never added to the shared Field Library.
         </p>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit">Add Column</Button>
         </div>

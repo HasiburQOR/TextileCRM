@@ -67,7 +67,7 @@ export function InvoicesPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Invoices</h1>
           <p className="text-sm text-slate-500">Commercial invoices generated from approved packing lists.</p>
@@ -75,7 +75,7 @@ export function InvoicesPage() {
         {canCreate && <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New Invoice</Button>}
       </div>
 
-      <Select className="w-52" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as InvoiceStatus | "all")}>
+      <Select className="w-full sm:w-52" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as InvoiceStatus | "all")}>
         <option value="all">All Statuses</option>
         <option value="pending_approval">Pending Approval</option>
         <option value="issued">Issued</option>
@@ -90,7 +90,8 @@ export function InvoicesPage() {
           ) : !invoicesQuery.data?.length ? (
             <p className="py-10 text-center text-sm text-slate-400">No invoices match this filter.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">Invoice No</th>
@@ -134,6 +135,7 @@ export function InvoicesPage() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -153,7 +155,7 @@ export function InvoicesPage() {
               This permanently removes the invoice — it never took effect (no payments possible against a
               {" "}{deleteTarget.status.replace(/_/g, " ")} invoice). This cannot be undone.
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
               <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(deleteTarget.id)}>
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}
@@ -653,7 +655,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
 
         {lines.length > 0 && (
           <div className="overflow-x-auto rounded-md border border-slate-200">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[900px] text-left text-xs">
               <thead><tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
                 <th className="px-2 py-1.5 font-medium">Photo</th>
                 <th className="px-2 py-1.5 font-medium">Description</th>
@@ -757,7 +759,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
               )}
             </div>
 
-            <div className="grid grid-cols-4 gap-4 rounded-md bg-slate-50 px-4 py-3 text-sm">
+            <div className="grid grid-cols-2 gap-4 rounded-md bg-slate-50 px-4 py-3 text-sm sm:grid-cols-4">
               <div>
                 <span className="text-slate-500">Line Total</span>
                 <div className="font-semibold text-slate-900">{totalValue.toFixed(2)} {sourceCurrency}</div>
@@ -838,7 +840,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
           </aside>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={createMutation.isPending}>{createMutation.isPending ? "Submitting..." : "Submit for Approval"}</Button>
         </div>

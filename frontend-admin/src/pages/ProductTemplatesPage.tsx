@@ -67,7 +67,7 @@ export function ProductTemplatesPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2"><LayoutTemplate className="h-5 w-5" /> Product Templates</h1>
           <p className="text-sm text-slate-500">Reusable field sets per product category — Shirt, Pants, Footwear, and so on.</p>
@@ -82,7 +82,8 @@ export function ProductTemplatesPage() {
           ) : !templatesQuery.data?.length ? (
             <p className="py-10 text-center text-sm text-slate-400">No templates yet. Add one to get started.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">Name</th>
@@ -111,6 +112,7 @@ export function ProductTemplatesPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -130,7 +132,7 @@ export function ProductTemplatesPage() {
               Existing products created with this template keep their own resolved field set — this only removes the
               template itself. This cannot be undone.
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
               <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(deleteTarget.id)}>
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}
@@ -324,7 +326,7 @@ function TemplateBuilderDialog({ template, onClose }: { template: ProductTemplat
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={saveMutation.isPending}>{saveMutation.isPending ? "Saving..." : "Save Template"}</Button>
         </div>
@@ -409,7 +411,7 @@ function NewLibraryFieldDialog({ onClose, onCreated }: { onClose: () => void; on
           <input type="checkbox" checked={isRequired} onChange={(e) => setIsRequired(e.target.checked)} />
           Required
         </label>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={createMutation.isPending}>{createMutation.isPending ? "Adding..." : "Add Field"}</Button>
         </div>

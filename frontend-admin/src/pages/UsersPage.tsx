@@ -35,7 +35,7 @@ export function UsersPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Users</h1>
           <p className="text-sm text-slate-500">Internal user and role management.</p>
@@ -43,7 +43,7 @@ export function UsersPage() {
         <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New User</Button>
       </div>
 
-      <Select className="w-56" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as Role | "all")}>
+      <Select className="w-full sm:w-56" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as Role | "all")}>
         <option value="all">All Roles</option>
         {Object.entries(ROLE_LABEL).map(([v, l]) => (<option key={v} value={v}>{l}</option>))}
       </Select>
@@ -55,7 +55,8 @@ export function UsersPage() {
           ) : filtered.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-400">No users match this filter.</p>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">Name</th>
@@ -79,6 +80,7 @@ export function UsersPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -187,7 +189,7 @@ function UserFormDialog({ existing, onClose, onSuccess }: {
           </label>
           <Input required={!isEdit} type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Saving..." : isEdit ? "Save Changes" : "Create User"}</Button>
         </div>

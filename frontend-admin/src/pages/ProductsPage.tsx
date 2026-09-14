@@ -150,7 +150,7 @@ export function ProductsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Sourcing Intake</h1>
           <p className="text-sm text-slate-500">Every sourcing request, its color/size breakdown, and current status.</p>
@@ -189,7 +189,7 @@ export function ProductsPage() {
             <p className="py-10 text-center text-sm text-slate-400">No sourcing requests match.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <table className="w-full min-w-[960px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                     <th className="px-4 py-2.5 font-medium">Style #</th>
@@ -279,7 +279,7 @@ export function ProductsPage() {
             <p className="text-sm text-slate-600">
               This permanently removes <code className="text-xs">{deleteTarget.styleNumber}</code> and cannot be undone.
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
               <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(deleteTarget.id)}>
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}
@@ -439,7 +439,7 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
           sisterProfile={sisterProfilesQuery.data?.find((sp) => sp.id === sisterProfile)}
         />
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
@@ -737,7 +737,7 @@ function ViewProductDialog({ product, onClose }: { product: Product; onClose: ()
             Per-Color Packing Detail ({product.totalOrderQty} pcs total)
           </h4>
           <div className="overflow-x-auto rounded-md border border-slate-200">
-            <table className="w-full text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-3 py-2 font-medium">Style No</th>
@@ -996,7 +996,7 @@ function EditProductDialog({ product, onClose }: { product: Product; onClose: ()
           sisterProfile={sisterProfilesQuery.data?.find((sp) => sp.id === form.sisterProfile)}
         />
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
