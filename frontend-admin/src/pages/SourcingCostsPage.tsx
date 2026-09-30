@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Eye, Plus, Trash2 } from "lucide-react"
+import { Eye, Pencil, Plus, Trash2 } from "lucide-react"
 import { Fragment, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +19,9 @@ import type { SisterProfile, SourcingCost, SourcingCostCreateInput, SourcingCost
 
 const CAN_CREATE_ROLES = ["admin", "company_rep"]
 const CAN_MANAGE_ROLES = ["admin"]
+// Matches the detail page's CAN_MANAGE_ROLES — admins and company reps can
+// both edit items of an open cost, so both get the row-level Edit button.
+const CAN_EDIT_ROLES = ["admin", "company_rep"]
 
 export function SourcingCostsPage() {
   const user = useAuthStore((s) => s.user)
@@ -45,6 +48,7 @@ export function SourcingCostsPage() {
 
   const canCreate = !!user && CAN_CREATE_ROLES.includes(user.role)
   const canManage = !!user && CAN_MANAGE_ROLES.includes(user.role)
+  const canEdit = !!user && CAN_EDIT_ROLES.includes(user.role)
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,6 +80,7 @@ export function SourcingCostsPage() {
                 <td className="px-4 py-2.5 text-slate-500">{new Date(t.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-2.5"><div className="flex justify-end gap-1">
                   <Button size="sm" variant="ghost" title="View" onClick={(e) => { e.stopPropagation(); setViewTarget(t) }}><Eye className="h-3.5 w-3.5" /></Button>
+                  {canEdit && t.status === "open" && (<Button size="sm" variant="ghost" title="Edit" onClick={(e) => { e.stopPropagation(); navigate(`/sourcing-costs/${t.id}?edit=1`) }}><Pencil className="h-3.5 w-3.5" /></Button>)}
                   {canManage && t.status === "open" && (<Button size="sm" variant="ghost" title="Delete" onClick={(e) => { e.stopPropagation(); setDeleteTarget(t) }}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>)}
                 </div></td>
               </tr>
@@ -166,6 +171,9 @@ function CreateCostDialog({ onClose }: { onClose: () => void }) {
   const [sisterProfile, setSisterProfile] = useState("")
   const [items, setItems] = useState<SourcingCostItemInput[]>([emptyItem()])
   const [error, setError] = useState<string | null>(null)
+  // Date & time changes are staged, not live: picking in the calendar only
+  // updates a per-item draft, and the "Apply" button commits it to the item.
+  const [dateDrafts, setDateDrafts] = useState<Record<number, string>>({})
 
   const sisterProfilesQuery = useQuery({
     queryKey: ["sister-profiles", "list"],
@@ -188,14 +196,29 @@ function CreateCostDialog({ onClose }: { onClose: () => void }) {
   })
 
   const updateItem = (idx: number, patch: Partial<SourcingCostItemInput>) => setItems((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
-  const removeItem = (idx: number) => setItems((rows) => rows.filter((_, i) => i !== idx))
+  const removeItem = (idx: number) => {
+    setItems((rows) => rows.filter((_, i) => i !== idx))
+    // Date drafts are keyed by item index — re-key them when a row is removed.
+    setDateDrafts((d) => {
+      const next: Record<number, string> = {}
+      for (const [k, v] of Object.entries(d)) { const n = Number(k); if (n < idx) next[n] = v; else if (n > idx) next[n - 1] = v }
+      return next
+    })
+  }
+  const datePending = (idx: number) => dateDrafts[idx] !== undefined && dateDrafts[idx] !== items[idx].date
+  const applyDate = (idx: number) => {
+    const draft = dateDrafts[idx]
+    if (draft === undefined) return
+    if (draft) updateItem(idx, { date: draft }) // empty draft = discard, keep committed date
+    setDateDrafts((d) => { const next = { ...d }; delete next[idx]; return next })
+  }
   const updateCustomCost = (itemIdx: number, cfIdx: number, patch: Partial<CustomCostField>) => setItems((rows) => rows.map((r, i) => i === itemIdx ? { ...r, customCostFields: r.customCostFields.map((cf, j) => (j === cfIdx ? { ...cf, ...patch } : cf)) } : r))
   const addCustomCost = (itemIdx: number) => setItems((rows) => rows.map((r, i) => i === itemIdx ? { ...r, customCostFields: [...r.customCostFields, emptyCustomCost()] } : r))
   const removeCustomCost = (itemIdx: number, cfIdx: number) => setItems((rows) => rows.map((r, i) => i === itemIdx ? { ...r, customCostFields: r.customCostFields.filter((_, j) => j !== cfIdx) } : r))
 
   return (
     <Dialog open onClose={onClose} title="New Sourcing Cost">
-      <form onSubmit={(e) => { e.preventDefault(); setError(null); if (!sisterProfile) { setError("Sister Profile is required."); return } if (items.length === 0) { setError("At least one item is required."); return } if (items.some((it) => !it.product || !it.locationName.trim())) { setError("Each item needs a product and a location."); return } createMutation.mutate() }} className="flex flex-col gap-4">
+      <form onSubmit={(e) => { e.preventDefault(); setError(null); if (!sisterProfile) { setError("Sister Profile is required."); return } if (items.length === 0) { setError("At least one item is required."); return } if (items.some((it) => !it.product || !it.locationName.trim())) { setError("Each item needs a product and a location."); return } if (items.some((_, i) => datePending(i))) { setError("A date & time change has not been applied yet — click the Apply button next to the changed date field."); return } createMutation.mutate() }} className="flex flex-col gap-4">
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-medium text-slate-600">Sister Profile *</label>
@@ -214,7 +237,13 @@ function CreateCostDialog({ onClose }: { onClose: () => void }) {
                 <Input className="h-9 text-sm" placeholder="Location *" value={item.locationName} onChange={(e) => updateItem(idx, { locationName: e.target.value })} />
                 <Input className="h-9 text-sm" type="number" min={0} placeholder="Qty" value={item.quantity} onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) })} />
               </div>
-              <Input className="h-10 text-sm" type="datetime-local" value={item.date} onChange={(e) => updateItem(idx, { date: e.target.value })} />
+              <div className="flex flex-col gap-1.5">
+                <div className="flex gap-2">
+                  <Input className="h-10 flex-1 text-sm" type="datetime-local" value={dateDrafts[idx] ?? item.date} onChange={(e) => setDateDrafts((d) => ({ ...d, [idx]: e.target.value }))} />
+                  <Button type="button" variant={datePending(idx) ? "default" : "outline"} className="h-10 shrink-0" disabled={!datePending(idx)} onClick={() => applyDate(idx)}>Apply</Button>
+                </div>
+                {datePending(idx) && <p className="text-[11px] font-medium text-amber-600">Date &amp; time changed — click Apply to use it.</p>}
+              </div>
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between"><span className="text-xs text-slate-500">Custom Costs</span><Button type="button" variant="outline" size="sm" className="h-5 px-1.5 text-[11px]" onClick={() => addCustomCost(idx)}><Plus className="h-2.5 w-2.5" />Add</Button></div>
                 {item.customCostFields.map((cf, cfIdx) => (

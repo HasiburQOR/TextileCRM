@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react"
-import { Fragment, useState, type Dispatch, type SetStateAction } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { ArrowLeft, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react"
+import { Fragment, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,6 +28,7 @@ export function SourcingCostDetailPage() {
   const [editTarget, setEditTarget] = useState<SourcingCostItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<SourcingCostItem | null>(null)
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
+  const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false)
 
   const costQuery = useQuery({
     queryKey: ["sourcing-costs", id],
@@ -47,6 +48,32 @@ export function SourcingCostDetailPage() {
     onError: (err: unknown) => setActionError(extractErrorMessage(err)),
   })
 
+  // Reopen flips a closed cost back to "open" — the edit/add/delete buttons
+  // and item pencils are all gated on the open status, so this single call
+  // makes the whole cost editable again.
+  const reopenMutation = useMutation({
+    mutationFn: async () => { const { data } = await api.post<SourcingCost>(`/sourcing-costs/${id}/reopen/`); return data },
+    onSuccess: (data) => { queryClient.setQueryData(["sourcing-costs", id], data); queryClient.invalidateQueries({ queryKey: ["sourcing-costs"] }); setActionError(null); setReopenConfirmOpen(false) },
+    onError: (err: unknown) => setActionError(extractErrorMessage(err)),
+  })
+
+  // Arriving via the list page's row-level Edit button (?edit=1) drops the
+  // user straight into editing — no extra click hunting for the pencil.
+  // Opens the first item's Edit dialog, or "Add Item" when the cost is empty.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const autoEditOpened = useRef(false)
+  useEffect(() => {
+    const cost = costQuery.data
+    if (!cost || autoEditOpened.current) return
+    autoEditOpened.current = true
+    if (searchParams.get("edit") !== "1") return
+    setSearchParams({}, { replace: true })
+    const editable = !!user && CAN_MANAGE_ROLES.includes(user.role) && cost.status === "open"
+    if (!editable) return
+    if (cost.items.length > 0) setEditTarget(cost.items[0])
+    else setAddOpen(true)
+  }, [costQuery.data, searchParams, setSearchParams, user])
+
   if (costQuery.isLoading) return (<div className="flex justify-center py-16"><Spinner className="text-slate-400" /></div>)
   if (!costQuery.data) return <p className="py-16 text-center text-sm text-slate-400">Sourcing cost not found.</p>
 
@@ -65,6 +92,7 @@ export function SourcingCostDetailPage() {
           {cost.fullPaymentConfirmedAt && (<p className="text-sm text-slate-500">Confirmed {new Date(cost.fullPaymentConfirmedAt).toLocaleString()}</p>)}
         </div>
         {canManage && isOpen && (<><Button variant="outline" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" />Add Item</Button><Button onClick={() => setCloseConfirmOpen(true)} disabled={closeMutation.isPending}>{closeMutation.isPending ? "Closing..." : "Close Cost"}</Button></>)}
+        {canManage && !isOpen && (<Button variant="outline" onClick={() => setReopenConfirmOpen(true)} disabled={reopenMutation.isPending}><RotateCcw className="h-4 w-4" />{reopenMutation.isPending ? "Reopening..." : "Reopen & Edit"}</Button>)}
       </div>
       {actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
       <Card><CardHeader><CardTitle>Cost Breakdown ({cost.items.length} {cost.items.length === 1 ? "item" : "items"})</CardTitle></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead>
@@ -111,6 +139,8 @@ export function SourcingCostDetailPage() {
       {deleteTarget && (<Dialog open onClose={() => { setDeleteTarget(null); setActionError(null) }} title="Delete Item"><div className="flex flex-col gap-3">{actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}<p className="text-sm text-slate-600">Delete <strong>{deleteTarget.productName}</strong> at {deleteTarget.locationName}? The wallet will be refunded.</p><div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setDeleteTarget(null); setActionError(null) }}>Cancel</Button><Button variant="destructive" disabled={deleteItemMutation.isPending} onClick={() => deleteItemMutation.mutate(deleteTarget.id)}>{deleteItemMutation.isPending ? "Deleting..." : "Delete"}</Button></div></div></Dialog>)}
 
       {closeConfirmOpen && (<Dialog open onClose={() => { setCloseConfirmOpen(false); setActionError(null) }} title="Close Sourcing Cost"><div className="flex flex-col gap-3">{actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}<p className="text-sm text-slate-600">Close this sourcing cost for <strong>{cost.poReference}</strong>?</p><div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setCloseConfirmOpen(false); setActionError(null) }}>Cancel</Button><Button disabled={closeMutation.isPending} onClick={() => closeMutation.mutate()}>{closeMutation.isPending ? "Closing..." : "Close Cost"}</Button></div></div></Dialog>)}
+
+      {reopenConfirmOpen && (<Dialog open onClose={() => { setReopenConfirmOpen(false); setActionError(null) }} title="Reopen Sourcing Cost"><div className="flex flex-col gap-3">{actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}<p className="text-sm text-slate-600">Reopen <strong>{cost.poReference}</strong> for editing? Items can be edited, added or deleted again, and the payment confirmation stamp is cleared until the cost is closed once more.</p><div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => { setReopenConfirmOpen(false); setActionError(null) }}>Cancel</Button><Button disabled={reopenMutation.isPending} onClick={() => reopenMutation.mutate()}>{reopenMutation.isPending ? "Reopening..." : "Reopen & Edit"}</Button></div></div></Dialog>)}
 
       {addOpen && <AddItemDialog costId={id!} onClose={() => setAddOpen(false)} />}
       {editTarget && <EditItemDialog costId={id!} item={editTarget} onClose={() => setEditTarget(null)} />}

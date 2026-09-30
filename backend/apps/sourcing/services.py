@@ -213,6 +213,21 @@ def close_sourcing_cost(cost: SourcingCost) -> SourcingCost:
             notification_type=NotificationType.TRIP_CLOSED,
             sister_profile=cost.sisterProfile,
         )
+
+
+@transaction.atomic
+def reopen_sourcing_cost(cost: SourcingCost) -> SourcingCost:
+    """Reopen a closed cost so its items can be edited, added or deleted
+    again. Closing is just a status gate (wallet deductions live on the
+    items, not the cost), so reopening is the same gate in reverse — and it
+    clears the payment-confirmed stamp so the cost reads as unconfirmed
+    until it is closed again."""
+    if cost.status == TripStatus.OPEN:
+        raise ValidationError("Sourcing Cost is already open.")
+    cost.status = TripStatus.OPEN
+    cost.fullPaymentConfirmedAt = None
+    cost.save(update_fields=["status", "fullPaymentConfirmedAt", "updatedAt"])
+    return cost
     return cost
 
 

@@ -264,7 +264,7 @@ class SourcingCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         return SourcingCostSerializer
 
     def get_permissions(self):
-        if self.action in ("create", "close"):
+        if self.action in ("create", "close", "reopen"):
             return [IsRole()]
         if self.action in WRITE_ACTIONS:
             return [IsAdmin()]
@@ -285,6 +285,16 @@ class SourcingCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         cost = self.get_object()
         try:
             services.close_sourcing_cost(cost)
+        except DjangoValidationError as exc:
+            _raise_from(exc)
+        return Response(self.get_serializer(cost).data)
+
+    @action(detail=True, methods=["post"])
+    def reopen(self, request, pk=None):
+        """Reopen a closed cost so it becomes editable again (admin/company rep)."""
+        cost = self.get_object()
+        try:
+            services.reopen_sourcing_cost(cost)
         except DjangoValidationError as exc:
             _raise_from(exc)
         return Response(self.get_serializer(cost).data)
