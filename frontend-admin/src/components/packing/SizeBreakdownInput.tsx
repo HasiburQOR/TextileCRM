@@ -50,7 +50,8 @@ export function SizeBreakdownInput({ rows, onChange }: {
           <input
             className="h-6 w-9 rounded border border-slate-200 px-1 text-xs text-center"
             type="number" min={0}
-            value={row.quantity}
+            placeholder="Qty"
+            value={row.quantity || ""}
             onChange={(e) => updateRow(i, { quantity: Number(e.target.value) })}
           />
           <button type="button" onClick={() => removeRow(i)} className="shrink-0 text-slate-300 hover:text-red-500">

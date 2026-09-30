@@ -531,11 +531,20 @@ function WalletTopUpDialog({ buyerId, onClose, onSuccess }: { buyerId: string; o
 function WalletAdjustDialog({ buyerId, sisterProfiles, onClose, onSuccess }: {
   buyerId: string; sisterProfiles: SisterProfile[]; onClose: () => void; onSuccess: () => void
 }) {
+  // Which way the entered (positive) amount moves the balance. "Deduct" is
+  // the default — adding money already has its own "Add Top-up" button, and
+  // a plain amount typed here used to land as an addition (silent +).
+  const [direction, setDirection] = useState<"deduct" | "add">("deduct")
   const [form, setForm] = useState<WalletAdjustInput>({ amount: 0, reason: "", sisterProfile: "" })
   const [error, setError] = useState<string | null>(null)
   const mutation = useMutation({
     mutationFn: async () => {
-      const payload = { ...form, sisterProfile: form.sisterProfile || undefined }
+      const magnitude = Math.abs(Number(form.amount))
+      const payload = {
+        ...form,
+        amount: direction === "deduct" ? -magnitude : magnitude,
+        sisterProfile: form.sisterProfile || undefined,
+      }
       const { data } = await api.post<WalletTransaction>(`/buyers/${buyerId}/wallet/adjust/`, payload)
       return data
     },
@@ -544,12 +553,19 @@ function WalletAdjustDialog({ buyerId, sisterProfiles, onClose, onSuccess }: {
   })
   return (
     <Dialog open onClose={onClose} title="Adjust Balance">
-      <form onSubmit={(e) => { e.preventDefault(); mutation.mutate() }} className="flex flex-col gap-4">
+      <form onSubmit={(e) => { e.preventDefault(); setError(null); if (!form.amount || Number(form.amount) <= 0) { setError("Enter an amount greater than zero."); return } mutation.mutate() }} className="flex flex-col gap-4">
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-        <p className="text-xs text-slate-400">For corrections that don't map to a specific expense — e.g. a bank fee. Use a negative amount to deduct.</p>
+        <p className="text-xs text-slate-400">For corrections that don't map to a specific expense — e.g. a bank fee. Choose whether the amount is added to or deducted from the balance.</p>
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">Amount * (use a minus sign to deduct)</label>
-          <Input required type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} autoFocus />
+          <label className="mb-1 block text-xs font-medium text-slate-600">Direction</label>
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant={direction === "deduct" ? "destructive" : "outline"} onClick={() => setDirection("deduct")}>- Deduct</Button>
+            <Button type="button" variant={direction === "add" ? "default" : "outline"} onClick={() => setDirection("add")}>+ Add</Button>
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Amount * ({direction === "deduct" ? "deducted from" : "added to"} the balance)</label>
+          <Input required type="number" min={0.01} step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} autoFocus />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile (optional, for reporting only)</label>
