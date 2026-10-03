@@ -85,7 +85,7 @@ export function SourcingCostDetailPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/costs")}><ArrowLeft className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/pipeline")}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2"><h1 className="text-xl font-semibold text-slate-900">{cost.poReference}</h1><Badge variant={COST_STATUS_BADGE_VARIANT[cost.status]}>{COST_STATUS_LABEL[cost.status]}</Badge></div>
           <p className="text-sm text-slate-500">{cost.sisterProfileName} · Total: {totalAmount.toLocaleString()}</p>

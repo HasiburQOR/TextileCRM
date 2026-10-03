@@ -2,6 +2,7 @@ import {
   ArrowLeftRight,
   Building2,
   ClipboardCheck,
+  FileText,
   Folder,
   GitBranch,
   History,
@@ -10,14 +11,14 @@ import {
   MapPin,
   PackageCheck,
   PackagePlus,
+  QrCode,
   Receipt,
   Scale,
   ShieldCheck,
   UserCog,
   Users,
   Warehouse,
-  FileText,
-  QrCode,
+  Workflow,
   type LucideIcon,
 } from "lucide-react"
 
@@ -41,4 +42,6 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   QrCode,
   LayoutTemplate,
   Building2,
+  Workflow,
 }
+

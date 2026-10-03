@@ -13,12 +13,12 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/buyers", label: "Buyers", icon: "Users", roles: ["management"] },
   { to: "/sister-profiles", label: "Sister Profiles", icon: "GitBranch", roles: ["management"] },
   { to: "/product-templates", label: "Product Templates", icon: "LayoutTemplate", roles: [] },
-  // warehouse: read-only here, plus "Mark Ready for Final QC" on In Warehouse products.
-  { to: "/products", label: "Sourcing Intake", icon: "PackagePlus", roles: ["company_rep", "employee", "management", "warehouse"] },
-  // One combined Costs page (Sourcing + Warehouse sections) since the
-  // Sourcing-Intake-as-Packing-List workflow merge — costs have no approval
-  // gates and live side by side in the sequence.
-  { to: "/costs", label: "Costs", icon: "MapPin", roles: ["company_rep", "warehouse", "management"] },
+  // The unified Sourcing Pipeline: the four sequential steps per Sister
+  // Profile (Intake → Sourcing Cost → Packing List → Warehouse Cost) in one
+  // guided flow. Replaces the former "Sourcing Intake" and "Costs" entries;
+  // those URLs redirect to /pipeline. warehouse: read-only on intake rows,
+  // plus "Mark Ready for Final QC" on In Warehouse products.
+  { to: "/pipeline", label: "Sourcing Pipeline", icon: "Workflow", roles: ["company_rep", "employee", "management", "warehouse"] },
   // Temporarily disabled — still under active work, hidden from nav until ready.
   // { to: "/final-qc", label: "Final QC & QR", icon: "QrCode", roles: ["qc", "management"] },
   // { to: "/qc-reports", label: "QC Costs", icon: "ClipboardCheck", roles: ["qc", "management"] },

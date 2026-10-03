@@ -15,6 +15,7 @@ from apps.buyers.models import AgreementType, BuyerProfile, SisterProfile
 from apps.packing.models import PackingRule
 from apps.sourcing.models import Product, ProductVariant, SourcingCost, SourcingCostItem
 from apps.wallet.models import BuyerWallet
+from apps.warehouse.models import WarehouseCost
 
 
 class BuyerProfileFactory(DjangoModelFactory):
@@ -118,3 +119,16 @@ class SourcingCostItemFactory(DjangoModelFactory):
     quantity = 100
     customCostFields = []
     date = factory.LazyFunction(timezone.now)
+
+
+class WarehouseCostFactory(DjangoModelFactory):
+    """One shipment-level warehouse cost sheet against a Sister Profile
+    (Unified Sourcing Pipeline, step 4)."""
+
+    class Meta:
+        model = WarehouseCost
+
+    sisterProfile = factory.SubFactory(SisterProfileFactory)
+    createdBy = factory.SubFactory(UserFactory)
+    loaderCost = Decimal("50")
+    extraWorkerCost = Decimal("20")

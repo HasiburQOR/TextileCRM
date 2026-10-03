@@ -13,11 +13,11 @@ import { BuyersPage } from "@/pages/BuyersPage"
 import { BuyerDetailPage } from "@/pages/BuyerDetailPage"
 import { SisterProfilesPage } from "@/pages/SisterProfilesPage"
 import { SisterProfileDetailPage } from "@/pages/SisterProfileDetailPage"
-import { ProductsPage } from "@/pages/ProductsPage"
+import { PipelinePage } from "@/pages/PipelinePage"
+import { PipelineDetailPage } from "@/pages/PipelineDetailPage"
 import { ProductDetailPage } from "@/pages/ProductDetailPage"
 import { ProductTemplatesPage } from "@/pages/ProductTemplatesPage"
 import { SourcingCostDetailPage } from "@/pages/SourcingCostDetailPage"
-import { CostsPage } from "@/pages/CostsPage"
 // Temporarily disabled — see the commented-out routes below.
 // import { FinalQCPage } from "@/pages/FinalQCPage"
 // import { QCCostsPage } from "@/pages/QCCostsPage"
@@ -64,10 +64,15 @@ function ProtectedApp() {
         <Route path="/buyers/:id" element={<BuyerDetailPage />} />
         <Route path="/sister-profiles" element={<SisterProfilesPage />} />
         <Route path="/sister-profiles/:id" element={<SisterProfileDetailPage />} />
-        <Route path="/products" element={<ProductsPage />} />
+        <Route path="/pipeline" element={<PipelinePage />} />
+        <Route path="/pipeline/:id" element={<PipelineDetailPage />} />
+        {/* The unified Sourcing Pipeline replaced the separate Sourcing Intake
+            and Costs pages — their old entry URLs redirect there. Product and
+            cost detail routes below are unchanged. */}
+        <Route path="/products" element={<Navigate to="/pipeline" replace />} />
         <Route path="/products/:id" element={<ProductDetailPage />} />
         <Route path="/product-templates" element={<ProductTemplatesPage />} />
-        <Route path="/costs" element={<CostsPage />} />
+        <Route path="/costs" element={<Navigate to="/pipeline" replace />} />
         <Route path="/sourcing-costs/:id" element={<SourcingCostDetailPage />} />
         {/* Final QC & QR / QC Costs temporarily disabled — still under active
             work. Also hidden from nav (see lib/nav-items.ts). The pages and

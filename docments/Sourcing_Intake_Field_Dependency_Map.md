@@ -1,6 +1,6 @@
 # Sourcing Intake: How Every Field Connects
 
-A study guide for the **Sourcing Intake** page (`/products`). For every field it answers three questions:
+A study guide for the **Sourcing Intake** screen. Since the Unified Sourcing Pipeline change it lives as **Step 1 of the per-order pipeline** (`/pipeline/:id?step=intake`); the old `/products` URL redirects to `/pipeline`. For every field it answers three questions:
 
 1. **Where does the value come from?** Typed by you, or calculated from other fields?
 2. **What does it change on the same screen?**
@@ -527,3 +527,38 @@ The Sister Profile. Buyer-currency values = supplier value ÷ its exchange rate.
 
 No. The carton rows keep the old Style No until that packing list is edited and saved again. (Invoices already issued never change either, by design.)
 </details>
+
+---
+
+## 10. The Unified Sourcing Pipeline (where Intake lives now)
+
+Since the pipeline unification, the four sourcing modules are one sequential
+flow anchored per **Sister Profile** (one PO/shipment = one pipeline):
+
+| Step | Screen | What it is |
+|---|---|---|
+| 1. Sourcing Intake | `ProductsPage` embedded at `/pipeline/:id?step=intake` | The intake form + product list of section 2, scoped to the order. Creating a product here IS step 1 done. |
+| 2. Sourcing Cost | `SourcingCostsPage` embedded at `?step=sourcingCost` | The per-order sourcing cost sheet (existing endpoint, filtered to the order). |
+| 3. Packing List *(optional)* | `PackingListStep` at `?step=packingList` | **Review + download only** — no data entry. The document is generated on demand from intake data (`packing-list-export`, PDF/XLSX). Done per product by *downloading* (stamps `packingListExportedAt`) or *skipping* (`packing-list-skip` toggles `packingListSkipped`). The step is done when **every** product is exported or skipped. |
+| 4. Warehouse Cost | `WarehouseCostsPage` embedded at `?step=warehouseCost` | The shipment's loading/packaging/extra costs (existing endpoint, filtered). |
+
+Key rules:
+
+- **Guided, not gated.** The stepper colors progress and names the next
+  step, but every step is clickable in any order — nothing locks (consistent
+  with the earlier removal of the approval step and cost locks).
+- **Progress is derived, never stored as workflow state.**
+  `GET /sister-profiles/{id}/pipeline/` aggregates the existing tables and
+  returns each step's `done` flag, counts, and the `nextStep` hint. The only
+  new persistence is the two Product columns for step 3:
+  `packingListExportedAt` (DateTimeField, set by the export endpoint — a
+  download also clears the skip flag) and `packingListSkipped` (Boolean,
+  toggled by the skip endpoint).
+- **Navigation.** One nav entry, *Sourcing Pipeline* (`/pipeline`); the old
+  *Sourcing Intake* (`/products`) and *Costs* (`/costs`) URLs redirect to it.
+  Product (`/products/:id`) and cost (`/sourcing-costs/:id`) detail pages are
+  unchanged.
+- The pipeline list page computes the four progress dots client-side from
+  the same bulk lists (mirroring the endpoint's rules); the detail page hits
+  the `/pipeline/` endpoint.
+

@@ -111,7 +111,7 @@ export function ProductDetailPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/products")} title="Back to Sourcing Intake">
+        <Button variant="ghost" size="icon" onClick={() => navigate("/pipeline")} title="Back to Sourcing Pipeline">
           <ArrowLeft className="h-4 w-4" />
         </Button>
 

@@ -169,7 +169,10 @@ function variantToDraft(v: Product["variants"][number]): VariantRowDraft {
 
 const DEFAULT_VARIANT_ROWS = 1
 
-export function ProductsPage() {
+// `sisterProfileId` scopes the list to one Sister Profile and pre-selects
+// it in the New Product dialog — used by the Sourcing Pipeline step 1, which
+// renders this page with `embedded` (no page heading) inside its panel.
+export function ProductsPage({ sisterProfileId, embedded = false }: { sisterProfileId?: string; embedded?: boolean } = {}) {
   const user = useAuthStore((s) => s.user)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -199,9 +202,15 @@ export function ProductsPage() {
     onError: (err: unknown) => setDeleteError(extractErrorMessage(err)),
   })
 
+  // Rows scoped to the pipeline's Sister Profile (if any) — both the visible
+  // list and the status-filter counts come from this, never global data.
+  const profileRows = useMemo(
+    () => (sisterProfileId ? (productsQuery.data ?? []).filter((p) => p.sisterProfile === sisterProfileId) : (productsQuery.data ?? [])),
+    [productsQuery.data, sisterProfileId],
+  )
+
   const filtered = useMemo(() => {
-    const rows = productsQuery.data ?? []
-    return rows.filter((p) => {
+    return profileRows.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false
       if (search.trim()) {
         const q = search.trim().toLowerCase()
@@ -213,23 +222,25 @@ export function ProductsPage() {
       }
       return true
     })
-  }, [productsQuery.data, statusFilter, search])
+  }, [profileRows, statusFilter, search])
 
   const statusCounts = useMemo(() => {
-    const counts: Partial<Record<ProductStatus | "all", number>> = { all: productsQuery.data?.length ?? 0 }
-    for (const p of productsQuery.data ?? []) counts[p.status] = (counts[p.status] ?? 0) + 1
+    const counts: Partial<Record<ProductStatus | "all", number>> = { all: profileRows.length }
+    for (const p of profileRows) counts[p.status] = (counts[p.status] ?? 0) + 1
     return counts
-  }, [productsQuery.data])
+  }, [profileRows])
 
   const canCreate = !!user && CAN_CREATE_ROLES.includes(user.role)
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Sourcing Intake</h1>
-          <p className="text-sm text-slate-500">Every sourcing request, its color/size breakdown, and current status.</p>
-        </div>
+      <div className={`flex flex-wrap items-center gap-3 ${embedded ? "justify-end" : "justify-between"}`}>
+        {!embedded && (
+          <div>
+            <h1 className="text-xl font-semibold text-slate-900">Sourcing Intake</h1>
+            <p className="text-sm text-slate-500">Every sourcing request, its color/size breakdown, and current status.</p>
+          </div>
+        )}
         {canCreate && (
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4" />
@@ -263,11 +274,11 @@ export function ProductsPage() {
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-10 text-center">
               <p className="text-sm text-slate-500">
-                {(productsQuery.data?.length ?? 0) === 0 ? "No products yet." : "No products match your search or filter."}
+                {profileRows.length === 0 ? "No products yet." : "No products match your search or filter."}
               </p>
-              {(search || statusFilter !== "all") && (productsQuery.data?.length ?? 0) > 0 ? (
+              {(search || statusFilter !== "all") && profileRows.length > 0 ? (
                 <Button variant="outline" size="sm" onClick={() => { setSearch(""); setStatusFilter("all") }}>Clear search &amp; filter</Button>
-              ) : canCreate && (productsQuery.data?.length ?? 0) === 0 ? (
+              ) : canCreate && profileRows.length === 0 ? (
                 <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> Add the first product</Button>
               ) : null}
             </div>
@@ -350,7 +361,7 @@ export function ProductsPage() {
         </CardContent>
       </Card>
 
-      {createOpen && <CreateProductDialog onClose={() => setCreateOpen(false)} />}
+      {createOpen && <CreateProductDialog onClose={() => setCreateOpen(false)} defaultSisterProfile={sisterProfileId} />}
 
       {viewTarget && <ViewProductDialog product={viewTarget} onClose={() => setViewTarget(null)} />}
 
@@ -376,7 +387,7 @@ export function ProductsPage() {
   )
 }
 
-function CreateProductDialog({ onClose }: { onClose: () => void }) {
+function CreateProductDialog({ onClose, defaultSisterProfile }: { onClose: () => void; defaultSisterProfile?: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
@@ -396,7 +407,7 @@ function CreateProductDialog({ onClose }: { onClose: () => void }) {
     },
   })
 
-  const [sisterProfile, setSisterProfile] = useState("")
+  const [sisterProfile, setSisterProfile] = useState(defaultSisterProfile ?? "")
   const [name, setName] = useState("")
   const [brandName, setBrandName] = useState("")
   const [poNo, setPoNo] = useState("")

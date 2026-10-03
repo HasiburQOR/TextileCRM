@@ -20,7 +20,7 @@ const NEXT_STEP: Record<ProductStatus, { who: string; text: React.ReactNode }> =
     who: "Company Rep",
     text: (
       <>
-        Record this product's costs under <Link to="/costs" className="font-medium underline">Costs</Link> — legacy status:
+        Record this product's costs in the <Link to="/pipeline" className="font-medium underline">Sourcing Pipeline</Link> — legacy status:
         this product predates the removal of the approval step, but the QC report can be recorded any time.
       </>
     ),
@@ -38,7 +38,7 @@ const NEXT_STEP: Record<ProductStatus, { who: string; text: React.ReactNode }> =
     who: "Warehouse Manager",
     text: (
       <>
-        Record this order's <Link to="/costs" className="font-medium underline">Warehouse Costs</Link>, then click{" "}
+        Record this order's Warehouse Costs in the <Link to="/pipeline" className="font-medium underline">Sourcing Pipeline</Link>, then click{" "}
         <strong>Mark Ready for Final QC</strong>.
       </>
     ),

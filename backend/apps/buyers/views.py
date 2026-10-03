@@ -212,6 +212,67 @@ class SisterProfileViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
             },
         )
 
+    @action(detail=True, methods=["get"], url_path="pipeline")
+    def pipeline(self, request, pk=None):
+        """Unified Sourcing Pipeline progress for this order (Sister
+        Profile): step 1 Sourcing Intake → step 2 Sourcing Cost → step 3
+        Packing List (optional per product — done by downloading the
+        document or explicitly skipping) → step 4 Warehouse Cost. A
+        read-only aggregation over the existing tables: the pipeline UI is
+        a view over data that is already there, not a new workflow state
+        machine. Tenant scoping is inherited via get_object(), so a buyer
+        reaching for another buyer's order 404s like everywhere else.
+        """
+        from apps.sourcing.models import Product, SourcingCost
+        from apps.warehouse.models import WarehouseCost
+
+        profile = self.get_object()
+
+        products = list(profile.products.all())
+        sourcing_cost_count = SourcingCost.objects.filter(sisterProfile=profile).count()
+        warehouse_cost_count = WarehouseCost.objects.filter(sisterProfile=profile).count()
+
+        # Step 3 is per-product optional: done only once EVERY product has
+        # been either downloaded or explicitly skipped — one pending product
+        # keeps the step pending.
+        packing_done = bool(products) and all(
+            p.packingListExportedAt or p.packingListSkipped for p in products
+        )
+
+        steps = {
+            # Dict key order IS the pipeline's fixed step order (1→4); the
+            # frontend stepper renders straight from this.
+            "intake": {
+                "title": "Sourcing Intake",
+                "done": bool(products),
+                "productCount": len(products),
+            },
+            "sourcingCost": {
+                "title": "Sourcing Cost",
+                "done": sourcing_cost_count > 0,
+                "costCount": sourcing_cost_count,
+            },
+            "packingList": {
+                "title": "Packing List",
+                "optional": True,
+                "done": packing_done,
+                "exportedCount": sum(1 for p in products if p.packingListExportedAt),
+                "skippedCount": sum(1 for p in products if p.packingListSkipped),
+            },
+            "warehouseCost": {
+                "title": "Warehouse Cost",
+                "done": warehouse_cost_count > 0,
+                "costCount": warehouse_cost_count,
+            },
+        }
+        next_step = next((key for key, s in steps.items() if not s["done"]), None)
+        return Response({
+            "sisterProfile": profile.id,
+            "steps": steps,
+            "nextStep": next_step,
+            "completed": next_step is None,
+        })
+
     @action(detail=True, methods=["get"], url_path="cost-breakdown")
     def cost_breakdown(self, request, pk=None):
         """Where this order's money has gone, in both currencies.

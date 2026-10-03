@@ -93,6 +93,10 @@ export interface Product {
   packingDate: string | null
   frontMark: string
   sideMark: string
+  // Unified Sourcing Pipeline, step 3 markers (read-only from the API —
+  // written only by the packing-list-export / packing-list-skip endpoints).
+  packingListExportedAt: string | null
+  packingListSkipped: boolean
   totalCartons: number
   productQrGenerated: boolean
   productQrPayload: Record<string, unknown>

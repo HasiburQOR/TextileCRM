@@ -226,6 +226,14 @@ class Product(UUIDModel, TimeStampedModel):
     )
     reviewedAt = models.DateTimeField(null=True, blank=True)
 
+    # Unified Sourcing Pipeline, step-3 bookkeeping: the packing-list
+    # document itself is rendered on demand from this record — these two
+    # fields only track WHETHER the optional step ever ran, so the pipeline
+    # stepper can tell "done" (document downloaded) from "skipped on
+    # purpose" from "still pending".
+    packingListExportedAt = models.DateTimeField(null=True, blank=True)
+    packingListSkipped = models.BooleanField(default=False)
+
     class Meta:
         ordering = ["-createdAt"]
 

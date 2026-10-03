@@ -6,6 +6,7 @@ import qrcode
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import ProtectedError
 from django.http import HttpResponse
+from django.utils import timezone
 from PIL import Image
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -101,7 +102,7 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         return ProductSerializer
 
     def get_permissions(self):
-        if self.action in ("create", "upload_image", "upload_factory_packing_list", "custom_fields"):
+        if self.action in ("create", "upload_image", "upload_factory_packing_list", "custom_fields", "packing_list_skip"):
             return [IsRole()]
         if self.action in WRITE_ACTIONS:
             return [IsAdmin()]
@@ -143,6 +144,13 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         from apps.packing import exports
 
         product = self.get_object()
+        # Unified Sourcing Pipeline, step 3: a download means the optional
+        # packing-list step ran for this product — stamp it and clear any
+        # earlier skip so the two markers never both claim the step
+        # (re-downloads just refresh the timestamp).
+        product.packingListExportedAt = timezone.now()
+        product.packingListSkipped = False
+        product.save(update_fields=["packingListExportedAt", "packingListSkipped", "updatedAt"])
         if request.query_params.get("filetype") == "xlsx":
             content = exports.render_packing_list_xlsx(product)
             response = HttpResponse(content, content_type=XLSX_CONTENT_TYPE)
@@ -153,6 +161,19 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
             filename = exports.packing_list_filename(product, "pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+    @action(detail=True, methods=["post"], url_path="packing-list-skip")
+    def packing_list_skip(self, request, pk=None):
+        """Unified Sourcing Pipeline, step 3: the packing list is optional
+        per product — this toggles the explicit skip marker so the stepper
+        can tell 'skipped on purpose' from 'still pending'. Downloading the
+        document clears the skip marker (see packing_list_export); skipping
+        here does not erase a previous download stamp, since the step then
+        ran either way. Toggle semantics: POST again to un-skip."""
+        product = self.get_object()
+        product.packingListSkipped = not product.packingListSkipped
+        product.save(update_fields=["packingListSkipped", "updatedAt"])
+        return Response(self.get_serializer(product).data)
 
     @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
     def upload_image(self, request, pk=None):

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, Pencil, Plus, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
@@ -30,7 +30,10 @@ const EMPTY_PACKAGING = {
 const CAN_CREATE_ROLES = ["admin", "warehouse"]
 const CAN_MANAGE_ROLES = ["admin"]
 
-export function WarehouseCostsPage() {
+// `sisterProfileId` scopes the list to one Sister Profile and pre-selects it
+// in the New Cost dialog — used by the Sourcing Pipeline step 4, which renders
+// this page with `embedded` (no page heading) inside its panel.
+export function WarehouseCostsPage({ sisterProfileId, embedded = false }: { sisterProfileId?: string; embedded?: boolean } = {}) {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
@@ -46,6 +49,11 @@ export function WarehouseCostsPage() {
       return data.results
     },
   })
+
+  const costs = useMemo(
+    () => (sisterProfileId ? (costsQuery.data ?? []).filter((wc) => wc.sisterProfile === sisterProfileId) : (costsQuery.data ?? [])),
+    [costsQuery.data, sisterProfileId],
+  )
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => { await api.delete(`/warehouse-costs/${id}/`) },
@@ -63,11 +71,13 @@ export function WarehouseCostsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Warehouse Costs</h1>
-          <p className="text-sm text-slate-500">Loading, packaging, and extra costs per shipment — recorded against a Sister Profile and, optionally, one of its Packing Lists.</p>
-        </div>
+      <div className={`flex flex-wrap items-center gap-3 ${embedded ? "justify-end" : "justify-between"}`}>
+        {!embedded && (
+          <div>
+            <h1 className="text-xl font-semibold text-slate-900">Warehouse Costs</h1>
+            <p className="text-sm text-slate-500">Loading, packaging, and extra costs per shipment — recorded against a Sister Profile and, optionally, one of its Packing Lists.</p>
+          </div>
+        )}
         {canCreate && (
           <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New Warehouse Cost</Button>
         )}
@@ -77,7 +87,7 @@ export function WarehouseCostsPage() {
         <CardContent className="p-0">
           {costsQuery.isLoading ? (
             <div className="flex justify-center py-10"><Spinner className="text-slate-400" /></div>
-          ) : !costsQuery.data?.length ? (
+          ) : !costs.length ? (
             <p className="py-10 text-center text-sm text-slate-400">No warehouse costs recorded yet.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -92,7 +102,7 @@ export function WarehouseCostsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {costsQuery.data.map((wc) => (
+                {costs.map((wc) => (
                   <tr key={wc.id}>
                     <td className="px-4 py-3 font-medium text-slate-900">{wc.sisterProfilePoReference || "—"}</td>
                     <td className="px-4 py-3 text-slate-500">{Number(wc.loaderCost).toLocaleString()}</td>
@@ -130,6 +140,7 @@ export function WarehouseCostsPage() {
       {createOpen && (
         <WarehouseCostFormDialog
           onClose={() => setCreateOpen(false)}
+          defaultSisterProfile={sisterProfileId}
           onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["warehouse-costs"] }); queryClient.invalidateQueries({ queryKey: ["expenses"] }); setCreateOpen(false) }}
         />
       )}
@@ -202,11 +213,11 @@ function Field({ label, value }: { label: string; value: string }) {
   )
 }
 
-function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
-  existing?: WarehouseCost; onClose: () => void; onSuccess: () => void
+function WarehouseCostFormDialog({ existing, onClose, onSuccess, defaultSisterProfile }: {
+  existing?: WarehouseCost; onClose: () => void; onSuccess: () => void; defaultSisterProfile?: string
 }) {
   const isEdit = !!existing
-  const [sisterProfile, setSisterProfile] = useState(existing?.sisterProfile ?? "")
+  const [sisterProfile, setSisterProfile] = useState(existing?.sisterProfile ?? defaultSisterProfile ?? "")
   const [loaderCost, setLoaderCost] = useState(Number(existing?.loaderCost ?? 0))
   const [extraWorkerCost, setExtraWorkerCost] = useState(Number(existing?.extraWorkerCost ?? 0))
   const [checked, setChecked] = useState<Record<string, boolean>>(() => {

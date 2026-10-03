@@ -133,6 +133,11 @@ class ProductSerializer(serializers.ModelSerializer):
     packingDate = serializers.DateField(required=False, allow_null=True)
     frontMark = serializers.CharField(required=False, allow_blank=True)
     sideMark = serializers.CharField(required=False, allow_blank=True)
+    # Unified Sourcing Pipeline, step 3 — read-only markers of whether the
+    # optional packing-list document step ran (downloaded) or was skipped;
+    # they are only ever written by the packing-list-export / -skip actions.
+    packingListExportedAt = serializers.DateTimeField(read_only=True)
+    packingListSkipped = serializers.BooleanField(read_only=True)
     # Replaces the old packingCartonCount (which counted PackingCarton rows):
     # after the merge the intake rows themselves ARE the packing list, so the
     # packing indicator is the sum of the variants' carton counts.
@@ -149,6 +154,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "template", "templateName", "resolvedTemplateFields", "customFields",
             "status", "rejectionReason", "goodsName", "finalPrice", "fabricDetails", "factoryPackingList",
             "packingDate", "frontMark", "sideMark", "totalCartons",
+            "packingListExportedAt", "packingListSkipped",
             "productQrGenerated", "productQrPayload", "cartonQrGenerated", "cartonQrPayload",
             "createdBy", "createdByName", "reviewedBy",
             "reviewedByName", "reviewedAt", "variants", "images", "totalOrderQty", "createdAt", "updatedAt",

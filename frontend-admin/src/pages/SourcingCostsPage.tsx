@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, Pencil, Plus, Trash2 } from "lucide-react"
-import { Fragment, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -24,7 +24,10 @@ import type { SisterProfile, SourcingCost, SourcingCostCreateInput, SourcingCost
 const CAN_CREATE_ROLES = ["admin", "company_rep"]
 const CAN_EDIT_ROLES = ["admin", "company_rep"]
 
-export function SourcingCostsPage() {
+// `sisterProfileId` scopes the list to one Sister Profile and pre-selects it
+// in the New Cost dialog — used by the Sourcing Pipeline step 2, which renders
+// this page with `embedded` (no page heading) inside its panel.
+export function SourcingCostsPage({ sisterProfileId, embedded = false }: { sisterProfileId?: string; embedded?: boolean } = {}) {
   const user = useAuthStore((s) => s.user)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -41,6 +44,11 @@ export function SourcingCostsPage() {
     },
   })
 
+  const costs = useMemo(
+    () => (sisterProfileId ? (costsQuery.data ?? []).filter((c) => c.sisterProfile === sisterProfileId) : (costsQuery.data ?? [])),
+    [costsQuery.data, sisterProfileId],
+  )
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => { await api.delete(`/sourcing-costs/${id}/`) },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["sourcing-costs"] }); setDeleteTarget(null); setDeleteError(null) },
@@ -52,15 +60,17 @@ export function SourcingCostsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Sourcing Costs</h1>
-          <p className="text-sm text-slate-500">Track sourcing costs per Sister Profile with product references and custom cost fields.</p>
-        </div>
+      <div className={`flex flex-wrap items-center gap-3 ${embedded ? "justify-end" : "justify-between"}`}>
+        {!embedded && (
+          <div>
+            <h1 className="text-xl font-semibold text-slate-900">Sourcing Costs</h1>
+            <p className="text-sm text-slate-500">Track sourcing costs per Sister Profile with product references and custom cost fields.</p>
+          </div>
+        )}
         {canCreate && (<Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />New Cost</Button>)}
       </div>
       <Card><CardContent className="p-0">
-        {costsQuery.isLoading ? (<div className="flex justify-center py-10"><Spinner className="text-slate-400" /></div>) : (costsQuery.data?.length ?? 0) === 0 ? (<p className="py-10 text-center text-sm text-slate-400">No sourcing costs yet.</p>) : (
+        {costsQuery.isLoading ? (<div className="flex justify-center py-10"><Spinner className="text-slate-400" /></div>) : costs.length === 0 ? (<p className="py-10 text-center text-sm text-slate-400">No sourcing costs yet.</p>) : (
           <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
             <th className="px-4 py-2.5 font-medium">Sister Profile</th>
             <th className="px-4 py-2.5 font-medium">PO Reference</th>
@@ -70,7 +80,7 @@ export function SourcingCostsPage() {
             <th className="px-4 py-2.5 font-medium">Created</th>
             <th className="px-4 py-2.5 font-medium" />
           </tr></thead><tbody>
-            {costsQuery.data!.map((t) => (
+            {costs.map((t) => (
               <tr key={t.id} className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50" onClick={() => navigate(`/sourcing-costs/${t.id}`)}>
                 <td className="px-4 py-2.5 font-medium text-slate-900">{t.sisterProfileName}</td>
                 <td className="px-4 py-2.5 text-slate-500">{t.poReference}</td>
@@ -157,7 +167,7 @@ export function SourcingCostsPage() {
         </Dialog>
       )}
 
-      {createOpen && <CreateCostDialog onClose={() => setCreateOpen(false)} />}
+      {createOpen && <CreateCostDialog onClose={() => setCreateOpen(false)} defaultSisterProfile={sisterProfileId} />}
     </div>
   )
 }
@@ -166,9 +176,9 @@ function productOptionLabel(p: Product) {
   return `${p.name} (${p.styleNumber}) — PO ${p.poNo} · Brand ${p.brandName}`
 }
 
-function CreateCostDialog({ onClose }: { onClose: () => void }) {
+function CreateCostDialog({ onClose, defaultSisterProfile }: { onClose: () => void; defaultSisterProfile?: string }) {
   const queryClient = useQueryClient()
-  const [sisterProfile, setSisterProfile] = useState("")
+  const [sisterProfile, setSisterProfile] = useState(defaultSisterProfile ?? "")
   const [items, setItems] = useState<SourcingCostItemInput[]>([emptyItem()])
   const [error, setError] = useState<string | null>(null)
   // Date & time changes are staged, not live: picking in the calendar only
