@@ -17,10 +17,11 @@ import { useAuthStore } from "@/lib/auth-store"
 import type { Paginated } from "@/types/api"
 import type { SisterProfile, SourcingCost, SourcingCostCreateInput, SourcingCostItemInput, Product, CustomCostField } from "@/types/sourcing"
 
+// Mirrors the backend's IsRole on SourcingCostViewSet / SourcingCostItemViewSet:
+// admins and company reps create, edit and delete costs at any time — there
+// is no approval step, and a closed cost is never edit-locked (Close is a
+// payment-confirmation marker, not a freeze).
 const CAN_CREATE_ROLES = ["admin", "company_rep"]
-const CAN_MANAGE_ROLES = ["admin"]
-// Matches the detail page's CAN_MANAGE_ROLES — admins and company reps can
-// both edit items of an open cost, so both get the row-level Edit button.
 const CAN_EDIT_ROLES = ["admin", "company_rep"]
 
 export function SourcingCostsPage() {
@@ -47,7 +48,6 @@ export function SourcingCostsPage() {
   })
 
   const canCreate = !!user && CAN_CREATE_ROLES.includes(user.role)
-  const canManage = !!user && CAN_MANAGE_ROLES.includes(user.role)
   const canEdit = !!user && CAN_EDIT_ROLES.includes(user.role)
 
   return (
@@ -80,8 +80,8 @@ export function SourcingCostsPage() {
                 <td className="px-4 py-2.5 text-slate-500">{new Date(t.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-2.5"><div className="flex justify-end gap-1">
                   <Button size="sm" variant="ghost" title="View" onClick={(e) => { e.stopPropagation(); setViewTarget(t) }}><Eye className="h-3.5 w-3.5" /></Button>
-                  {canEdit && t.status === "open" && (<Button size="sm" variant="ghost" title="Edit" onClick={(e) => { e.stopPropagation(); navigate(`/sourcing-costs/${t.id}?edit=1`) }}><Pencil className="h-3.5 w-3.5" /></Button>)}
-                  {canManage && t.status === "open" && (<Button size="sm" variant="ghost" title="Delete" onClick={(e) => { e.stopPropagation(); setDeleteTarget(t) }}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>)}
+                  {canEdit && (<Button size="sm" variant="ghost" title="Edit" onClick={(e) => { e.stopPropagation(); navigate(`/sourcing-costs/${t.id}?edit=1`) }}><Pencil className="h-3.5 w-3.5" /></Button>)}
+                  {canEdit && (<Button size="sm" variant="ghost" title="Delete" onClick={(e) => { e.stopPropagation(); setDeleteTarget(t) }}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>)}
                 </div></td>
               </tr>
             ))}

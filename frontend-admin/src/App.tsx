@@ -16,7 +16,6 @@ import { SisterProfileDetailPage } from "@/pages/SisterProfileDetailPage"
 import { ProductsPage } from "@/pages/ProductsPage"
 import { ProductDetailPage } from "@/pages/ProductDetailPage"
 import { ProductTemplatesPage } from "@/pages/ProductTemplatesPage"
-import { ApprovalsPage } from "@/pages/ApprovalsPage"
 import { SourcingCostDetailPage } from "@/pages/SourcingCostDetailPage"
 import { CostsPage } from "@/pages/CostsPage"
 // Temporarily disabled — see the commented-out routes below.
@@ -68,7 +67,6 @@ function ProtectedApp() {
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/products/:id" element={<ProductDetailPage />} />
         <Route path="/product-templates" element={<ProductTemplatesPage />} />
-        <Route path="/approvals" element={<ApprovalsPage />} />
         <Route path="/costs" element={<CostsPage />} />
         <Route path="/sourcing-costs/:id" element={<SourcingCostDetailPage />} />
         {/* Final QC & QR / QC Costs temporarily disabled — still under active

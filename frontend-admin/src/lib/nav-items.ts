@@ -28,7 +28,6 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/documents", label: "Document Vault", icon: "Folder", roles: ["qc", "warehouse", "company_rep", "employee", "management"] },
   { to: "/audit-log", label: "Audit Log", icon: "History", roles: [] },
   { to: "/users", label: "Users", icon: "UserCog", roles: [] },
-  { to: "/approvals", label: "Admin Approval", icon: "ShieldCheck", roles: [] },
   // Admin-only to edit, but every role that issues invoices needs to be able
   // to see whether the identity/bank block is filled in before generating a
   // document — the page itself is read-only for them.

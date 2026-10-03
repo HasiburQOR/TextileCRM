@@ -43,19 +43,6 @@ class NotificationTriggerTests(APITestCase):
         self.assertIsNotNone(notif)
         self.assertIn(cost.sisterProfile.poReference, notif.message)
 
-    def test_approval_and_rejection_notify_the_creating_rep(self):
-        product = Product.objects.create(
-            sisterProfile=self.sister, name="Shorts", createdBy=self.rep, status=ProductStatus.PENDING_ADMIN_APPROVAL
-        )
-        sourcing_services.approve_product(product, self.admin)
-        self.assertTrue(Notification.objects.filter(user=self.rep, type=NotificationType.REQUEST_APPROVED).exists())
-
-        product2 = Product.objects.create(
-            sisterProfile=self.sister, name="Hats", createdBy=self.rep, status=ProductStatus.PENDING_ADMIN_APPROVAL
-        )
-        sourcing_services.reject_product(product2, self.admin, "quality")
-        self.assertTrue(Notification.objects.filter(user=self.rep, type=NotificationType.REQUEST_REJECTED).exists())
-
     def test_invoice_issuance_notifies_the_buyer(self):
         invoice = invoicing_services.create_invoice(
             sister_profile=self.sister, created_by=self.employee,

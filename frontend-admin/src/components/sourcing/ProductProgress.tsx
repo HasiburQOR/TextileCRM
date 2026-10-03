@@ -9,7 +9,6 @@ import type { ProductStatus } from "@/types/sourcing"
  * backend/apps/sourcing/services.py. */
 const STEPS: { status: ProductStatus; label: string }[] = [
   { status: "sourcing_trip_open", label: "Sourcing" },
-  { status: "pending_admin_approval", label: "Approval" },
   { status: "approved_for_qc", label: "QC" },
   { status: "in_warehouse", label: "Warehouse" },
   { status: "ready_for_final_qc", label: "Final QC" },
@@ -21,29 +20,25 @@ const NEXT_STEP: Record<ProductStatus, { who: string; text: React.ReactNode }> =
     who: "Company Rep",
     text: (
       <>
-        Add this product to a <Link to="/sourcing-costs" className="font-medium underline">Sourcing Cost</Link>, close that
-        cost once every location is paid, then click <strong>Submit for Approval</strong>.
+        Record this product's costs under <Link to="/costs" className="font-medium underline">Costs</Link> — legacy status:
+        this product predates the removal of the approval step, but the QC report can be recorded any time.
       </>
     ),
   },
   pending_admin_approval: {
-    who: "Admin",
-    text: (
-      <>
-        Waiting for an Admin to approve or reject it in <Link to="/approvals" className="font-medium underline">Admin Approval</Link>.
-      </>
-    ),
+    who: "QC Person",
+    text: <>Legacy status — the Admin Approval step no longer exists. Treat this product as approved: record its QC report next.</>,
   },
   rejected: {
-    who: "Admin / Company Rep",
-    text: <>Fix what the rejection reason says (an Admin can Edit the product), then click <strong>Resubmit for Approval</strong>.</>,
+    who: "",
+    text: <>Legacy status — products are no longer rejected. Edit the product and continue with the QC report instead.</>,
   },
   approved_for_qc: { who: "QC Person", text: <>The QC person records a QC report for this product, which moves it to the warehouse.</> },
   in_warehouse: {
     who: "Warehouse Manager",
     text: (
       <>
-        Record this order's <Link to="/warehouse-costs" className="font-medium underline">Warehouse Costs</Link>, then click{" "}
+        Record this order's <Link to="/costs" className="font-medium underline">Warehouse Costs</Link>, then click{" "}
         <strong>Mark Ready for Final QC</strong>.
       </>
     ),
@@ -56,8 +51,16 @@ const NEXT_STEP: Record<ProductStatus, { who: string; text: React.ReactNode }> =
 }
 
 export function ProductProgress({ status }: { status: ProductStatus }) {
-  // Rejected sits at the Approval step, shown in red.
-  const currentIndex = status === "rejected" ? 1 : STEPS.findIndex((s) => s.status === status)
+  // Legacy statuses never occur on new products (no approval step anymore):
+  // a legacy Rejected product sits at the Sourcing step in red; a legacy
+  // Pending-Approval one counts as approved, i.e. sits at the QC step.
+  const isLegacyRejected = status === "rejected"
+  const stepStatus = isLegacyRejected
+    ? "sourcing_trip_open"
+    : status === "pending_admin_approval"
+      ? "approved_for_qc"
+      : status
+  const currentIndex = STEPS.findIndex((s) => s.status === stepStatus)
   const next = NEXT_STEP[status]
 
   return (

@@ -78,21 +78,6 @@ export function ProductDetailPage() {
     }
   }
 
-  const submitMutation = useMutation({
-    mutationFn: async () => {
-      const { data } = await api.post<Product>(`/products/${id}/submit_for_approval/`)
-      return data
-    },
-    onSuccess: (data) => {
-      queryClient.setQueryData(["products", id], data)
-      queryClient.invalidateQueries({ queryKey: ["products"] })
-      setActionError(null)
-    },
-    onError: (err: unknown) => {
-      setActionError(extractErrorMessage(err))
-    },
-  })
-
   const readyForFinalQcMutation = useMutation({
     mutationFn: async () => {
       const { data } = await api.post<Product>(`/products/${id}/mark-ready-for-final-qc/`)
@@ -122,8 +107,6 @@ export function ProductDetailPage() {
   const canManage = !!user && CAN_MANAGE_ROLES.includes(user.role)
   const canEdit = user?.role === "admin"
   const canMarkReady = user?.role === "admin" || user?.role === "warehouse"
-  // Rejected products go back to the queue through the same submit, once fixed.
-  const canSubmit = canManage && (product.status === "sourcing_trip_open" || product.status === "rejected")
 
   return (
     <div className="flex flex-col gap-6">
@@ -145,13 +128,6 @@ export function ProductDetailPage() {
         {canEdit && (
           <Button variant="outline" onClick={() => setEditOpen(true)}>
             <Pencil className="h-4 w-4" /> Edit
-          </Button>
-        )}
-        {canSubmit && (
-          <Button onClick={() => submitMutation.mutate()} disabled={submitMutation.isPending}>
-            {submitMutation.isPending
-              ? "Submitting…"
-              : product.status === "rejected" ? "Resubmit for Approval" : "Submit for Approval"}
           </Button>
         )}
         {canMarkReady && product.status === "in_warehouse" && (
@@ -180,11 +156,6 @@ export function ProductDetailPage() {
       {product.status === "rejected" && product.rejectionReason && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <span className="font-medium">Rejected:</span> {product.rejectionReason}
-          {canSubmit && (
-            <span className="mt-1 block text-xs text-red-700">
-              Fix the problem ({canEdit ? "use Edit" : "ask an Admin to edit the product"}), then click Resubmit for Approval.
-            </span>
-          )}
         </div>
       )}
 

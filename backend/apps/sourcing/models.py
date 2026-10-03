@@ -127,9 +127,11 @@ class ProductTemplateField(UUIDModel):
 
 
 class ProductStatus(models.TextChoices):
-    """Full lifecycle per SRS §1.3 Definitions + BRD §6/App_Workflow §6.
-    REJECTED is not listed in the SRS glossary's terse status list but is
-    required by BR-09/FR-06 (Admin can reject with a reason)."""
+    """Lifecycle per SRS §1.3 Definitions + BRD §6/App_Workflow §6, with the
+    Admin Approval step removed (single-workflow decision): a new product
+    enters the workflow directly at APPROVED_FOR_QC. PENDING_ADMIN_APPROVAL,
+    REJECTED and SOURCING_TRIP_OPEN remain as choices so existing records
+    still render — nothing transitions into them anymore."""
 
     SOURCING_TRIP_OPEN = "sourcing_trip_open", "Sourcing Cost Open"
     PENDING_ADMIN_APPROVAL = "pending_admin_approval", "Pending Admin Approval"
@@ -185,7 +187,9 @@ class Product(UUIDModel, TimeStampedModel):
     # optional fields `resolvedTemplateFields` offered: [{"label", "type", "value"}].
     customFields = models.JSONField(default=list, blank=True)
 
-    status = models.CharField(max_length=32, choices=ProductStatus.choices, default=ProductStatus.SOURCING_TRIP_OPEN)
+    # No approval step: products enter the workflow ready for QC (see the
+    # ProductStatus note — the Admin Approval gate was removed).
+    status = models.CharField(max_length=32, choices=ProductStatus.choices, default=ProductStatus.APPROVED_FOR_QC)
     rejectionReason = models.TextField(blank=True, default="")
 
     # Final QC upload (BR-32 / FR-34) — the fields exist now; the workflow

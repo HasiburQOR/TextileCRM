@@ -7,12 +7,13 @@ every test using that factory breaks with an opaque IntegrityError.
 from decimal import Decimal
 
 import factory
+from django.utils import timezone
 from factory.django import DjangoModelFactory
 
 from apps.accounts.models import User
 from apps.buyers.models import AgreementType, BuyerProfile, SisterProfile
 from apps.packing.models import PackingRule
-from apps.sourcing.models import Product, ProductVariant
+from apps.sourcing.models import Product, ProductVariant, SourcingCost, SourcingCostItem
 from apps.wallet.models import BuyerWallet
 
 
@@ -94,3 +95,26 @@ class PackingRuleFactory(DjangoModelFactory):
     cartonHeight = Decimal("12")
     cartonNetWeight = Decimal("6.7")
     cartonGrossWeight = Decimal("6.9")
+
+
+class SourcingCostFactory(DjangoModelFactory):
+    """One Sister Profile's sourcing cost sheet (open until closed)."""
+
+    class Meta:
+        model = SourcingCost
+
+    sisterProfile = factory.SubFactory(SisterProfileFactory)
+
+
+class SourcingCostItemFactory(DjangoModelFactory):
+    """One product reference + custom cost fields within a Sourcing Cost."""
+
+    class Meta:
+        model = SourcingCostItem
+
+    sourcingCost = factory.SubFactory(SourcingCostFactory)
+    product = factory.SubFactory(ProductFactory)
+    locationName = factory.Sequence(lambda n: f"Location {n}")
+    quantity = 100
+    customCostFields = []
+    date = factory.LazyFunction(timezone.now)

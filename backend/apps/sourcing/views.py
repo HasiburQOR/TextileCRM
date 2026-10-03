@@ -25,7 +25,6 @@ from apps.sourcing.serializers import (
     ProductSelfSerializer,
     ProductSerializer,
     ProductTemplateSerializer,
-    RejectProductSerializer,
     SourcingCostItemSerializer,
     SourcingCostSelfSerializer,
     SourcingCostSerializer,
@@ -85,7 +84,8 @@ def _qr_png_response(payload: dict, filename: str) -> HttpResponse:
 
 
 class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
-    """BR-05–10 / FR-01–07: sourcing intake + admin approval, on one entity."""
+    """BR-05–10 / FR-01–07: sourcing intake on one entity — the admin approval
+    step is gone; products enter the workflow directly at Approved for QC."""
 
     queryset = (
         Product.objects.select_related("sisterProfile__buyerProfile", "createdBy", "reviewedBy")
@@ -101,9 +101,9 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         return ProductSerializer
 
     def get_permissions(self):
-        if self.action in ("create", "submit_for_approval", "upload_image", "upload_factory_packing_list", "custom_fields"):
+        if self.action in ("create", "upload_image", "upload_factory_packing_list", "custom_fields"):
             return [IsRole()]
-        if self.action in WRITE_ACTIONS or self.action in ("approve", "reject"):
+        if self.action in WRITE_ACTIONS:
             return [IsAdmin()]
         if self.action in FINAL_QC_ACTIONS:
             return [IsQCOrAdmin()]
@@ -118,18 +118,9 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         except ProtectedError:
             raise DRFValidationError(
                 "Cannot delete — this product already has QC reports "
-                "referencing it. Reject it instead if it was created in error."
+                "referencing it. Delete those QC reports first if it was created in error."
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(detail=True, methods=["post"])
-    def submit_for_approval(self, request, pk=None):
-        product = self.get_object()
-        try:
-            services.submit_for_approval(product, actor=request.user)
-        except DjangoValidationError as exc:
-            _raise_from(exc)
-        return Response(self.get_serializer(product).data)
 
     @action(detail=True, methods=["post"], url_path="mark-ready-for-final-qc")
     def mark_ready_for_final_qc(self, request, pk=None):
@@ -162,26 +153,6 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
             filename = exports.packing_list_filename(product, "pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
-
-    @action(detail=True, methods=["post"])
-    def approve(self, request, pk=None):
-        product = self.get_object()
-        try:
-            services.approve_product(product, request.user)
-        except DjangoValidationError as exc:
-            _raise_from(exc)
-        return Response(self.get_serializer(product).data)
-
-    @action(detail=True, methods=["post"])
-    def reject(self, request, pk=None):
-        payload = RejectProductSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        product = self.get_object()
-        try:
-            services.reject_product(product, request.user, payload.validated_data["reason"])
-        except DjangoValidationError as exc:
-            _raise_from(exc)
-        return Response(self.get_serializer(product).data)
 
     @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
     def upload_image(self, request, pk=None):
@@ -398,8 +369,8 @@ class SourcingCostItemViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         cost = SourcingCost.objects.get(pk=self.kwargs["cost_pk"])
-        if cost.status == "closed":
-            raise DRFValidationError("Cannot add items to a closed Sourcing Cost.")
+        # Closed is a payment-confirmation marker, never an edit lock (user
+        # rule for the merged workflow) — items may be added to a closed cost.
         item = serializer.save(sourcingCost=cost)
         # Auto-deduct wallet for each custom cost field
         services.deduct_cost_item(item, self.request.user)

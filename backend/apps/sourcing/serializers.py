@@ -244,10 +244,6 @@ class ProductSelfSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class RejectProductSerializer(serializers.Serializer):
-    reason = serializers.CharField(allow_blank=False)
-
-
 class SourcingCostItemSerializer(serializers.ModelSerializer):
     """One product reference + custom cost fields within a Sourcing Cost."""
 

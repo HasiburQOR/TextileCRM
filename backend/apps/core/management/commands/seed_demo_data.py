@@ -107,7 +107,7 @@ PRODUCTS = [
     ),
     (
         2, "PRO-0003", "Straight-Leg Denim", "LIMONTA", "98% Cotton / 2% Elastane", "CL-4471",
-        "sourcing_trip_open", False,
+        "approved_for_qc", False,
         [
             ("Raw Indigo", "DN2201", 1200, _DENIM_SIZES, 1, 80, "9.20", "8.40", 26, 20, 16, {}),
             ("Stonewash Blue", "DN2202", 960, _DENIM_SIZES, 81, 144, "9.10", "8.30", 26, 20, 16, {}),
@@ -115,7 +115,7 @@ PRODUCTS = [
     ),
     (
         3, "PRO-0004", "Oxford Button-Down", "BRAMBLE", "Cotton Oxford", "BRM-2026-A9",
-        "pending_admin_approval", True,
+        "approved_for_qc", True,
         [
             ("White", "OX880", 640, _KNIT_SIZES, 1, 40, "4.80", "4.20", 21, 16, 12,
              {"fabric_gsm": "140", "neck_style": "Button-Down", "sleeve_length": "65.0"}),

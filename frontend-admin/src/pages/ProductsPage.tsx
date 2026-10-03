@@ -116,8 +116,6 @@ async function uploadColorImages(productId: string, variants: VariantRowDraft[])
 const STATUS_FILTER_OPTIONS: { value: ProductStatus | "all"; label: string }[] = [
   { value: "all", label: "All statuses" },
   { value: "sourcing_trip_open", label: PRODUCT_STATUS_LABEL.sourcing_trip_open },
-  { value: "pending_admin_approval", label: PRODUCT_STATUS_LABEL.pending_admin_approval },
-  { value: "rejected", label: PRODUCT_STATUS_LABEL.rejected },
   { value: "approved_for_qc", label: PRODUCT_STATUS_LABEL.approved_for_qc },
   { value: "in_warehouse", label: PRODUCT_STATUS_LABEL.in_warehouse },
   { value: "ready_for_final_qc", label: PRODUCT_STATUS_LABEL.ready_for_final_qc },

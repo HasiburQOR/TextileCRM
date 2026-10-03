@@ -11,6 +11,7 @@ from PIL import Image
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
+import pytest
 
 from apps.accounts.models import Roles, User
 from apps.buyers.models import AgreementType, BuyerProfile, SisterProfile
@@ -25,6 +26,13 @@ from apps.sourcing.models import (
     SourcingCostItem,
     TemplateField,
     TripStatus,
+)
+from tests.factories import (
+    ProductFactory,
+    SisterProfileFactory,
+    SourcingCostFactory,
+    SourcingCostItemFactory,
+    UserFactory,
 )
 
 
@@ -73,72 +81,14 @@ class StateMachineTests(APITestCase):
         with self.assertRaises(ValidationError):
             services.close_sourcing_cost(cost)
 
-    # ── Approval gate: FR-70 hard gate ──────────────────────────────────
+    # ── No approval step: products enter the workflow directly ─────────────────────────────────
 
-    def test_cannot_submit_for_approval_while_trip_open(self):
-        self._trip_with_locations()
-        with self.assertRaises(ValidationError):
-            services.submit_for_approval(self.product)
-        self.product.refresh_from_db()
-        self.assertEqual(self.product.status, ProductStatus.SOURCING_TRIP_OPEN)
-
-    def test_cannot_submit_for_approval_with_no_trip_at_all(self):
-        with self.assertRaises(ValidationError):
-            services.submit_for_approval(self.product)
-
-    def test_submit_for_approval_succeeds_once_trip_closed(self):
-        cost = self._trip_with_locations(count=1)
-        services.close_sourcing_cost(cost)
-        services.submit_for_approval(self.product)
-        self.product.refresh_from_db()
-        self.assertEqual(self.product.status, ProductStatus.PENDING_ADMIN_APPROVAL)
-
-    def test_cannot_submit_twice(self):
-        cost = self._trip_with_locations(count=1)
-        services.close_sourcing_cost(cost)
-        services.submit_for_approval(self.product)
-        with self.assertRaises(ValidationError):
-            services.submit_for_approval(self.product)
-
-    # ── Approve / reject transitions ────────────────────────────────────
-
-    def test_cannot_approve_a_product_not_pending(self):
-        with self.assertRaises(ValidationError):
-            services.approve_product(self.product, self.admin)
-
-    def test_cannot_reject_a_product_not_pending(self):
-        with self.assertRaises(ValidationError):
-            services.reject_product(self.product, self.admin, "bad fabric")
-
-    def test_reject_requires_a_reason(self):
-        self.product.status = ProductStatus.PENDING_ADMIN_APPROVAL
-        self.product.save()
-        with self.assertRaises(ValidationError):
-            services.reject_product(self.product, self.admin, "")
-
-    def test_approve_sets_status_and_reviewer(self):
-        self.product.status = ProductStatus.PENDING_ADMIN_APPROVAL
-        self.product.save()
-        services.approve_product(self.product, self.admin)
+    def test_new_product_starts_approved_for_qc(self):
+        """Products skip Pending Admin Approval entirely: intake creates them
+        directly Approved for QC, so the QC step can start at once (the
+        approval gate was removed — single-workflow decision)."""
         self.product.refresh_from_db()
         self.assertEqual(self.product.status, ProductStatus.APPROVED_FOR_QC)
-        self.assertEqual(self.product.reviewedBy, self.admin)
-        self.assertIsNotNone(self.product.reviewedAt)
-
-    def test_reject_sets_status_reason_and_reviewer(self):
-        self.product.status = ProductStatus.PENDING_ADMIN_APPROVAL
-        self.product.save()
-        services.reject_product(self.product, self.admin, "Fabric quality below spec.")
-        self.product.refresh_from_db()
-        self.assertEqual(self.product.status, ProductStatus.REJECTED)
-        self.assertEqual(self.product.rejectionReason, "Fabric quality below spec.")
-
-    def test_cannot_approve_an_already_approved_product(self):
-        self.product.status = ProductStatus.PENDING_ADMIN_APPROVAL
-        self.product.save()
-        services.approve_product(self.product, self.admin)
-        with self.assertRaises(ValidationError):
-            services.approve_product(self.product, self.admin)
 
 
 class SourcingTenantIsolationTests(APITestCase):
@@ -193,19 +143,6 @@ class SourcingTenantIsolationTests(APITestCase):
         )
         self.assertIn(resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_405_METHOD_NOT_ALLOWED))
 
-    def test_buyer_cannot_approve_product(self):
-        self.auth_as(self.buyer_a_user)
-        resp = self.client.post(reverse("product-approve", args=[self.product_a.id]))
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_company_rep_cannot_approve_product(self):
-        # Approval is Admin-only (BR-10), even for the rep who created it.
-        self.product_a.status = ProductStatus.PENDING_ADMIN_APPROVAL
-        self.product_a.save()
-        self.auth_as(self.rep)
-        resp = self.client.post(reverse("product-approve", args=[self.product_a.id]))
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_management_role_can_read_but_not_create(self):
         management = User.objects.create_user(username="mgmt", password="pass12345", role=Roles.MANAGEMENT)
         self.auth_as(management)
@@ -231,7 +168,7 @@ class FullWorkflowAPITests(APITestCase):
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
 
-    def test_full_intake_to_approval_flow(self):
+    def test_full_intake_flow(self):
         self.client.force_authenticate(user=self.rep)
 
         # 1. create product with variants (color x size matrix)
@@ -253,6 +190,8 @@ class FullWorkflowAPITests(APITestCase):
         product_id = resp.data["id"]
         self.assertEqual(resp.data["totalOrderQty"], 800)
         self.assertTrue(resp.data["styleNumber"].startswith("STY-"))
+        # No approval step: the product enters the workflow directly.
+        self.assertEqual(resp.data["status"], ProductStatus.APPROVED_FOR_QC)
 
         # 2. create a sourcing cost with items (custom cost fields)
         resp = self.client.post(
@@ -282,29 +221,10 @@ class FullWorkflowAPITests(APITestCase):
         cost_id = resp.data["id"]
         item_ids = [item["id"] for item in resp.data["items"]]
 
-        # 3. attempting to submit for approval while cost is open fails
-        resp = self.client.post(reverse("product-submit-for-approval", args=[product_id]))
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-
-        # 4. close the cost (no report step needed — wallet already deducted)
+        # 3. close the cost (no report step needed — wallet already deducted)
         resp = self.client.post(reverse("sourcing-cost-close", args=[cost_id]))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["status"], TripStatus.CLOSED)
-
-        # 6. submit for approval now succeeds
-        resp = self.client.post(reverse("product-submit-for-approval", args=[product_id]))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["status"], ProductStatus.PENDING_ADMIN_APPROVAL)
-
-        # 7. rep cannot approve (admin-only)
-        resp = self.client.post(reverse("product-approve", args=[product_id]))
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-
-        # 8. admin approves
-        self.client.force_authenticate(user=self.admin)
-        resp = self.client.post(reverse("product-approve", args=[product_id]))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.data["status"], ProductStatus.APPROVED_FOR_QC)
 
 
 class SourcingAdvanceExpenseTests(APITestCase):
@@ -765,63 +685,97 @@ class ProductMaterialFieldTests(APITestCase):
         self.assertEqual(resp.data["material"], "Cotton-Poly 60/40")
 
 
-class ResubmitAfterRejectionTests(APITestCase):
-    """A rejected product used to be a dead end. Once corrected it can be
-    submitted again — through the same Sourcing Cost gate as a first submit."""
+@pytest.mark.integration
+class ClosedCostItemWritesTests(APITestCase):
+    """User rule for the merged single workflow: Close is a payment-
+    confirmation marker, never an edit lock — items can be added, edited and
+    deleted on a closed Sourcing Cost, and the wallet bookkeeping (deduct /
+    adjust / refund) still runs on every one of those paths."""
 
     def setUp(self):
-        self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
-            buyerProfile=self.buyer, poReference="PO-001", agreementType=AgreementType.TYPE_1,
-        )
-        self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
-        self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
-        self.product = Product.objects.create(sisterProfile=self.sister, name="Kids T-Shirt", createdBy=self.rep)
-        self.cost = SourcingCost.objects.create(sisterProfile=self.sister)
-        SourcingCostItem.objects.create(
-            sourcingCost=self.cost, product=self.product, locationName="Gazipur", quantity=10,
-            customCostFields=[], date=timezone.now(),
-        )
+        from apps.wallet.services import create_wallet
 
-    def _reject(self):
+        self.rep = UserFactory(role=Roles.COMPANY_REP)
+        # Same currency / rate 1 so wallet deltas map 1:1 to the amounts
+        # posted (conversion math is covered by the wallet module's tests).
+        self.sister = SisterProfileFactory(supplierCurrency="USD", buyerCurrency="USD", exchangeRate=1)
+        self.product = ProductFactory(sisterProfile=self.sister, createdBy=self.rep)
+        self.cost = SourcingCostFactory(sisterProfile=self.sister)
+        self.item = SourcingCostItemFactory(
+            sourcingCost=self.cost, product=self.product,
+            customCostFields=[{"name": "Transport", "amount": 2000}],
+        )
+        create_wallet(self.sister.buyerProfile)
         services.close_sourcing_cost(self.cost)
-        services.submit_for_approval(self.product)
-        services.reject_product(self.product, self.admin, "Wrong shade of navy.")
-        self.product.refresh_from_db()
-
-    def test_rejected_product_can_be_resubmitted(self):
-        from apps.audit.models import AuditLogEntry
-
-        self._reject()
-        services.submit_for_approval(self.product, actor=self.rep)
-        self.product.refresh_from_db()
-        self.assertEqual(self.product.status, ProductStatus.PENDING_ADMIN_APPROVAL)
-        self.assertEqual(self.product.rejectionReason, "")
-        self.assertIsNone(self.product.reviewedBy)
-        entry = AuditLogEntry.objects.get(action="RESUBMIT_PRODUCT", entityId=str(self.product.id))
-        self.assertEqual(entry.beforeSnapshot["rejectionReason"], "Wrong shade of navy.")
-
-    def test_resubmit_still_needs_a_closed_sourcing_cost(self):
-        self._reject()
-        services.reopen_sourcing_cost(self.cost)
-        with self.assertRaises(ValidationError):
-            services.submit_for_approval(self.product, actor=self.rep)
-        self.product.refresh_from_db()
-        self.assertEqual(self.product.status, ProductStatus.REJECTED)
-
-    def test_rep_can_resubmit_through_the_api(self):
-        self._reject()
         self.client.force_authenticate(user=self.rep)
-        resp = self.client.post(reverse("product-submit-for-approval", args=[self.product.id]))
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
-        self.assertEqual(resp.data["status"], ProductStatus.PENDING_ADMIN_APPROVAL)
 
-    def test_approved_product_cannot_be_resubmitted(self):
-        services.close_sourcing_cost(self.cost)
-        services.submit_for_approval(self.product)
-        services.approve_product(self.product, self.admin)
-        with self.assertRaises(ValidationError):
-            services.submit_for_approval(self.product, actor=self.rep)
+    def _wallet_balance(self):
+        from apps.wallet.models import BuyerWallet
+
+        wallet = BuyerWallet.objects.get(buyerProfile=self.sister.buyerProfile)
+        wallet.refresh_from_db()
+        return wallet.balance
+
+    def test_item_can_be_added_to_a_closed_cost(self):
+        resp = self.client.post(
+            reverse("sourcing-cost-items-list", args=[self.cost.id]),
+            {
+                "product": str(self.product.id),
+                "locationName": "Narayanganj Mill",
+                "quantity": 300,
+                "customCostFields": [{"name": "Transport", "amount": 1500}],
+                "date": timezone.now().isoformat(),
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.cost.refresh_from_db()
+        self.assertEqual(self.cost.status, TripStatus.CLOSED)
+
+    def test_adding_an_item_to_a_closed_cost_deducts_the_wallet(self):
+        balance_before = self._wallet_balance()
+        resp = self.client.post(
+            reverse("sourcing-cost-items-list", args=[self.cost.id]),
+            {
+                "product": str(self.product.id),
+                "locationName": "Narayanganj Mill",
+                "quantity": 300,
+                "customCostFields": [{"name": "Transport", "amount": 1500}],
+                "date": timezone.now().isoformat(),
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(self._wallet_balance(), balance_before - Decimal("1500"))
+
+    def test_editing_an_item_on_a_closed_cost_adjusts_the_wallet(self):
+        # The seeded item was written straight to the ORM, so replay the
+        # deduction an open-cost item would have gone through first.
+        services.deduct_cost_item(self.item, self.rep)
+        balance_before = self._wallet_balance()
+
+        resp = self.client.put(
+            reverse("sourcing-cost-items-detail", args=[self.cost.id, self.item.id]),
+            {
+                "product": str(self.product.id),
+                "locationName": self.item.locationName,
+                "quantity": self.item.quantity,
+                "customCostFields": [{"name": "Transport", "amount": 1000}],
+                "date": timezone.now().isoformat(),
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        # Old 2000 refunded, new 1000 deducted -> net +1000 back to the buyer.
+        self.assertEqual(self._wallet_balance(), balance_before + Decimal("1000"))
+
+    def test_deleting_an_item_on_a_closed_cost_refunds_the_wallet(self):
+        services.deduct_cost_item(self.item, self.rep)
+        balance_before = self._wallet_balance()
+
+        resp = self.client.delete(reverse("sourcing-cost-items-detail", args=[self.cost.id, self.item.id]))
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self._wallet_balance(), balance_before + Decimal("2000"))
 
 
 class MarkReadyForFinalQCTests(APITestCase):

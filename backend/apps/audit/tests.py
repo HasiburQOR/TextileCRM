@@ -13,7 +13,7 @@ from apps.sourcing.models import Product, ProductStatus
 
 
 class AuditTrailTests(APITestCase):
-    """BR-57 / FR-82: cost entries, approvals/rejections, exchange rate
+    """BR-57 / FR-82: cost entries, product completion, exchange rate
     publication, and invoice actions all leave an audit trail."""
 
     def setUp(self):
@@ -32,21 +32,20 @@ class AuditTrailTests(APITestCase):
         self.assertEqual(entry.action, "CREATE_EXPENSE")
         self.assertEqual(entry.actor, self.admin)
 
-    def test_product_approval_and_rejection_create_audit_entries(self):
+    def test_product_completion_creates_audit_entry(self):
+        """The approval/rejection audit events are gone with the Admin
+        Approval step; the lifecycle end (BR-35 / FR-27: status flips to
+        Completed once both QR codes exist) is still audited."""
         product = Product.objects.create(
-            sisterProfile=self.sister, name="T-Shirt", createdBy=self.rep, status=ProductStatus.PENDING_ADMIN_APPROVAL
+            sisterProfile=self.sister, name="T-Shirt", createdBy=self.rep, status=ProductStatus.READY_FOR_FINAL_QC
         )
-        sourcing_services.approve_product(product, self.admin)
-        entry = AuditLogEntry.objects.get(entityType="Product", action="APPROVE_PRODUCT")
-        self.assertEqual(entry.beforeSnapshot["status"], "pending_admin_approval")
-        self.assertEqual(entry.afterSnapshot["status"], "approved_for_qc")
-
-        product2 = Product.objects.create(
-            sisterProfile=self.sister, name="Socks", createdBy=self.rep, status=ProductStatus.PENDING_ADMIN_APPROVAL
+        sourcing_services.save_final_qc_data(
+            product, goods_name="Tee", final_price="10.00", fabric_details="100% Cotton"
         )
-        sourcing_services.reject_product(product2, self.admin, "bad quality")
-        entry2 = AuditLogEntry.objects.get(entityType="Product", action="REJECT_PRODUCT")
-        self.assertEqual(entry2.afterSnapshot["reason"], "bad quality")
+        sourcing_services.generate_product_qr(product, self.admin)
+        sourcing_services.generate_carton_qr(product, self.admin)
+        entry = AuditLogEntry.objects.get(entityType="Product", action="COMPLETE_PRODUCT")
+        self.assertEqual(entry.afterSnapshot["status"], "completed")
 
     def test_exchange_rate_publish_creates_audit_entry(self):
         invoicing_services.publish_exchange_rate(

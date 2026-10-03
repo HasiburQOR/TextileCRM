@@ -48,9 +48,9 @@ export function SourcingCostDetailPage() {
     onError: (err: unknown) => setActionError(extractErrorMessage(err)),
   })
 
-  // Reopen flips a closed cost back to "open" — the edit/add/delete buttons
-  // and item pencils are all gated on the open status, so this single call
-  // makes the whole cost editable again.
+  // Reopen flips a closed cost back to "open" and clears the payment-
+  // confirmation stamp. Items stay editable either way (Close is a marker,
+  // not a lock) — this restores the "Open" badge and re-enables Close.
   const reopenMutation = useMutation({
     mutationFn: async () => { const { data } = await api.post<SourcingCost>(`/sourcing-costs/${id}/reopen/`); return data },
     onSuccess: (data) => { queryClient.setQueryData(["sourcing-costs", id], data); queryClient.invalidateQueries({ queryKey: ["sourcing-costs"] }); setActionError(null); setReopenConfirmOpen(false) },
@@ -68,7 +68,7 @@ export function SourcingCostDetailPage() {
     autoEditOpened.current = true
     if (searchParams.get("edit") !== "1") return
     setSearchParams({}, { replace: true })
-    const editable = !!user && CAN_MANAGE_ROLES.includes(user.role) && cost.status === "open"
+    const editable = !!user && CAN_MANAGE_ROLES.includes(user.role)
     if (!editable) return
     if (cost.items.length > 0) setEditTarget(cost.items[0])
     else setAddOpen(true)
@@ -85,18 +85,19 @@ export function SourcingCostDetailPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/sourcing-costs")}><ArrowLeft className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/costs")}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2"><h1 className="text-xl font-semibold text-slate-900">{cost.poReference}</h1><Badge variant={COST_STATUS_BADGE_VARIANT[cost.status]}>{COST_STATUS_LABEL[cost.status]}</Badge></div>
           <p className="text-sm text-slate-500">{cost.sisterProfileName} · Total: {totalAmount.toLocaleString()}</p>
           {cost.fullPaymentConfirmedAt && (<p className="text-sm text-slate-500">Confirmed {new Date(cost.fullPaymentConfirmedAt).toLocaleString()}</p>)}
         </div>
-        {canManage && isOpen && (<><Button variant="outline" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" />Add Item</Button><Button onClick={() => setCloseConfirmOpen(true)} disabled={closeMutation.isPending}>{closeMutation.isPending ? "Closing..." : "Close Cost"}</Button></>)}
+        {canManage && (<Button variant="outline" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" />Add Item</Button>)}
+        {canManage && isOpen && (<Button onClick={() => setCloseConfirmOpen(true)} disabled={closeMutation.isPending}>{closeMutation.isPending ? "Closing..." : "Close Cost"}</Button>)}
         {canManage && !isOpen && (<Button variant="outline" onClick={() => setReopenConfirmOpen(true)} disabled={reopenMutation.isPending}><RotateCcw className="h-4 w-4" />{reopenMutation.isPending ? "Reopening..." : "Reopen & Edit"}</Button>)}
       </div>
       {actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
       <Card><CardHeader><CardTitle>Cost Breakdown ({cost.items.length} {cost.items.length === 1 ? "item" : "items"})</CardTitle></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead>
-        <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400"><th className="px-4 py-2 font-medium">Product</th><th className="px-4 py-2 font-medium">Location</th><th className="px-4 py-2 font-medium">Qty</th><th className="px-4 py-2 font-medium">Cost Field</th><th className="px-4 py-2 font-medium text-right">Amount</th><th className="px-4 py-2 font-medium">Date</th>{canManage && isOpen && <th className="px-4 py-2 font-medium" />}</tr>
+        <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400"><th className="px-4 py-2 font-medium">Product</th><th className="px-4 py-2 font-medium">Location</th><th className="px-4 py-2 font-medium">Qty</th><th className="px-4 py-2 font-medium">Cost Field</th><th className="px-4 py-2 font-medium text-right">Amount</th><th className="px-4 py-2 font-medium">Date</th>{canManage && <th className="px-4 py-2 font-medium" />}</tr>
       </thead><tbody>
         {cost.items.map((item) => {
           const costFields = item.customCostFields || []
@@ -116,14 +117,14 @@ export function SourcingCostDetailPage() {
                   <td className="px-4 py-2 text-slate-600">{cf.name}</td>
                   <td className="px-4 py-2 text-right font-medium text-slate-900">{Number(cf.amount).toLocaleString()}</td>
                   {cfIdx === 0 ? (<td className="px-4 py-2 text-slate-500 align-top" rowSpan={costFields.length + 1}>{new Date(item.date).toLocaleDateString()}</td>) : null}
-                  {cfIdx === 0 && canManage && isOpen ? (<td className="px-4 py-2 align-top" rowSpan={costFields.length + 1}><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" title="Edit item" onClick={() => setEditTarget(item)}><Pencil className="h-3.5 w-3.5" /></Button><Button size="sm" variant="ghost" title="Delete item" onClick={() => setDeleteTarget(item)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button></div></td>) : null}
+                  {cfIdx === 0 && canManage ? (<td className="px-4 py-2 align-top" rowSpan={costFields.length + 1}><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" title="Edit item" onClick={() => setEditTarget(item)}><Pencil className="h-3.5 w-3.5" /></Button><Button size="sm" variant="ghost" title="Delete item" onClick={() => setDeleteTarget(item)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button></div></td>) : null}
                 </tr>
               ))}
               {/* Item subtotal row */}
               <tr className="border-b border-slate-200 bg-slate-50">
                 <td className="px-4 py-1.5 text-right text-xs font-semibold text-slate-500">Subtotal</td>
                 <td className="px-4 py-1.5 text-right text-sm font-bold text-slate-900">{itemSubtotal.toLocaleString()}</td>
-                {canManage && isOpen && <td />}
+                {canManage && <td />}
               </tr>
             </Fragment>
           )
@@ -132,7 +133,7 @@ export function SourcingCostDetailPage() {
         <tr className="border-t-2 border-slate-300 bg-indigo-50">
           <td colSpan={5} className="px-4 py-2 text-right text-sm font-bold text-indigo-700">Grand Total</td>
           <td className="px-4 py-2 text-right text-base font-bold text-indigo-700">{totalAmount.toLocaleString()}</td>
-          {canManage && isOpen && <td />}
+          {canManage && <td />}
         </tr>
       </tbody></table></div></CardContent></Card>
 

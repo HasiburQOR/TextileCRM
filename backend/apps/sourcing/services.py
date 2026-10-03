@@ -1,8 +1,10 @@
 """
-Sourcing approval state machine (DRF Migration Instructions §3, Phase 2:
-"implement as an explicit state machine ... not ad-hoc status string
-updates scattered across views"). Every transition is a function here;
-viewsets call these, never mutate `.status` directly.
+Sourcing state machine (DRF Migration Instructions §3, Phase 2: "implement
+as an explicit state machine ... not ad-hoc status string updates scattered
+across views"). Every transition is a function here; viewsets call these,
+never mutate `.status` directly. The Admin Approval step is gone from the
+workflow: products are created directly Approved for QC, so the remaining
+transitions are QC -> warehouse -> final QC -> completed.
 """
 
 from decimal import ROUND_HALF_UP, Decimal
@@ -246,42 +248,6 @@ def reopen_sourcing_cost(cost: SourcingCost) -> SourcingCost:
     return cost
 
 
-def submit_for_approval(product: Product, actor=None) -> Product:
-    """BR-08 / BR-14 / FR-04 / FR-70: the hard gate — a product cannot enter
-    Pending Admin Approval while its Sourcing Cost is Open (or has none).
-
-    Also the way back from Rejected: once the problem is corrected, the same
-    submit sends the product back to the approval queue (same Sourcing Cost
-    gate). The previous decision is cleared from the product so the queue
-    shows it as a fresh request, and kept in the audit log instead."""
-    if product.status not in (ProductStatus.SOURCING_TRIP_OPEN, ProductStatus.REJECTED):
-        raise ValidationError(f"Cannot submit for approval from status '{product.status}'.")
-    item = product.sourcingCostItems.order_by("-createdAt").first()
-    if item is None or item.sourcingCost.status != TripStatus.CLOSED:
-        raise ValidationError("Cannot submit for approval while the product's Sourcing Cost is Open (or missing).")
-
-    before = {"status": product.status}
-    update_fields = ["status", "updatedAt"]
-    resubmitting = product.status == ProductStatus.REJECTED
-    if resubmitting:
-        before["rejectionReason"] = product.rejectionReason
-        product.rejectionReason = ""
-        product.reviewedBy = None
-        product.reviewedAt = None
-        update_fields += ["rejectionReason", "reviewedBy", "reviewedAt"]
-    product.status = ProductStatus.PENDING_ADMIN_APPROVAL
-    product.save(update_fields=update_fields)
-
-    if resubmitting and actor is not None:
-        from apps.audit.services import log_action
-
-        log_action(
-            actor=actor, action="RESUBMIT_PRODUCT", entity_type="Product", entity_id=product.id,
-            before=before, after={"status": product.status},
-        )
-    return product
-
-
 def mark_ready_for_final_qc(product: Product, actor) -> Product:
     """In Warehouse -> Ready for Final QC. The Final QC spec defines this
     status as "Warehouse Costs step already completed", but Warehouse Costs
@@ -304,61 +270,6 @@ def mark_ready_for_final_qc(product: Product, actor) -> Product:
     log_action(
         actor=actor, action="READY_FOR_FINAL_QC", entity_type="Product", entity_id=product.id,
         before={"status": before_status}, after={"status": product.status},
-    )
-    return product
-
-
-def approve_product(product: Product, reviewed_by) -> Product:
-    """BR-10 / FR-06."""
-    if product.status != ProductStatus.PENDING_ADMIN_APPROVAL:
-        raise ValidationError(f"Cannot approve from status '{product.status}'.")
-    before_status = product.status
-    product.status = ProductStatus.APPROVED_FOR_QC
-    product.reviewedBy = reviewed_by
-    product.reviewedAt = timezone.now()
-    product.save(update_fields=["status", "reviewedBy", "reviewedAt", "updatedAt"])
-
-    from apps.audit.services import log_action
-    from apps.notifications.models import NotificationType
-    from apps.notifications.services import notify
-
-    log_action(
-        actor=reviewed_by, action="APPROVE_PRODUCT", entity_type="Product", entity_id=product.id,
-        before={"status": before_status}, after={"status": product.status},
-    )
-    notify(
-        user=product.createdBy, title="Sourcing request approved",
-        message=f"'{product.name}' was approved for QC.",
-        notification_type=NotificationType.REQUEST_APPROVED, sister_profile=product.sisterProfile,
-    )
-    return product
-
-
-def reject_product(product: Product, reviewed_by, reason: str) -> Product:
-    """BR-09 / FR-06: rejection requires a reason and stops the process."""
-    if product.status != ProductStatus.PENDING_ADMIN_APPROVAL:
-        raise ValidationError(f"Cannot reject from status '{product.status}'.")
-    if not reason:
-        raise ValidationError("A rejection reason is required.")
-    before_status = product.status
-    product.status = ProductStatus.REJECTED
-    product.rejectionReason = reason
-    product.reviewedBy = reviewed_by
-    product.reviewedAt = timezone.now()
-    product.save(update_fields=["status", "rejectionReason", "reviewedBy", "reviewedAt", "updatedAt"])
-
-    from apps.audit.services import log_action
-    from apps.notifications.models import NotificationType
-    from apps.notifications.services import notify
-
-    log_action(
-        actor=reviewed_by, action="REJECT_PRODUCT", entity_type="Product", entity_id=product.id,
-        before={"status": before_status}, after={"status": product.status, "reason": reason},
-    )
-    notify(
-        user=product.createdBy, title="Sourcing request rejected",
-        message=f"'{product.name}' was rejected: {reason}",
-        notification_type=NotificationType.REQUEST_REJECTED, sister_profile=product.sisterProfile,
     )
     return product
 

@@ -36,7 +36,7 @@ export function DashboardPage() {
   const isAdmin = user?.role === "admin"
 
   const totalProducts = useCount("products", {})
-  const pendingApprovals = useCount("products", { status: "pending_admin_approval" })
+  const inWarehouse = useCount("products", { status: "in_warehouse" })
   const totalInvoices = useCount("invoices", {})
   const issuedInvoices = useCount("invoices", { status: "issued" })
 
@@ -77,7 +77,7 @@ export function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total Products" value={totalProducts.data} loading={totalProducts.isLoading} />
-        <StatCard label="Pending Approval" value={pendingApprovals.data} loading={pendingApprovals.isLoading} />
+        <StatCard label="In Warehouse" value={inWarehouse.data} loading={inWarehouse.isLoading} />
         <StatCard label="Total Invoices" value={totalInvoices.data} loading={totalInvoices.isLoading} />
         <StatCard label="Issued Invoices" value={issuedInvoices.data} loading={issuedInvoices.isLoading} />
       </div>
