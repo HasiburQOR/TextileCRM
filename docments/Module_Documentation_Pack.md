@@ -466,7 +466,7 @@ The export is a combined **Commercial Invoice / Packing List**, in both PDF (lan
 - Excel writes amounts as **numbers**, not preformatted strings, with a live `SUM()` totals row.
 
 **Calculation (all server-side, `services.compute_line_item`):**
-`totalQty = ctn × qtyPerCtn`, `amount = totalQty × unitPrice`, `cbmPerCtn = L×W×H ÷ 1,000,000` (cm), `cbm = ctn × cbmPerCtn`, `netWeight/grossWeight = ctn × per-carton`. **A value supplied by the caller always wins** — short/excess cartons are real and the packing list is the authority. Carton dimensions arrive in inches from `PackingCarton` and are converted to cm on the way in (`dimensionsInCm: false`); no packing data is migrated.
+`totalQty = ctn × qtyPerCtn`, `amount = totalQty × unitPrice`, `cbmPerCtn = L×W×H ÷ 1,000,000` (cm), `cbm = ctn × cbmPerCtn`, `netWeight/grossWeight = ctn × per-carton`. **A value supplied by the caller always wins** — short/excess cartons are real and the packing list is the authority. Carton dimensions arrive from the sourcing intake rows (`ProductVariant`) already in centimetres (`dimensionsInCm: true` keeps them as-is); the inch path (`dimensionsInCm: false`, ×2.54 on the way in) remains supported for legacy clients.
 
 **Currency:**
 - `sourceCurrency` prices the lines; `targetCurrency` + `exchangeRateValueLocked` give the conversion.

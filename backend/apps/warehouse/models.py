@@ -5,7 +5,6 @@ from django.db import models
 
 from apps.buyers.models import SisterProfile
 from apps.core.models import UUIDModel
-from apps.packing.models import PackingList
 
 # BR-28 / FR-32: six checkbox-driven packaging cost fields.
 PACKAGING_COST_FIELDS = ["labelsCost", "htakeCost", "stickersCost", "cartonsCost", "polyBagsCost", "gamtapeCost"]
@@ -31,13 +30,12 @@ class WarehouseCost(UUIDModel):
     unlike the old one-per-QC-report constraint."""
 
     sisterProfile = models.ForeignKey(SisterProfile, related_name="warehouseCosts", on_delete=models.PROTECT)
-    # Optional: a cost can be recorded against the Sister Profile generally,
-    # before or without a specific Packing List. SET_NULL (not PROTECT/CASCADE)
-    # so deleting a Packing List later never takes a recorded cost with it —
-    # same reasoning as InvoiceLineItem.packingCarton.
-    packingList = models.ForeignKey(
-        PackingList, related_name="warehouseCosts", null=True, blank=True, on_delete=models.SET_NULL
-    )
+    # The former optional `packingList` FK was dropped in the
+    # Sourcing-Intake-as-Packing-List merge: a Warehouse Cost is now recorded
+    # directly against the Sister Profile only (costs are shipment-level
+    # expenses; the packing list is no longer a separate entity to tie them
+    # to). Historical rows that had one keep their data — the FK column was
+    # simply removed, nothing deleted.
 
     loaderCost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     extraWorkerCost = models.DecimalField(max_digits=12, decimal_places=2, default=0)

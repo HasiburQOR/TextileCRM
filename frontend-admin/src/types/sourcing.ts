@@ -14,6 +14,11 @@ export interface ProductVariant {
   id: string
   colorName: string
   patternNo: string
+  // Per-row packing identifiers absorbed from the former PackingCarton in
+  // the Sourcing-Intake-as-Packing-List merge — none dropped, none renamed.
+  poNo: string
+  assortId: string
+  ctnSl: string
   orderQty: number
   sizeBreakdown: SizeBreakdownEntry[]
   customFieldValues: CustomFieldEntry[]
@@ -23,6 +28,11 @@ export interface ProductVariant {
   cartonNoTo: number | null
   noOfCartons: number
   totalPcs: number
+  // Computed: shipQty = noOfCartons x pcsPerCarton; shortExcessQty signed
+  // (positive = short of order, negative = excess).
+  shipQty: number
+  shortExcessQty: number
+  shortExcessPct: number
   // Buy unit price per piece for this color (flat across its sizes) and the
   // computed Amount = totalPcs x unitPrice.
   unitPrice: number | null
@@ -38,7 +48,6 @@ export interface ProductVariant {
   totalCbm: number
   // Per-row intake fields
   variantStyleNo: string
-  ctnSl: string
   material: string
   description: string
   remarks: string
@@ -78,7 +87,13 @@ export interface Product {
   finalPrice: string | null
   fabricDetails: string
   factoryPackingList: string | null
-  packingCartonCount: number
+  // Packing List header fields (the intake record IS the packing list
+  // since the merge) + the packing indicator (sum of the variants' carton
+  // counts — replaces the old packingCartonCount).
+  packingDate: string | null
+  frontMark: string
+  sideMark: string
+  totalCartons: number
   productQrGenerated: boolean
   productQrPayload: Record<string, unknown>
   cartonQrGenerated: boolean
@@ -98,6 +113,9 @@ export interface Product {
 export interface ProductVariantInput {
   colorName: string
   patternNo: string
+  poNo: string
+  assortId: string
+  ctnSl: string
   orderQty: number
   sizeBreakdown: SizeBreakdownEntry[]
   customFieldValues: CustomFieldEntry[]
@@ -112,7 +130,6 @@ export interface ProductVariantInput {
   ctnHeight: number | null
   // Per-row intake fields
   variantStyleNo: string
-  ctnSl: string
   material: string
   description: string
   remarks: string
@@ -127,6 +144,10 @@ export interface ProductCreateInput {
   material?: string
   template?: string | null
   resolvedTemplateFields?: ProductTemplateFieldEntry[]
+  // Packing List header fields, optional at intake.
+  packingDate?: string | null
+  frontMark?: string
+  sideMark?: string
   variants: ProductVariantInput[]
 }
 

@@ -23,10 +23,11 @@ def generate_code(prefix: str) -> str:
 def sum_size_breakdown(size_breakdown) -> int:
     """Custom_Size_Breakdown_Feature.md: `size_breakdown` is a per-color,
     free-form array of `{"size_label": ..., "quantity": ...}` entries (not
-    a fixed S/M/L/XL/XXL dict) — shared by apps.sourcing.ProductVariant and
-    apps.packing.PackingCarton, so the sum lives in one place both call into,
-    matching the doc's "build it once, reuse it, don't build two versions
-    that could drift apart" instruction."""
+    a fixed S/M/L/XL/XXL dict) — consumed by apps.sourcing.ProductVariant
+    (the intake row, which since the Sourcing-Intake-as-Packing-List merge
+    is also the packing row), so the sum lives in one place, matching the
+    doc's "build it once, reuse it, don't build two versions that could
+    drift apart" instruction."""
     return sum(int(entry.get("quantity") or 0) for entry in (size_breakdown or []))
 
 

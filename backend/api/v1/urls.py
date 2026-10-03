@@ -22,7 +22,7 @@ from apps.documents.views import DocumentVaultItemViewSet
 from apps.expenses.views import ExpenseViewSet
 from apps.invoicing.views import ExchangeRateViewSet, InvoiceViewSet
 from apps.notifications.views import NotificationViewSet
-from apps.packing.views import PackingCartonViewSet, PackingListViewSet, PackingRuleViewSet
+from apps.packing.views import PackingRuleViewSet
 from apps.qc.views import QCReportViewSet
 from apps.sourcing.views import (
     FieldGroupViewSet,
@@ -45,7 +45,6 @@ router.register("field-groups", FieldGroupViewSet, basename="field-group")
 router.register("field-library", TemplateFieldViewSet, basename="field-library")
 router.register("sourcing-costs", SourcingCostViewSet, basename="sourcing-cost")
 router.register("packing-rules", PackingRuleViewSet, basename="packing-rule")
-router.register("packing-lists", PackingListViewSet, basename="packing-list")
 router.register("qc-reports", QCReportViewSet, basename="qc-report")
 router.register("warehouse-costs", WarehouseCostViewSet, basename="warehouse-cost")
 router.register("expenses", ExpenseViewSet, basename="expense")
@@ -58,9 +57,6 @@ router.register("documents", DocumentVaultItemViewSet, basename="document")
 cost_items_list = SourcingCostItemViewSet.as_view({"get": "list", "post": "create"})
 cost_items_detail = SourcingCostItemViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"})
 
-packing_cartons_list = PackingCartonViewSet.as_view({"get": "list", "post": "create"})
-packing_cartons_detail = PackingCartonViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"})
-
 urlpatterns = [
     path("auth/token/", TokenObtainPairWithClaimsView.as_view(), name="token_obtain_pair"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
@@ -70,8 +66,6 @@ urlpatterns = [
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
     path("sourcing-costs/<uuid:cost_pk>/items/", cost_items_list, name="sourcing-cost-items-list"),
     path("sourcing-costs/<uuid:cost_pk>/items/<uuid:pk>/", cost_items_detail, name="sourcing-cost-items-detail"),
-    path("packing-lists/<uuid:list_pk>/cartons/", packing_cartons_list, name="packing-list-cartons-list"),
-    path("packing-lists/<uuid:list_pk>/cartons/<uuid:pk>/", packing_cartons_detail, name="packing-list-cartons-detail"),
     path("portal/dashboard/", PortalDashboardView.as_view(), name="portal-dashboard"),
     path("portal/orders/", PortalOrdersListView.as_view(), name="portal-orders"),
     path("portal/orders/<uuid:order_id>/", PortalOrderDetailView.as_view(), name="portal-order-detail"),

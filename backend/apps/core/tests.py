@@ -53,3 +53,38 @@ class CompanyProfileLogoUploadTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("10 MB", str(resp.data["logo"]))
 
+
+
+class PaginationTests(APITestCase):
+    """The admin frontend asks for `?page_size=200` (and 500) on nearly every
+    list and dropdown. Stock PageNumberPagination ignored that and served 50
+    rows, silently hiding every older record."""
+
+    def setUp(self):
+        from apps.buyers.models import BuyerProfile
+
+        self.admin = User.objects.create_user(username="pg_admin", password="pass12345", role=Roles.ADMIN)
+        self.client.force_authenticate(user=self.admin)
+        BuyerProfile.objects.bulk_create(
+            [BuyerProfile(name=f"Buyer {i:03d}", referenceCode=f"PG-{i:04d}") for i in range(60)]
+        )
+
+    def test_default_page_size_is_still_50(self):
+        resp = self.client.get(reverse("buyer-profile-list"))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["count"], 60)
+        self.assertEqual(len(resp.data["results"]), 50)
+
+    def test_client_page_size_is_honoured(self):
+        resp = self.client.get(reverse("buyer-profile-list"), {"page_size": 200})
+        self.assertEqual(len(resp.data["results"]), 60)
+        self.assertIsNone(resp.data["next"])
+
+    def test_client_page_size_is_capped(self):
+        from rest_framework.request import Request
+        from rest_framework.test import APIRequestFactory
+
+        from apps.core.pagination import StandardPagination
+
+        request = Request(APIRequestFactory().get("/", {"page_size": 100000}))
+        self.assertEqual(StandardPagination().get_page_size(request), 500)

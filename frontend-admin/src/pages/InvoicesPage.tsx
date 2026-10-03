@@ -18,11 +18,9 @@ import { extractErrorMessage } from "@/lib/errors"
 import { pickProductImage, resolveMediaUrl } from "@/lib/media"
 import type { Paginated } from "@/types/api"
 import type { Invoice, InvoiceLineItemInput, InvoiceStatus } from "@/types/invoicing"
-import type { PackingCarton, PackingList } from "@/types/packing"
 import type { CostBreakdown, SisterProfile } from "@/types/buyers"
 import { AGREEMENTS } from "@/types/buyers"
-import type { Product } from "@/types/sourcing"
-import type { SourcingCost } from "@/types/sourcing"
+import type { Product, ProductVariant, SourcingCost } from "@/types/sourcing"
 import type { WarehouseCost } from "@/types/warehouse"
 
 const STATUS_BADGE: Record<InvoiceStatus, "warning" | "success" | "danger" | "default"> = {
@@ -70,7 +68,7 @@ export function InvoicesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Invoices</h1>
-          <p className="text-sm text-slate-500">Commercial invoices generated from approved packing lists.</p>
+          <p className="text-sm text-slate-500">Commercial invoices generated from approved sourcing intake records.</p>
         </div>
         {canCreate && <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New Invoice</Button>}
       </div>
@@ -172,63 +170,68 @@ interface LineDraft extends InvoiceLineItemInput {
   tempId: string
 }
 
-function cartonToLine(carton: PackingCarton, packingList?: PackingList): LineDraft {
+function variantToLine(variant: ProductVariant, product: Product): LineDraft {
+  // The intake record IS the packing list since the merge — its variant rows
+  // (one per color) are what an invoice line pulls from, via the
+  // LineItem.productVariant FK.
   return {
     tempId: crypto.randomUUID(),
-    packingCarton: carton.id,
+    // Points the line at the exact intake (packing) row — color-level
+    // traceability, same role the old packingCarton FK played (BR-37).
+    productVariant: variant.id,
     // Carried through so the invoice line knows which Product it came from.
     // Without it the document has no way back to the product's photo
     // gallery, and the Foto column renders empty for every line.
-    product: carton.product,
-    description: carton.productName || carton.styleNumber,
-    brand: packingList?.brandName ?? "",
-    ctn: carton.noOfCartons,
-    qtyPerCtn: carton.totalPcsPerCarton,
-    totalQty: carton.shipQty,
-    // Priced at Packing - one price per carton (color) row, pre-filled from
-    // the product variant at intake. The amount mirrors the carton's own
+    product: product.id,
+    description: product.name || variant.variantStyleNo,
+    brand: product.brandName ?? "",
+    ctn: variant.noOfCartons,
+    qtyPerCtn: variant.pcsPerCarton,
+    totalQty: variant.shipQty,
+    // Priced at intake - one price per carton (color) row, pre-filled from
+    // the variant's unitPrice. The amount mirrors the variant's own
     // totalAmount (shipQty x unitPrice) and stays editable per line here.
     // Number(...) on every decimal: DRF serializes DecimalField as a STRING
     // ("265.00"), so these arrive as strings however the TS types read. An
     // un-coerced `amount` crashes the line table outright (`amount.toFixed`
     // is not a function) and makes the Line Total a concatenation rather
-    // than a sum — and it only bites once a carton actually carries a
-    // price, so an unpriced packing list hides it.
-    unitPrice: Number(carton.unitPrice ?? 0),
-    amount: Number(carton.totalAmount ?? 0),
-    netWeight: Number(carton.totalNetWeight ?? 0),
-    grossWeight: Number(carton.totalGrossWeight ?? 0),
-    cbm: Number(carton.totalCbm ?? 0),
-    // Captured at Sourcing Intake (Product.material) - a starting point the
-    // invoice editor can still override per line.
-    // Per-carton material (from Sourcing Intake variant) preferred;
-    // falls back to Product-level material for older packing lists.
-    material: carton.material || carton.productMaterial || "",
-    styleItemCode: carton.styleNumber,
-    packingListRef: carton.packingListReferenceCode,
+    // than a sum — and it only bites once a row actually carries a
+    // price, so an unpriced intake record hides it.
+    unitPrice: Number(variant.unitPrice ?? 0),
+    amount: Number(variant.totalAmount ?? 0),
+    netWeight: Number(variant.totalNetWeight ?? 0),
+    grossWeight: Number(variant.totalGrossWeight ?? 0),
+    cbm: Number(variant.totalCbm ?? 0),
+    // Per-row material (captured at Sourcing Intake on the variant)
+    // preferred; falls back to Product-level material.
+    material: variant.material || product.material || "",
+    styleItemCode: variant.variantStyleNo || product.styleNumber,
+    // The packing-list reference the document prints — the intake record's
+    // own PO number (there is no separate PKG-#### code since the merge).
+    packingListRef: product.poNo,
     remarks: "",
-    // Commercial Invoice / Packing List columns. Carton dimensions are
-    // stored in inches here and converted to cm server-side — hence
-    // dimensionsInCm: false, which is what makes the printed L×W×H and the
-    // CBM derived from it come out in the units the buyer expects.
-    colorSizeNote: [carton.colorName, carton.assortId].filter(Boolean).join(", "),
-    markRef: packingList?.frontMark?.split("\n")[0] ?? "",
+    // Commercial Invoice / Packing List columns. Intake rows store carton
+    // dimensions in centimetres — dimensionsInCm: true keeps them as-is
+    // server-side, so the printed L×W×H and the CBM derived from it come
+    // out in the units the buyer expects.
+    colorSizeNote: [variant.colorName, variant.assortId].filter(Boolean).join(", "),
+    markRef: product.frontMark?.split("\n")[0] ?? "",
     hsCode: "",
-    netWeightPerCtn: Number(carton.netWeight ?? 0),
-    grossWeightPerCtn: Number(carton.grossWeight ?? 0),
-    cbmPerCtn: Number(carton.ctnCbm ?? 0),
-    ctnLengthCm: Number(carton.ctnLength ?? 0),
-    ctnWidthCm: Number(carton.ctnWidth ?? 0),
-    ctnHeightCm: Number(carton.ctnHeight ?? 0),
-    dimensionsInCm: false,
+    netWeightPerCtn: Number(variant.netWeight ?? 0),
+    grossWeightPerCtn: Number(variant.grossWeight ?? 0),
+    cbmPerCtn: Number(variant.cbm ?? 0),
+    ctnLengthCm: Number(variant.ctnLength ?? 0),
+    ctnWidthCm: Number(variant.ctnWidth ?? 0),
+    ctnHeightCm: Number(variant.ctnHeight ?? 0),
+    dimensionsInCm: true,
   }
 }
 
 function warehouseCostToLine(wc: WarehouseCost): LineDraft {
-  // One pickable row per recorded Warehouse Cost, same flow as a Packing
-  // Carton — it becomes a single line item on the invoice, not a product
-  // line. `unitPrice`/`amount` start pre-filled from the cost itself
-  // (unlike a carton line, which is priced by hand) since there's no
+  // One pickable row per recorded Warehouse Cost, same flow as an intake
+  // (packing) row — it becomes a single line item on the invoice, not a
+  // product line. `unitPrice`/`amount` start pre-filled from the cost
+  // itself (unlike a goods line, which is priced by hand) since there's no
   // separate "quantity" to multiply here.
   //
   // ctn/qty are deliberately ZERO, not 1: this line is a cost, not goods.
@@ -236,7 +239,7 @@ function warehouseCostToLine(wc: WarehouseCost): LineDraft {
   // QTY, so a 1,000 pc / 28 ctn shipment printed as 1,001 pcs in 29
   // cartons — a figure a customs broker reads off the packing list and
   // one that contradicts the Packing List it was generated from.
-  const label = wc.packingListReferenceCode || wc.sisterProfilePoReference || "Warehouse Cost"
+  const label = wc.sisterProfilePoReference || "Warehouse Cost"
   const total = Number(wc.totalCost)
   return {
     tempId: crypto.randomUUID(),
@@ -254,7 +257,7 @@ function warehouseCostToLine(wc: WarehouseCost): LineDraft {
     cbm: 0,
     material: "",
     styleItemCode: "",
-    packingListRef: wc.packingListReferenceCode || "",
+    packingListRef: "",
     remarks: "",
     colorSizeNote: "",
     markRef: "",
@@ -306,7 +309,7 @@ function sourcingCostToLine(sc: SourcingCost): LineDraft {
 
 function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: (id: string) => void }) {
   const [sisterProfile, setSisterProfile] = useState("")
-  const [selectedLists, setSelectedLists] = useState<Set<string>>(new Set())
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set())
   const [selectedWarehouseCosts, setSelectedWarehouseCosts] = useState<Set<string>>(new Set())
   const [selectedSourcingCosts, setSelectedSourcingCosts] = useState<Set<string>>(new Set())
   const [lines, setLines] = useState<LineDraft[]>([])
@@ -331,10 +334,6 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
   const profilesQuery = useQuery({
     queryKey: ["sister-profiles", "all"],
     queryFn: async () => { const { data } = await api.get<Paginated<SisterProfile>>("/sister-profiles/", { params: { page_size: 200 } }); return data.results },
-  })
-  const packingListsQuery = useQuery({
-    queryKey: ["packing-lists", "all"],
-    queryFn: async () => { const { data } = await api.get<Paginated<PackingList>>("/packing-lists/", { params: { page_size: 200 } }); return data.results },
   })
   const warehouseCostsQuery = useQuery({
     queryKey: ["warehouse-costs", "for-sister-profile", sisterProfile],
@@ -382,22 +381,23 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
   const sourceCurrency = selectedProfile?.supplierCurrency ?? ""
   const targetCurrency = selectedProfile?.buyerCurrency ?? ""
 
-  const listsForProfile = useMemo(
-    () => (packingListsQuery.data ?? []).filter((pl) => pl.sisterProfile === sisterProfile),
-    [packingListsQuery.data, sisterProfile],
-  )
+  // Intake records for the selected profile — each one IS a packing list
+  // since the merge, so these (and their variant rows) are what the invoice
+  // pulls its goods lines from. Already filtered server-side.
+  const intakeRecords = productsQuery.data ?? []
 
-  function toggleList(pl: PackingList) {
-    setSelectedLists((prev) => {
+  function toggleProduct(p: Product) {
+    setSelectedProducts((prev) => {
       const next = new Set(prev)
-      if (next.has(pl.id)) {
-        next.delete(pl.id)
-        setLines((ls) => ls.filter((l) => !pl.cartons.some((c) => c.id === l.packingCarton)))
+      if (next.has(p.id)) {
+        next.delete(p.id)
+        const variantIds = new Set(p.variants.map((v) => v.id))
+        setLines((ls) => ls.filter((l) => !variantIds.has(l.productVariant ?? "")))
       } else {
-        next.add(pl.id)
+        next.add(p.id)
         // Explicit arrow, not a bare reference: Array.map passes the index
-        // as the second argument, which would land in `packingList`.
-        setLines((ls) => [...ls, ...pl.cartons.map((carton) => cartonToLine(carton, pl))])
+        // as the second argument, which would land in `product`.
+        setLines((ls) => [...ls, ...p.variants.map((v) => variantToLine(v, p))])
       }
       return next
     })
@@ -504,7 +504,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
     e.preventDefault()
     if (!sisterProfile) { setError("Select a Sister Profile."); return }
     if (lines.length === 0 && !pullExpenses) {
-      setError("Select at least one Packing List, Warehouse Cost, or Sourcing Cost to pull line items from.")
+      setError("Select at least one Intake Record, Warehouse Cost, or Sourcing Cost to pull line items from.")
       return
     }
     if (!(Number(commissionRate) > 0)) {
@@ -526,7 +526,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
             required
             options={profilesQuery.data ?? []}
             value={sisterProfile}
-            onChange={(v) => { setSisterProfile(v); setSelectedLists(new Set()); setSelectedWarehouseCosts(new Set()); setSelectedSourcingCosts(new Set()); setLines([]) }}
+            onChange={(v) => { setSisterProfile(v); setSelectedProducts(new Set()); setSelectedWarehouseCosts(new Set()); setSelectedSourcingCosts(new Set()); setLines([]) }}
             placeholder="Select..."
           />
         </div>
@@ -591,15 +591,15 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
 
         {sisterProfile && (
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Source Packing List(s) *</label>
-            {listsForProfile.length === 0 ? (
-              <p className="text-xs text-slate-400">No packing lists exist yet for this Sister Profile.</p>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Source Intake Record(s) — packing rows *</label>
+            {intakeRecords.length === 0 ? (
+              <p className="text-xs text-slate-400">No sourcing intake records exist yet for this Sister Profile.</p>
             ) : (
               <div className="flex flex-col gap-1.5 rounded-md border border-slate-200 p-2">
-                {listsForProfile.map((pl) => (
-                  <label key={pl.id} className="flex items-center gap-2 text-sm text-slate-700">
-                    <input type="checkbox" checked={selectedLists.has(pl.id)} onChange={() => toggleList(pl)} />
-                    <code className="text-xs text-indigo-600">{pl.referenceCode}</code> {pl.poNo || pl.sisterProfilePoReference} — {pl.brandName || "no brand"} ({pl.cartons.length} cartons, {pl.totalCartonQty} CTNS)
+                {intakeRecords.map((p) => (
+                  <label key={p.id} className="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" checked={selectedProducts.has(p.id)} onChange={() => toggleProduct(p)} />
+                    <code className="text-xs text-indigo-600">{p.styleNumber}</code> {p.poNo || p.sisterProfilePoReference} — {p.brandName || "no brand"} ({p.variants.length} packing rows, {p.totalCartons} CTNS)
                   </label>
                 ))}
               </div>
@@ -619,11 +619,7 @@ function InvoiceBuilderDialog({ onClose, onSuccess }: { onClose: () => void; onS
                 {warehouseCostsQuery.data.map((wc) => (
                   <label key={wc.id} className="flex items-center gap-2 text-sm text-slate-700">
                     <input type="checkbox" checked={selectedWarehouseCosts.has(wc.id)} onChange={() => toggleWarehouseCost(wc)} />
-                    {wc.packingListReferenceCode ? (
-                      <code className="text-xs text-indigo-600">{wc.packingListReferenceCode}</code>
-                    ) : (
-                      <span className="text-xs text-slate-400">(no packing list)</span>
-                    )}
+                    <code className="text-xs text-indigo-600">{wc.sisterProfilePoReference}</code>
                     {" "}Total {Number(wc.totalCost).toLocaleString()}
                   </label>
                 ))}

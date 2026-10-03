@@ -89,8 +89,7 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         from apps.buyers.models import SisterProfile
-        from apps.packing.models import PackingCarton
-        from apps.sourcing.models import SourcingCost
+        from apps.sourcing.models import ProductVariant, SourcingCost
         from apps.warehouse.models import WarehouseCost
 
         data = request.data
@@ -103,8 +102,8 @@ class InvoiceViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
             row = dict(li)
             if row.get("product"):
                 row["product"] = Product.objects.filter(pk=row["product"]).first()
-            if row.get("packingCarton"):
-                row["packingCarton"] = PackingCarton.objects.filter(pk=row["packingCarton"]).first()
+            if row.get("productVariant"):
+                row["productVariant"] = ProductVariant.objects.filter(pk=row["productVariant"]).first()
             if row.get("warehouseCost"):
                 row["warehouseCost"] = WarehouseCost.objects.filter(pk=row["warehouseCost"]).first()
             if row.get("sourcingCost"):

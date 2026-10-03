@@ -5,10 +5,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.models import Roles
-from apps.accounts.permissions import IsAdmin, IsRole
+from apps.accounts.permissions import IsRole
 from apps.buyers.models import SisterProfile
 from apps.core.tenancy import TenantScopedViewSet
-from apps.packing.models import PackingList
 from apps.warehouse import services
 from apps.warehouse.models import PACKAGING_COST_FIELDS, WarehouseCost
 from apps.warehouse.serializers import WarehouseCostSelfSerializer, WarehouseCostSerializer
@@ -17,7 +16,7 @@ WRITE_ACTIONS = ("update", "partial_update", "destroy")
 
 
 class WarehouseCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
-    queryset = WarehouseCost.objects.select_related("sisterProfile__buyerProfile", "packingList", "createdBy")
+    queryset = WarehouseCost.objects.select_related("sisterProfile__buyerProfile", "createdBy")
     tenant_lookup = "sisterProfile__buyerProfile_id"
     allowed_roles = [Roles.WAREHOUSE]
     # PUT excluded deliberately — see QCReportViewSet for the same note.
@@ -29,10 +28,11 @@ class WarehouseCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         return WarehouseCostSerializer
 
     def get_permissions(self):
-        if self.action == "create":
+        # Costs carry no approval gate by design (user rule for the merged
+        # workflow): any supplier-side role that can create can also edit or
+        # delete its own cost entries — no admin-only write step.
+        if self.action in ("create", *WRITE_ACTIONS):
             return [IsRole()]
-        if self.action in WRITE_ACTIONS:
-            return [IsAdmin()]
         return [IsAuthenticated()]
 
     def get_queryset(self):
@@ -40,9 +40,6 @@ class WarehouseCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         sister_profile_id = self.request.query_params.get("sisterProfile")
         if sister_profile_id:
             qs = qs.filter(sisterProfile_id=sister_profile_id)
-        packing_list_id = self.request.query_params.get("packingList")
-        if packing_list_id:
-            qs = qs.filter(packingList_id=packing_list_id)
         return qs
 
     def create(self, request, *args, **kwargs):
@@ -50,16 +47,10 @@ class WarehouseCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         sister_profile = SisterProfile.objects.filter(pk=data.get("sisterProfile")).first()
         if not sister_profile:
             raise DRFValidationError({"sisterProfile": "Not found."})
-        packing_list = None
-        if data.get("packingList"):
-            packing_list = PackingList.objects.filter(pk=data["packingList"]).first()
-            if not packing_list:
-                raise DRFValidationError({"packingList": "Not found."})
         cost_fields = {f: data.get(f) or 0 for f in ["loaderCost", "extraWorkerCost", *PACKAGING_COST_FIELDS]}
         try:
             wc = services.create_warehouse_cost(
                 sister_profile=sister_profile,
-                packing_list=packing_list,
                 created_by=request.user,
                 custom_costs=data.get("customCosts") or [],
                 extra_cost=data.get("extraCost") or 0,

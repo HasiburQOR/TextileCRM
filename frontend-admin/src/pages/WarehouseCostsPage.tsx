@@ -1,18 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, Pencil, Plus, Trash2 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { SearchableSisterProfileSelect } from "@/components/SearchableSisterProfileSelect"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { extractErrorMessage } from "@/lib/errors"
 import type { Paginated } from "@/types/api"
-import type { PackingList } from "@/types/packing"
 import type { SisterProfile } from "@/types/sourcing"
 import type { WarehouseCost, WarehouseCostCustomCost } from "@/types/warehouse"
 
@@ -87,7 +85,6 @@ export function WarehouseCostsPage() {
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-3 font-medium">Sister Profile</th>
-                  <th className="px-4 py-3 font-medium">Packing List</th>
                   <th className="px-4 py-3 font-medium">Loader</th>
                   <th className="px-4 py-3 font-medium">Total Cost</th>
                   <th className="px-4 py-3 font-medium">Created</th>
@@ -98,7 +95,6 @@ export function WarehouseCostsPage() {
                 {costsQuery.data.map((wc) => (
                   <tr key={wc.id}>
                     <td className="px-4 py-3 font-medium text-slate-900">{wc.sisterProfilePoReference || "—"}</td>
-                    <td className="px-4 py-3 text-slate-500">{wc.packingListReferenceCode || "—"}</td>
                     <td className="px-4 py-3 text-slate-500">{Number(wc.loaderCost).toLocaleString()}</td>
                     <td className="px-4 py-3 font-medium text-slate-900">{Number(wc.totalCost).toLocaleString()}</td>
                     <td className="px-4 py-3 text-slate-400">{new Date(wc.createdAt).toLocaleDateString()}</td>
@@ -150,7 +146,6 @@ export function WarehouseCostsPage() {
         <Dialog open onClose={() => setViewTarget(null)} title={`Warehouse Cost — ${viewTarget.sisterProfilePoReference || viewTarget.id}`}>
           <div className="flex flex-col gap-3 text-sm">
             <Field label="Sister Profile" value={viewTarget.sisterProfilePoReference || "—"} />
-            <Field label="Packing List" value={viewTarget.packingListReferenceCode || "—"} />
             <Field label="Loader Cost" value={Number(viewTarget.loaderCost).toLocaleString()} />
             <Field label="Extra Worker Cost" value={Number(viewTarget.extraWorkerCost).toLocaleString()} />
             {PACKAGING_ITEMS.filter((item) => Number(viewTarget[item.field]) > 0).map((item) => (
@@ -212,7 +207,6 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
 }) {
   const isEdit = !!existing
   const [sisterProfile, setSisterProfile] = useState(existing?.sisterProfile ?? "")
-  const [packingList, setPackingList] = useState(existing?.packingList ?? "")
   const [loaderCost, setLoaderCost] = useState(Number(existing?.loaderCost ?? 0))
   const [extraWorkerCost, setExtraWorkerCost] = useState(Number(existing?.extraWorkerCost ?? 0))
   const [checked, setChecked] = useState<Record<string, boolean>>(() => {
@@ -237,15 +231,6 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
     queryFn: async () => { const { data } = await api.get<Paginated<SisterProfile>>("/sister-profiles/", { params: { page_size: 200 } }); return data.results },
     enabled: !isEdit,
   })
-  const packingListsQuery = useQuery({
-    queryKey: ["packing-lists", "all"],
-    queryFn: async () => { const { data } = await api.get<Paginated<PackingList>>("/packing-lists/", { params: { page_size: 200 } }); return data.results },
-    enabled: !isEdit,
-  })
-  const listsForProfile = useMemo(
-    () => (packingListsQuery.data ?? []).filter((pl) => pl.sisterProfile === sisterProfile),
-    [packingListsQuery.data, sisterProfile],
-  )
 
   const packagingTotal = PACKAGING_ITEMS.reduce((sum, item) => sum + (checked[item.field] ? amounts[item.field] : 0), 0)
   const customTotal = customCosts.reduce((sum, c) => sum + (c.amount || 0), 0)
@@ -256,7 +241,6 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
       const payload: Record<string, unknown> = { loaderCost, extraWorkerCost, extraCost, extraCostRemarks }
       if (!isEdit) {
         payload.sisterProfile = sisterProfile
-        payload.packingList = packingList || null
       }
       for (const item of PACKAGING_ITEMS) payload[item.field] = checked[item.field] ? amounts[item.field] : 0
       payload.customCosts = customCosts.filter((c) => c.fieldName.trim()).map((c) => ({ fieldName: c.fieldName, amount: c.amount, remarks: c.remarks }))
@@ -296,23 +280,11 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess }: {
         {isEdit ? (
           <div className="grid grid-cols-2 gap-4">
             <Field label="Sister Profile" value={existing!.sisterProfilePoReference || "—"} />
-            <Field label="Packing List" value={existing!.packingListReferenceCode || "—"} />
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile *</label>
-              <SearchableSisterProfileSelect required options={profilesQuery.data ?? []} value={sisterProfile} onChange={(v) => { setSisterProfile(v); setPackingList("") }} placeholder="Select..." />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">Packing List (optional)</label>
-              <Select value={packingList} onChange={(e) => setPackingList(e.target.value)} disabled={!sisterProfile}>
-                <option value="">None — against the Sister Profile generally</option>
-                {listsForProfile.map((pl) => (
-                  <option key={pl.id} value={pl.id}>{pl.referenceCode} — {pl.poNo || "no PO"} ({pl.brandName || "no brand"})</option>
-                ))}
-              </Select>
-            </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Sister Profile *</label>
+            <SearchableSisterProfileSelect required options={profilesQuery.data ?? []} value={sisterProfile} onChange={setSisterProfile} placeholder="Select..." />
           </div>
         )}
 

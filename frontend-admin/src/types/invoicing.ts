@@ -22,7 +22,7 @@ export interface InvoiceLineItem {
   id: string
   invoice: string
   product: string | null
-  packingCarton: string | null
+  productVariant: string | null
   warehouseCost: string | null
   sourcingCost: string | null
   description: string
@@ -43,7 +43,7 @@ export interface InvoiceLineItem {
 
 export interface InvoiceLineItemInput {
   product?: string | null
-  packingCarton?: string | null
+  productVariant?: string | null
   warehouseCost?: string | null
   sourcingCost?: string | null
   description: string
@@ -71,8 +71,9 @@ export interface InvoiceLineItemInput {
   ctnWidthCm: number
   ctnHeightCm: number
   /** Tells the server whether the three dimensions above are already in
-   * centimetres. Packing cartons store inches, so lines built from them
-   * send false and the server converts on the way in. */
+   * centimetres. Intake rows (the packing rows since the merge) store
+   * centimetres, so lines built from them send true and the server keeps
+   * them as-is. */
   dimensionsInCm?: boolean
 }
 

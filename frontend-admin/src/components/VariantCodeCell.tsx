@@ -5,7 +5,9 @@ import type { Product, ProductVariant } from "@/types/sourcing"
 import type { ProductTemplateFieldEntry } from "@/types/templates"
 
 /** Build a compact QR payload that fits within QR v40 EC-L (~2 953 bytes).
- *  sizeBreakdown is flattened to "S:100/M:200/L:200" to save space. */
+ *  sizeBreakdown is flattened to "S:100/M:200/L:200" to save space.
+ *  No unit price / amount: these codes get printed on labels, and anyone who
+ *  scans one would otherwise read the supplier buy price. */
 function buildVariantQrPayload(
   product: Product,
   variant: ProductVariant,
@@ -24,7 +26,6 @@ function buildVariantQrPayload(
     material: product.material || "",
     ref: product.sisterProfilePoReference,
     vStyle: variant.variantStyleNo || "",
-    ctnSl: variant.ctnSl || "",
     color: variant.colorName || "",
     desc: variant.description || "",
     vMat: variant.material || "",
@@ -34,8 +35,6 @@ function buildVariantQrPayload(
     pcCtn: variant.pcsPerCarton,
     ctns: variant.noOfCartons,
     ttlPcs: variant.totalPcs,
-    price: variant.unitPrice ?? "",
-    amt: variant.totalAmount,
     gw: variant.totalGrossWeight,
     nw: variant.totalNetWeight,
     cbm: variant.totalCbm,

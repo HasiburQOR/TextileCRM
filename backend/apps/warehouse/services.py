@@ -1,44 +1,36 @@
-from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from apps.buyers.models import SisterProfile
 from apps.expenses.models import SourceType
 from apps.expenses.services import record_expense
-from apps.packing.models import PackingList
 from apps.warehouse.models import PACKAGING_COST_FIELDS, PACKAGING_COST_LABELS, WarehouseCost
 
 
-def _cost_label(sister_profile: SisterProfile, packing_list: PackingList | None) -> str:
-    """Human-readable tag for this cost's Expense rows/remarks — a Packing
-    List reference when there is one (most specific), else the Sister
-    Profile's own PO reference."""
-    if packing_list:
-        return packing_list.referenceCode or str(packing_list.id)
+def _cost_label(sister_profile: SisterProfile) -> str:
+    """Human-readable tag for this cost's Expense rows/remarks: the Sister
+    Profile's own PO reference (the packing list is no longer a separate
+    entity to tag costs with, per the intake-merge)."""
     return sister_profile.poReference or str(sister_profile.id)
 
 
 @transaction.atomic
 def create_warehouse_cost(
-    *, sister_profile: SisterProfile, created_by, packing_list: PackingList | None = None,
+    *, sister_profile: SisterProfile, created_by,
     custom_costs=None, extra_cost=0, extra_cost_remarks="", **cost_fields,
 ) -> WarehouseCost:
-    """BR-27–31 / FR-30–33. Recorded directly against a Sister Profile
-    (optionally scoped to one of its Packing Lists) — no QC report or
-    product-status precondition, and no one-per-source limit: a shipment
-    can rack up more than one round of warehouse costs."""
-    if packing_list and packing_list.sisterProfile_id != sister_profile.id:
-        raise ValidationError("That Packing List does not belong to the selected Sister Profile.")
-
+    """BR-27–31 / FR-30–33. Recorded directly against a Sister Profile —
+    no QC report or product-status precondition, and no one-per-source
+    limit: a shipment can rack up more than one round of warehouse costs."""
     custom_costs = custom_costs or []
 
     wc = WarehouseCost(
-        sisterProfile=sister_profile, packingList=packing_list, createdBy=created_by, customCosts=custom_costs,
+        sisterProfile=sister_profile, createdBy=created_by, customCosts=custom_costs,
         extraCost=extra_cost or 0, extraCostRemarks=extra_cost_remarks, **cost_fields,
     )
     wc.compute_total()
     wc.save()
 
-    label = _cost_label(sister_profile, packing_list)
+    label = _cost_label(sister_profile)
 
     if wc.loaderCost:
         record_expense(
@@ -98,7 +90,7 @@ def update_warehouse_cost(wc: WarehouseCost, *, updated_by, custom_costs=None, e
     wc.compute_total()
     wc.save()
 
-    label = _cost_label(wc.sisterProfile, wc.packingList)
+    label = _cost_label(wc.sisterProfile)
     if wc.loaderCost:
         record_expense(
             sister_profile=wc.sisterProfile, warehouse_cost=wc, source_type=SourceType.WAREHOUSE_LOADER,

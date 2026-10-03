@@ -81,10 +81,9 @@ COLUMNS = [
     ("qtyPerCtn", "qtyPerCtn"),
     ("totalQty", "totalQty"),
     # Unit Price prints per line: the price captured at Sourcing Intake
-    # (ProductVariant.unitPrice), carried onto the Packing List's carton row
-    # (PackingCarton.unitPrice) and locked onto this invoice line at
-    # generation, so the document quotes the same figure the sourcing intake
-    # and packing list do.
+    # (ProductVariant.unitPrice — which since the merge IS the packing row's
+    # price) and locked onto this invoice line at generation, so the
+    # document quotes the same figure the intake record does.
     ("unitPrice", "unitPrice"),
     # Per-line AMOUNT (unitPrice × totalQty) so the buyer can verify the
     # arithmetic that feeds the TOTAL VALUE at the bottom.

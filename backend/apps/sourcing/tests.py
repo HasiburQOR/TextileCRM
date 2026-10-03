@@ -1,7 +1,13 @@
+import shutil
+import tempfile
 from decimal import Decimal
+from io import BytesIO
 
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.urls import reverse
+from PIL import Image
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -757,3 +763,209 @@ class ProductMaterialFieldTests(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["material"], "Cotton-Poly 60/40")
+
+
+class ResubmitAfterRejectionTests(APITestCase):
+    """A rejected product used to be a dead end. Once corrected it can be
+    submitted again — through the same Sourcing Cost gate as a first submit."""
+
+    def setUp(self):
+        self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
+        self.sister = SisterProfile.objects.create(
+            buyerProfile=self.buyer, poReference="PO-001", agreementType=AgreementType.TYPE_1,
+        )
+        self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
+        self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
+        self.product = Product.objects.create(sisterProfile=self.sister, name="Kids T-Shirt", createdBy=self.rep)
+        self.cost = SourcingCost.objects.create(sisterProfile=self.sister)
+        SourcingCostItem.objects.create(
+            sourcingCost=self.cost, product=self.product, locationName="Gazipur", quantity=10,
+            customCostFields=[], date=timezone.now(),
+        )
+
+    def _reject(self):
+        services.close_sourcing_cost(self.cost)
+        services.submit_for_approval(self.product)
+        services.reject_product(self.product, self.admin, "Wrong shade of navy.")
+        self.product.refresh_from_db()
+
+    def test_rejected_product_can_be_resubmitted(self):
+        from apps.audit.models import AuditLogEntry
+
+        self._reject()
+        services.submit_for_approval(self.product, actor=self.rep)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.status, ProductStatus.PENDING_ADMIN_APPROVAL)
+        self.assertEqual(self.product.rejectionReason, "")
+        self.assertIsNone(self.product.reviewedBy)
+        entry = AuditLogEntry.objects.get(action="RESUBMIT_PRODUCT", entityId=str(self.product.id))
+        self.assertEqual(entry.beforeSnapshot["rejectionReason"], "Wrong shade of navy.")
+
+    def test_resubmit_still_needs_a_closed_sourcing_cost(self):
+        self._reject()
+        services.reopen_sourcing_cost(self.cost)
+        with self.assertRaises(ValidationError):
+            services.submit_for_approval(self.product, actor=self.rep)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.status, ProductStatus.REJECTED)
+
+    def test_rep_can_resubmit_through_the_api(self):
+        self._reject()
+        self.client.force_authenticate(user=self.rep)
+        resp = self.client.post(reverse("product-submit-for-approval", args=[self.product.id]))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["status"], ProductStatus.PENDING_ADMIN_APPROVAL)
+
+    def test_approved_product_cannot_be_resubmitted(self):
+        services.close_sourcing_cost(self.cost)
+        services.submit_for_approval(self.product)
+        services.approve_product(self.product, self.admin)
+        with self.assertRaises(ValidationError):
+            services.submit_for_approval(self.product, actor=self.rep)
+
+
+class MarkReadyForFinalQCTests(APITestCase):
+    """Nothing used to move a product from In Warehouse to Ready for Final
+    QC, so Final QC (and Completed) was unreachable."""
+
+    def setUp(self):
+        self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
+        self.sister = SisterProfile.objects.create(
+            buyerProfile=self.buyer, poReference="PO-001", agreementType=AgreementType.TYPE_1,
+        )
+        self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
+        self.warehouse = User.objects.create_user(username="wh", password="pass12345", role=Roles.WAREHOUSE)
+        self.product = Product.objects.create(
+            sisterProfile=self.sister, name="Kids T-Shirt", createdBy=self.rep, status=ProductStatus.IN_WAREHOUSE,
+        )
+
+    def _record_warehouse_cost(self):
+        from apps.warehouse.models import WarehouseCost
+
+        WarehouseCost.objects.create(sisterProfile=self.sister, createdBy=self.warehouse)
+
+    def test_requires_in_warehouse_status(self):
+        self._record_warehouse_cost()
+        self.product.status = ProductStatus.APPROVED_FOR_QC
+        self.product.save()
+        with self.assertRaises(ValidationError):
+            services.mark_ready_for_final_qc(self.product, self.warehouse)
+
+    def test_requires_a_warehouse_cost_on_the_order(self):
+        with self.assertRaises(ValidationError):
+            services.mark_ready_for_final_qc(self.product, self.warehouse)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.status, ProductStatus.IN_WAREHOUSE)
+
+    def test_moves_to_ready_for_final_qc_and_is_audited(self):
+        from apps.audit.models import AuditLogEntry
+
+        self._record_warehouse_cost()
+        services.mark_ready_for_final_qc(self.product, self.warehouse)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.status, ProductStatus.READY_FOR_FINAL_QC)
+        self.assertTrue(
+            AuditLogEntry.objects.filter(action="READY_FOR_FINAL_QC", entityId=str(self.product.id)).exists()
+        )
+
+    def test_warehouse_role_can_call_the_api_but_company_rep_cannot(self):
+        self._record_warehouse_cost()
+        url = reverse("product-mark-ready-for-final-qc", args=[self.product.id])
+
+        self.client.force_authenticate(user=self.rep)
+        self.assertEqual(self.client.post(url).status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.warehouse)
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data["status"], ProductStatus.READY_FOR_FINAL_QC)
+
+
+class EditCannotWipeColourRowsTests(APITestCase):
+    """An edit replaces all colour rows with the payload's — an empty list
+    used to silently delete every row."""
+
+    def setUp(self):
+        self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
+        self.sister = SisterProfile.objects.create(
+            buyerProfile=self.buyer, poReference="PO-001", agreementType=AgreementType.TYPE_1,
+        )
+        self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(
+            reverse("product-list"),
+            {
+                "sisterProfile": str(self.sister.id), "name": "Crewneck",
+                "variants": [{"colorName": "Navy", "orderQty": 10, "sizeBreakdown": []}],
+            },
+            format="json",
+        )
+        self.product_id = resp.data["id"]
+
+    def test_empty_variants_on_edit_is_rejected_and_rows_survive(self):
+        resp = self.client.patch(reverse("product-detail", args=[self.product_id]), {"variants": []}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("variants", resp.data)
+        self.assertEqual(Product.objects.get(pk=self.product_id).variants.count(), 1)
+
+    def test_header_only_edit_still_leaves_rows_untouched(self):
+        resp = self.client.patch(
+            reverse("product-detail", args=[self.product_id]), {"name": "Crewneck v2"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data["variants"]), 1)
+
+
+_UPLOAD_TEST_MEDIA_ROOT = tempfile.mkdtemp(prefix="sourcing-test-media-")
+
+
+@override_settings(MEDIA_ROOT=_UPLOAD_TEST_MEDIA_ROOT)
+class FactoryPackingListUploadTests(APITestCase):
+    """The factory packing list is served from the app's own origin, so only
+    real images/PDFs may be stored — not e.g. an .html page with a script."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(_UPLOAD_TEST_MEDIA_ROOT, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
+        self.sister = SisterProfile.objects.create(
+            buyerProfile=self.buyer, poReference="PO-001", agreementType=AgreementType.TYPE_1,
+        )
+        self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
+        self.product = Product.objects.create(sisterProfile=self.sister, name="Crewneck", createdBy=self.rep)
+        self.client.force_authenticate(user=self.rep)
+        self.url = reverse("product-upload-factory-packing-list", args=[self.product.id])
+
+    def _upload(self, name, content, content_type):
+        return self.client.post(
+            self.url, {"factoryPackingList": SimpleUploadedFile(name, content, content_type=content_type)},
+            format="multipart",
+        )
+
+    def test_png_is_accepted(self):
+        buf = BytesIO()
+        Image.new("RGB", (4, 4)).save(buf, format="PNG")
+        resp = self._upload("sheet.png", buf.getvalue(), "image/png")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertTrue(resp.data["factoryPackingList"])
+
+    def test_pdf_is_accepted(self):
+        resp = self._upload("sheet.pdf", b"%PDF-1.4\n%header is what is checked\n", "application/pdf")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+
+    def test_html_is_rejected(self):
+        resp = self._upload("sheet.html", b"<script>alert(1)</script>", "text/html")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.factoryPackingList)
+
+    def test_svg_is_rejected(self):
+        resp = self._upload("sheet.svg", b"<svg onload=\"alert(1)\"/>", "image/svg+xml")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_script_disguised_as_pdf_or_png_is_rejected(self):
+        self.assertEqual(self._upload("sheet.pdf", b"<script>x</script>", "application/pdf").status_code, 400)
+        self.assertEqual(self._upload("sheet.png", b"<script>x</script>", "image/png").status_code, 400)

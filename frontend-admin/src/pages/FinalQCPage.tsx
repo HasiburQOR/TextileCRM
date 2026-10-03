@@ -14,8 +14,7 @@ import { useAuthStore } from "@/lib/auth-store"
 import { extractErrorMessage } from "@/lib/errors"
 import { PRODUCT_STATUS_BADGE_VARIANT, PRODUCT_STATUS_LABEL } from "@/lib/status"
 import type { Paginated } from "@/types/api"
-import type { PackingList } from "@/types/packing"
-import type { Product } from "@/types/sourcing"
+import type { Product, ProductVariant } from "@/types/sourcing"
 
 const CAN_MANAGE_ROLES = ["admin", "qc"]
 type FilterValue = "ready_for_final_qc" | "completed" | "all"
@@ -147,11 +146,6 @@ function FinalQCDialog({ productId, canManage, onClose }: { productId: string; c
     queryFn: async () => { const { data } = await api.get<Product>(`/products/${productId}/`); return data },
   })
 
-  const packingListsQuery = useQuery({
-    queryKey: ["packing-lists", "all"],
-    queryFn: async () => { const { data } = await api.get<Paginated<PackingList>>("/packing-lists/", { params: { page_size: 200 } }); return data.results },
-  })
-
   const [goodsName, setGoodsName] = useState("")
   const [finalPrice, setFinalPrice] = useState<number | "">("")
   const [fabricDetails, setFabricDetails] = useState("")
@@ -208,7 +202,9 @@ function FinalQCDialog({ productId, canManage, onClose }: { productId: string; c
     )
   }
 
-  const cartons = (packingListsQuery.data ?? []).flatMap((pl) => pl.cartons.filter((c) => c.product === productId))
+  // The intake record IS the packing list since the merge — its variant rows
+  // (one per color) are the packing rows this summary reads.
+  const cartons: ProductVariant[] = product.variants
   const finalDataSaved = !!(product.goodsName && product.finalPrice !== null && product.fabricDetails)
   const isCompleted = product.status === "completed"
 
@@ -258,11 +254,9 @@ function FinalQCDialog({ productId, canManage, onClose }: { productId: string; c
         </div>
 
         <div className="flex flex-col gap-2 rounded-md border border-slate-200 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Packing List Summary (read-only)</p>
-          {packingListsQuery.isLoading ? (
-            <Spinner className="text-slate-400" />
-          ) : cartons.length === 0 ? (
-            <p className="text-sm text-slate-400">No packing list rows for this product yet.</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Packing Summary (read-only)</p>
+          {cartons.length === 0 ? (
+            <p className="text-sm text-slate-400">No intake (packing) rows for this product yet.</p>
           ) : (
             <div className="overflow-x-auto">
             <table className="w-full min-w-[520px] text-left text-xs">

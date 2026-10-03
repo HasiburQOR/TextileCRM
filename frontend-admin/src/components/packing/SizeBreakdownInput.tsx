@@ -23,6 +23,10 @@ export function sizeRowsTotalQty(rows: SizeBreakdownEntry[]): number {
   return rows.reduce((sum, row) => sum + (row.quantity || 0), 0)
 }
 
+/** The common apparel run, offered as a one-click start on an empty row —
+ * the labels are still free text afterwards (rename, remove, or add more). */
+const STANDARD_SIZES = ["S", "M", "L", "XL", "XXL"]
+
 export function SizeBreakdownInput({ rows, onChange }: {
   rows: SizeBreakdownEntry[]
   onChange: (rows: SizeBreakdownEntry[]) => void
@@ -42,26 +46,40 @@ export function SizeBreakdownInput({ rows, onChange }: {
       {rows.map((row, i) => (
         <div key={i} className="flex items-center gap-1">
           <input
-            className="h-6 w-14 rounded border border-slate-200 px-1 text-[10px] placeholder:text-slate-300"
+            className="h-7 w-14 rounded border border-slate-300 px-1.5 text-xs placeholder:text-slate-300"
             placeholder="Size"
+            aria-label="Size label"
             value={row.size_label}
             onChange={(e) => updateRow(i, { size_label: e.target.value })}
           />
           <input
-            className="h-6 w-9 rounded border border-slate-200 px-1 text-xs text-center"
+            className="h-7 w-12 rounded border border-slate-300 px-1 text-center text-xs"
             type="number" min={0}
             placeholder="Qty"
+            aria-label={`Pieces of size ${row.size_label || i + 1} per carton`}
             value={row.quantity || ""}
             onChange={(e) => updateRow(i, { quantity: Number(e.target.value) })}
           />
-          <button type="button" onClick={() => removeRow(i)} className="shrink-0 text-slate-300 hover:text-red-500">
-            <Trash2 className="h-2.5 w-2.5" />
+          <button type="button" onClick={() => removeRow(i)} className="shrink-0 text-slate-300 hover:text-red-500" title="Remove this size">
+            <Trash2 className="h-3 w-3" />
           </button>
         </div>
       ))}
-      <button type="button" onClick={addRow} className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-600">
-        <Plus className="h-2.5 w-2.5" /> Add Size
-      </button>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={addRow} className="flex items-center gap-1 whitespace-nowrap text-[11px] text-slate-500 hover:text-slate-800">
+          <Plus className="h-3 w-3" /> Add size
+        </button>
+        {rows.length === 0 && (
+          <button
+            type="button"
+            onClick={() => onChange(STANDARD_SIZES.map((size_label) => ({ size_label, quantity: 0 })))}
+            className="whitespace-nowrap rounded border border-slate-200 px-1.5 text-[11px] text-slate-500 hover:border-slate-400 hover:text-slate-800"
+            title="Add S, M, L, XL, XXL — then type how many of each go in one carton"
+          >
+            S–XXL
+          </button>
+        )}
+      </div>
     </div>
   )
 }

@@ -4,14 +4,14 @@ Two independently-guarded phases, so re-running is always safe and a
 partially-seeded database can be topped up rather than duplicated:
 
   1. Staff + buyer-portal login users  — skipped if `admin` already exists.
-  2. Business data (buyers, sister profiles, products, packing lists,
-     invoices, expenses)               — skipped if any BuyerProfile exists.
+  2. Business data (buyers, sister profiles, products, invoices,
+     expenses)                     — skipped if any BuyerProfile exists.
 
 Called unconditionally from `entrypoint.sh`, so a fresh deploy comes up
 already populated instead of showing empty tables everywhere.
 
 Every write goes through the normal service layer (`record_expense`,
-`create_packing_list`, `create_invoice`, wallet services) rather than raw
+`create_invoice`, wallet services) rather than raw
 `objects.create()`, so seeded rows are indistinguishable from ones the UI
 would have produced — settlement ledgers, wallet balances, audit-log
 entries and derived totals all land exactly as they would in real use.
@@ -196,7 +196,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--users-only",
             action="store_true",
-            help="Create the demo logins but skip buyers/products/packing lists/invoices.",
+            help="Create the demo logins but skip buyers/products/invoices.",
         )
 
     def handle(self, *args, **options):
@@ -233,7 +233,6 @@ class Command(BaseCommand):
         from apps.expenses.services import record_expense
         from apps.invoicing.models import CommissionType, ExchangeRate
         from apps.invoicing.services import create_invoice
-        from apps.packing.services import create_packing_list
         from apps.sourcing.models import (
             Product,
             ProductTemplate,
@@ -383,42 +382,14 @@ class Command(BaseCommand):
                 compute_variant_derived(variant)
                 variant.save()
 
-        # Packing lists — built from each product's own variant rows, so the
-        # carton grid mirrors what Sourcing Intake already captured.
-        packing_lists = []
+        # Packing-list header data lives on the Product itself since the
+        # Sourcing-Intake-as-Packing-List merge — the intake record IS the
+        # packing list, so there is no separate entity to seed.
         for product in products[:5]:
-            cartons = [
-                {
-                    "product": product,
-                    "poNo": product.poNo,
-                    "cartonNoFrom": v.cartonNoFrom,
-                    "cartonNoTo": v.cartonNoTo,
-                    "colorName": v.colorName,
-                    "patternNo": v.patternNo,
-                    "sizeBreakdown": v.sizeBreakdown,
-                    "customFieldValues": v.customFieldValues,
-                    "innerBundle": v.innerBundle,
-                    "orderQty": v.orderQty,
-                    "grossWeight": v.grossWeight,
-                    "netWeight": v.netWeight,
-                    "ctnLength": v.ctnLength,
-                    "ctnWidth": v.ctnWidth,
-                    "ctnHeight": v.ctnHeight,
-                }
-                for v in product.variants.all()
-            ]
-            packing_lists.append(
-                create_packing_list(
-                    sister_profile=product.sisterProfile,
-                    created_by=rep,
-                    cartons=cartons,
-                    poNo=product.poNo,
-                    brandName=product.brandName,
-                    date=today - timedelta(days=5),
-                    frontMark=f"{product.brandName}\n{product.poNo}\nMADE IN BANGLADESH",
-                    sideMark=f"STYLE: {product.styleNumber}\nC/NO: 1-UP",
-                )
-            )
+            product.packingDate = today - timedelta(days=5)
+            product.frontMark = f"{product.brandName}\n{product.poNo}\nMADE IN BANGLADESH"
+            product.sideMark = f"STYLE: {product.styleNumber}\nC/NO: 1-UP"
+            product.save(update_fields=["packingDate", "frontMark", "sideMark"])
 
         # Invoices — one issued-track, one still pending approval. Every
         # agreement charges a rate, but the rate means different things: a
@@ -426,44 +397,43 @@ class Command(BaseCommand):
         # one figure for both would put a 7.5-per-piece charge on a
         # 2,160-piece order and make the demo data nonsense.
         agreement_rate = {"1": Decimal("5"), "2": Decimal("0.35"), "3": Decimal("4.5")}
-        for packing_list, unit_price in (
-            (packing_lists[0], Decimal("12.50")),
-            (packing_lists[2], Decimal("18.75")),
+        for product, unit_price in (
+            (products[0], Decimal("12.50")),
+            (products[2], Decimal("18.75")),
         ):
-            commission = agreement_rate[packing_list.sisterProfile.agreementType]
+            commission = agreement_rate[product.sisterProfile.agreementType]
             line_items = [
                 {
-                    "product": carton.product,
-                    "packingCarton": carton,
-                    "description": f"{carton.product.name} — {carton.colorName}",
-                    "brand": carton.product.brandName,
-                    "ctn": carton.noOfCartons,
-                    "qtyPerCtn": carton.totalPcsPerCarton,
-                    "totalQty": carton.shipQty,
+                    "product": product,
+                    "productVariant": v,
+                    "description": f"{product.name} — {v.colorName}",
+                    "brand": product.brandName,
+                    "ctn": v.noOfCartons,
+                    "qtyPerCtn": v.pcsPerCarton,
+                    "totalQty": v.shipQty,
                     "unitPrice": unit_price,
-                    "amount": (unit_price * carton.shipQty).quantize(Decimal("0.01")),
-                    "netWeight": carton.totalNetWeight,
-                    "grossWeight": carton.totalGrossWeight,
-                    "cbm": carton.totalCbm,
+                    "amount": (unit_price * v.shipQty).quantize(Decimal("0.01")),
+                    "netWeight": v.totalNetWeight,
+                    "grossWeight": v.totalGrossWeight,
+                    "cbm": v.totalCbm,
                     # From the Product itself (captured at Sourcing Intake) -
                     # no longer a hardcoded string.
-                    "material": carton.product.material,
-                    "styleItemCode": carton.styleNo,
-                    "patternNo": carton.patternNo,
+                    "material": product.material,
+                    "styleItemCode": product.styleNumber,
+                    "patternNo": v.patternNo,
                     # The Details column: a readable rollup of this color's
                     # size breakdown, e.g. "S-5+M-8+L-5+XL-4".
                     "colorSizeNote": "+".join(
-                        f"{entry.get('size_label', '')}-{entry.get('quantity', 0)}" for entry in carton.sizeBreakdown
+                        f"{entry.get('size_label', '')}-{entry.get('quantity', 0)}" for entry in v.sizeBreakdown
                     ),
-                    "packingListRef": packing_list.referenceCode,
                     "remarks": "",
                 }
-                for carton in packing_list.cartons.all()
+                for v in product.variants.all()
             ]
             # The currency pair and rate come from the Sister Profile now —
             # only the agreement rate is per invoice.
             create_invoice(
-                sister_profile=packing_list.sisterProfile,
+                sister_profile=product.sisterProfile,
                 created_by=rep,
                 line_items=line_items,
                 commission_rate=commission,
@@ -491,7 +461,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f"Seeded {len(buyers)} buyers, {len(sisters)} sister profiles, {len(products)} products, "
-            f"{len(packing_lists)} packing lists, 2 invoices, {len(EXPENSES)} expenses."
+            f"2 invoices, {len(EXPENSES)} expenses."
         ))
 
     # ── Credentials summary ─────────────────────────────────────────

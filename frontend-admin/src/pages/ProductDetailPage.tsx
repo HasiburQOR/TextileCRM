@@ -1,13 +1,13 @@
 import { VariantCodeCell } from "@/components/VariantCodeCell"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Check, FileImage, ImagePlus, Pencil, X } from "lucide-react"
+import { ArrowLeft, FileImage, ImagePlus, Pencil, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { useNavigate, useParams, useSearchParams } from "react-router-dom"
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom"
+import { ProductProgress } from "@/components/sourcing/ProductProgress"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Lightbox } from "@/components/ui/lightbox"
 import { Select } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
@@ -16,6 +16,7 @@ import { useAuthStore } from "@/lib/auth-store"
 import { extractErrorMessage } from "@/lib/errors"
 import { resolveMediaUrl } from "@/lib/media"
 import { PRODUCT_STATUS_BADGE_VARIANT, PRODUCT_STATUS_LABEL } from "@/lib/status"
+import { EditProductDialog } from "@/pages/ProductsPage"
 import type { Product, ProductImage } from "@/types/sourcing"
 
 const CAN_MANAGE_ROLES = ["admin", "company_rep"]
@@ -35,10 +36,22 @@ export function ProductDetailPage() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const [actionError, setActionError] = useState<string | null>(null)
+  // One Edit for the whole product — the same dialog as the list page's
+  // pencil, colour rows included (this page used to edit only 4 header fields).
   const [editOpen, setEditOpen] = useState(false)
-  const [editError, setEditError] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState({ styleNumber: "", name: "", brandName: "", poNo: "" })
   const autoOpenedRef = useRef(false)
+  const location = useLocation()
+  // Set by the Create dialog when the product saved but one or more color
+  // photos didn't upload (see ProductsPage.uploadColorImages).
+  const [failedPhotoColors, setFailedPhotoColors] = useState<string[]>(
+    () => (location.state as { failedPhotoColors?: string[] } | null)?.failedPhotoColors ?? [],
+  )
+
+  useEffect(() => {
+    // Drop the one-time notice from history so a reload doesn't show it again.
+    if (location.state) navigate(location.pathname + location.search, { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const productQuery = useQuery({
     queryKey: ["products", id],
@@ -52,16 +65,10 @@ export function ProductDetailPage() {
   useEffect(() => {
     if (productQuery.data && searchParams.get("edit") === "1" && !autoOpenedRef.current) {
       autoOpenedRef.current = true
-      openEdit(productQuery.data)
+      setEditOpen(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productQuery.data])
-
-  function openEdit(product: Product) {
-    setEditForm({ styleNumber: product.styleNumber, name: product.name, brandName: product.brandName, poNo: product.poNo })
-    setEditError(null)
-    setEditOpen(true)
-  }
 
   function closeEdit() {
     setEditOpen(false)
@@ -70,19 +77,6 @@ export function ProductDetailPage() {
       setSearchParams(searchParams, { replace: true })
     }
   }
-
-  const updateMutation = useMutation({
-    mutationFn: async () => {
-      const { data } = await api.patch<Product>(`/products/${id}/`, editForm)
-      return data
-    },
-    onSuccess: (data) => {
-      queryClient.setQueryData(["products", id], data)
-      queryClient.invalidateQueries({ queryKey: ["products", "all"] })
-      closeEdit()
-    },
-    onError: (err: unknown) => setEditError(extractErrorMessage(err)),
-  })
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -97,6 +91,19 @@ export function ProductDetailPage() {
     onError: (err: unknown) => {
       setActionError(extractErrorMessage(err))
     },
+  })
+
+  const readyForFinalQcMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<Product>(`/products/${id}/mark-ready-for-final-qc/`)
+      return data
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["products", id], data)
+      queryClient.invalidateQueries({ queryKey: ["products"] })
+      setActionError(null)
+    },
+    onError: (err: unknown) => setActionError(extractErrorMessage(err)),
   })
 
   if (productQuery.isLoading) {
@@ -114,72 +121,70 @@ export function ProductDetailPage() {
   const product = productQuery.data
   const canManage = !!user && CAN_MANAGE_ROLES.includes(user.role)
   const canEdit = user?.role === "admin"
+  const canMarkReady = user?.role === "admin" || user?.role === "warehouse"
+  // Rejected products go back to the queue through the same submit, once fixed.
+  const canSubmit = canManage && (product.status === "sourcing_trip_open" || product.status === "rejected")
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/products")}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={() => navigate("/products")} title="Back to Sourcing Intake">
           <ArrowLeft className="h-4 w-4" />
         </Button>
 
-        {editOpen ? (
-          <form
-            className="flex flex-1 flex-wrap items-end gap-2"
-            onSubmit={(e) => { e.preventDefault(); updateMutation.mutate() }}
-          >
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-600">Style No</label>
-              <Input className="h-9 w-40" value={editForm.styleNumber} onChange={(e) => setEditForm({ ...editForm, styleNumber: e.target.value })} required />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-600">Product Name</label>
-              <Input className="h-9 w-48" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} required />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-600">Brand Name</label>
-              <Input className="h-9 w-36" value={editForm.brandName} onChange={(e) => setEditForm({ ...editForm, brandName: e.target.value })} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-600">PO No</label>
-              <Input className="h-9 w-36" value={editForm.poNo} onChange={(e) => setEditForm({ ...editForm, poNo: e.target.value })} />
-            </div>
-            <Button type="submit" size="sm" disabled={updateMutation.isPending}>
-              <Check className="h-3.5 w-3.5" /> {updateMutation.isPending ? "Saving…" : "Save"}
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={closeEdit}>
-              <X className="h-3.5 w-3.5" /> Cancel
-            </Button>
-          </form>
-        ) : (
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold text-slate-900">{product.name}</h1>
-              <Badge variant={PRODUCT_STATUS_BADGE_VARIANT[product.status]}>{PRODUCT_STATUS_LABEL[product.status]}</Badge>
-            </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold text-slate-900">{product.name}</h1>
+            <Badge variant={PRODUCT_STATUS_BADGE_VARIANT[product.status]}>{PRODUCT_STATUS_LABEL[product.status]}</Badge>
+          </div>
             <p className="text-sm text-slate-500">
               <code className="text-xs">{product.styleNumber}</code> · {product.brandName} · PO {product.poNo || "—"} · {product.sisterProfilePoReference}
             </p>
           </div>
-        )}
 
-        {!editOpen && canEdit && (
-          <Button variant="outline" onClick={() => openEdit(product)}>
+        {canEdit && (
+          <Button variant="outline" onClick={() => setEditOpen(true)}>
             <Pencil className="h-4 w-4" /> Edit
           </Button>
         )}
-        {!editOpen && canManage && product.status === "sourcing_trip_open" && (
+        {canSubmit && (
           <Button onClick={() => submitMutation.mutate()} disabled={submitMutation.isPending}>
-            {submitMutation.isPending ? "Submitting…" : "Submit for Approval"}
+            {submitMutation.isPending
+              ? "Submitting…"
+              : product.status === "rejected" ? "Resubmit for Approval" : "Submit for Approval"}
+          </Button>
+        )}
+        {canMarkReady && product.status === "in_warehouse" && (
+          <Button onClick={() => readyForFinalQcMutation.mutate()} disabled={readyForFinalQcMutation.isPending}>
+            {readyForFinalQcMutation.isPending ? "Saving…" : "Mark Ready for Final QC"}
           </Button>
         )}
       </div>
 
+      <ProductProgress status={product.status} />
+
+      {failedPhotoColors.length > 0 && (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span>
+            Product saved, but the photo for <span className="font-medium">{failedPhotoColors.join(", ")}</span> didn't
+            upload. Add it in the Photo Gallery below (label: Custom, name: the color).
+          </span>
+          <button type="button" onClick={() => setFailedPhotoColors([])} className="shrink-0 text-amber-600 hover:text-amber-800">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {actionError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>}
-      {editOpen && editError && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{editError}</div>}
 
       {product.status === "rejected" && product.rejectionReason && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <span className="font-medium">Rejected:</span> {product.rejectionReason}
+          {canSubmit && (
+            <span className="mt-1 block text-xs text-red-700">
+              Fix the problem ({canEdit ? "use Edit" : "ask an Admin to edit the product"}), then click Resubmit for Approval.
+            </span>
+          )}
         </div>
       )}
 
@@ -201,7 +206,6 @@ export function ProductDetailPage() {
                 <thead>
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                     <th className="px-4 py-2 font-medium">Style No</th>
-                    <th className="px-4 py-2 font-medium">CTN SL</th>
                     <th className="px-4 py-2 font-medium">Color</th>
                     <th className="px-4 py-2 font-medium">Description</th>
                     <th className="px-4 py-2 font-medium">Material</th>
@@ -221,7 +225,7 @@ export function ProductDetailPage() {
                 <tbody>
                   {product.variants.length === 0 ? (
                     <tr>
-                      <td colSpan={16} className="px-4 py-6 text-center text-sm text-slate-400">
+                      <td colSpan={15} className="px-4 py-6 text-center text-sm text-slate-400">
                         No color rows recorded.
                       </td>
                     </tr>
@@ -229,7 +233,6 @@ export function ProductDetailPage() {
                     product.variants.map((v) => (
                       <tr key={v.id} className="border-b border-slate-100 last:border-0">
                         <td className="px-4 py-2 text-slate-500">{v.variantStyleNo || "—"}</td>
-                        <td className="px-4 py-2 text-slate-500">{v.ctnSl || "—"}</td>
                         <td className="px-4 py-2 font-medium text-slate-900">{v.colorName || "—"}</td>
                         <td className="px-4 py-2 text-slate-500">{v.description || "—"}</td>
                         <td className="px-4 py-2 text-slate-500">{v.material || "—"}</td>
@@ -247,7 +250,9 @@ export function ProductDetailPage() {
                         <td className="px-4 py-2 text-slate-500">{Number(v.totalNetWeight).toFixed(2)}</td>
                         <td className="px-4 py-2 text-slate-500">{Number(v.totalCbm).toFixed(4)}</td>
                         <td className="px-4 py-2 text-slate-500">{v.remarks || "—"}</td>
-                        <VariantCodeCell product={product} variant={v} templateColumns={[]} />
+                        {/* Same columns as the list's View dialog, so a row's
+                            QR is identical whichever screen it's downloaded from. */}
+                        <VariantCodeCell product={product} variant={v} templateColumns={product.resolvedTemplateFields} />
                       </tr>
                     ))
                   )}
@@ -275,6 +280,8 @@ export function ProductDetailPage() {
           <ImageGallery productId={product.id} images={product.images} canUpload={canManage} />
         </CardContent>
       </Card>
+
+      {editOpen && <EditProductDialog product={product} onClose={closeEdit} />}
     </div>
   )
 }
@@ -343,7 +350,7 @@ function FactoryPackingListPanel({
           {uploadMutation.isPending ? "Uploading…" : file ? "Replace File" : "Upload File"}
         </Button>
       )}
-      <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileChange} />
+      <input ref={fileInputRef} type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf" className="hidden" onChange={handleFileChange} />
 
       {lightboxOpen && file && isImage && (
         <Lightbox

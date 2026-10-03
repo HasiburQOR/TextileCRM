@@ -16,8 +16,6 @@ from apps.invoicing.models import Invoice, InvoiceStatus
 from apps.invoicing.serializers import InvoiceSelfSerializer
 from apps.notifications.models import Notification
 from apps.notifications.serializers import NotificationSerializer
-from apps.packing.models import PackingList
-from apps.packing.serializers import PackingListSelfSerializer
 from apps.sourcing.models import Product, SourcingCost
 from apps.sourcing.serializers import ProductSelfSerializer
 
@@ -191,7 +189,11 @@ class PortalOrderCostsView(APIView):
 
 
 class PortalOrderPackingListView(APIView):
-    """§17.7: read-only packing list(s) for this order."""
+    """§17.7: read-only packing data for this order. Since the
+    Sourcing-Intake-as-Packing-List merge there is no separate packing-list
+    entity — each Product of the order IS one packing list (header fields +
+    per-color variant rows), so this returns the order's products through
+    the buyer-facing product serializer, which carries the packing fields."""
 
     permission_classes = [BuyerPortalPermission]
 
@@ -199,8 +201,12 @@ class PortalOrderPackingListView(APIView):
         sister = _owned_order_or_none(request, order_id)
         if not sister:
             return Response({"detail": "Not found."}, status=404)
-        lists = PackingList.objects.filter(sisterProfile=sister).prefetch_related("cartons").order_by("-createdAt")
-        return Response(PackingListSelfSerializer(lists, many=True).data)
+        products = (
+            Product.objects.filter(sisterProfile=sister)
+            .prefetch_related("variants", "images")
+            .order_by("createdAt")
+        )
+        return Response(ProductSelfSerializer(products, many=True).data)
 
 
 class PortalOrderInvoicesView(APIView):

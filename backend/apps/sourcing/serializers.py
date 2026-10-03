@@ -86,16 +86,18 @@ class ProductVariantSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductVariant
         fields = [
-            "id", "colorName", "patternNo", "orderQty", "sizeBreakdown", "pcsPerCarton", "innerBundle",
+            "id", "colorName", "patternNo", "poNo", "assortId", "ctnSl", "orderQty", "sizeBreakdown", "pcsPerCarton", "innerBundle",
             "customFieldValues",
             "cartonNoFrom", "cartonNoTo", "noOfCartons", "totalPcs",
+            "shipQty", "shortExcessQty", "shortExcessPct",
             "unitPrice", "totalAmount",
             "grossWeight", "netWeight", "totalGrossWeight", "totalNetWeight",
             "ctnLength", "ctnWidth", "ctnHeight", "cbm", "totalCbm",
-            "variantStyleNo", "ctnSl", "material", "description", "remarks",
+            "variantStyleNo", "material", "description", "remarks",
         ]
         read_only_fields = [
-            "id", "pcsPerCarton", "noOfCartons", "totalPcs", "totalAmount",
+            "id", "pcsPerCarton", "noOfCartons", "totalPcs",
+            "shipQty", "shortExcessQty", "shortExcessPct", "totalAmount",
             "totalGrossWeight", "totalNetWeight", "cbm", "totalCbm",
         ]
 
@@ -128,13 +130,17 @@ class ProductSerializer(serializers.ModelSerializer):
     createdByName = serializers.CharField(source="createdBy.display_name", read_only=True)
     reviewedByName = serializers.CharField(source="reviewedBy.display_name", read_only=True, default=None)
     sisterProfilePoReference = serializers.CharField(source="sisterProfile.poReference", read_only=True)
-    # `factoryPackingList` is only the raw scan uploaded at intake — it says
-    # nothing about whether a real Packing List module row exists for this
-    # product. This counts the latter (apps.packing.PackingCarton rows
-    # actually referencing this product), which is what the Sourcing Intake
-    # list's "Packing List" indicator should reflect.
-    packingCartonCount = serializers.IntegerField(source="packingCartons.count", read_only=True)
+    packingDate = serializers.DateField(required=False, allow_null=True)
+    frontMark = serializers.CharField(required=False, allow_blank=True)
+    sideMark = serializers.CharField(required=False, allow_blank=True)
+    # Replaces the old packingCartonCount (which counted PackingCarton rows):
+    # after the merge the intake rows themselves ARE the packing list, so the
+    # packing indicator is the sum of the variants' carton counts.
+    totalCartons = serializers.SerializerMethodField()
     templateName = serializers.CharField(source="template.name", read_only=True, default=None)
+
+    def get_totalCartons(self, obj) -> int:
+        return sum(v.noOfCartons for v in obj.variants.all())
 
     class Meta:
         model = Product
@@ -142,7 +148,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "id", "sisterProfile", "sisterProfilePoReference", "styleNumber", "name", "brandName", "poNo", "material",
             "template", "templateName", "resolvedTemplateFields", "customFields",
             "status", "rejectionReason", "goodsName", "finalPrice", "fabricDetails", "factoryPackingList",
-            "packingCartonCount",
+            "packingDate", "frontMark", "sideMark", "totalCartons",
             "productQrGenerated", "productQrPayload", "cartonQrGenerated", "cartonQrPayload",
             "createdBy", "createdByName", "reviewedBy",
             "reviewedByName", "reviewedAt", "variants", "images", "totalOrderQty", "createdAt", "updatedAt",
@@ -164,6 +170,17 @@ class ProductSerializer(serializers.ModelSerializer):
             "productQrGenerated", "productQrPayload", "cartonQrGenerated", "cartonQrPayload",
             "createdBy", "reviewedBy", "reviewedAt", "createdAt", "updatedAt",
         ]
+
+    def validate_variants(self, value):
+        """An edit replaces every colour row with whatever is sent, so an
+        empty list would silently delete them all (e.g. an edit form where
+        every Color was cleared). Omitting `variants` entirely still leaves
+        the rows untouched — that's how header-only edits work."""
+        if self.instance is not None and value == []:
+            raise serializers.ValidationError(
+                "A product must keep at least one colour row — omit 'variants' to leave the rows unchanged."
+            )
+        return value
 
     def create(self, validated_data):
         from apps.sourcing.services import compute_variant_derived, resolve_template_fields
@@ -221,7 +238,8 @@ class ProductSelfSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             "id", "styleNumber", "name", "brandName", "poNo", "material", "status",
-            "goodsName", "fabricDetails", "variants", "images", "totalOrderQty", "createdAt",
+            "goodsName", "fabricDetails", "packingDate", "frontMark", "sideMark",
+            "variants", "images", "totalOrderQty", "createdAt",
         ]
         read_only_fields = fields
 

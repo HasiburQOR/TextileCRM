@@ -9,9 +9,9 @@ import type { CustomFieldEntry, FieldType, ProductTemplateFieldEntry } from "@/t
  * a Template's fields (plus any ad hoc ones added while building one
  * product/packing list) render as real spreadsheet columns — every row
  * (one color) has its own value per column, so it's always clear which
- * color owns which value. `Product.resolvedTemplateFields` /
- * `PackingList`-side equivalent is the column schema; each row's own
- * `customFieldValues` holds its values, matched to columns by label. */
+ * color owns which value. `Product.resolvedTemplateFields` is the column
+ * schema; each row's own `customFieldValues` holds its values, matched to
+ * columns by label. */
 
 export function columnsFromTemplateFields(fields: ProductTemplateFieldEntry[]): ProductTemplateFieldEntry[] {
   return [...fields].sort((a, b) => a.displayOrder - b.displayOrder)

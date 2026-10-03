@@ -6,7 +6,7 @@ from django.db import models
 from apps.buyers.models import SisterProfile
 from apps.core.models import TimeStampedModel, UUIDModel
 from apps.core.utils import generate_code
-from apps.sourcing.models import Product
+from apps.sourcing.models import Product, ProductVariant
 
 
 class ExchangeRate(UUIDModel):
@@ -192,13 +192,19 @@ class Invoice(UUIDModel, TimeStampedModel):
 
 
 class InvoiceLineItem(UUIDModel):
-    """FR-42/43/45: each line traces back to its source Product and Packing
-    List row (PackingCarton) for full traceability (BR-37)."""
+    """FR-42/43/45: each line traces back to its source Product and that
+    Product's intake row (ProductVariant — the packing-list row since the
+    Sourcing-Intake-as-Packing-List merge) for full traceability (BR-37)."""
 
     invoice = models.ForeignKey(Invoice, related_name="lineItems", on_delete=models.CASCADE)
     product = models.ForeignKey(Product, related_name="invoiceLineItems", null=True, blank=True, on_delete=models.SET_NULL)
-    packingCarton = models.ForeignKey(
-        "packing.PackingCarton", related_name="invoiceLineItems", null=True, blank=True, on_delete=models.SET_NULL
+    # Replaces the former `packingCarton` FK (packing.PackingCarton was
+    # removed in the merge — ProductVariant now holds the packing-row data).
+    # SET_NULL, same reasoning as product/warehouseCost/sourcingCost: the
+    # line's own amounts are copied at generation time, so deleting the
+    # source row later never breaks an issued invoice.
+    productVariant = models.ForeignKey(
+        ProductVariant, related_name="invoiceLineItems", null=True, blank=True, on_delete=models.SET_NULL
     )
     # A line pulled in from a recorded Warehouse Cost (loading/packaging/
     # extra costs for the shipment) rather than from a Packing Carton — same
@@ -231,10 +237,10 @@ class InvoiceLineItem(UUIDModel):
     # column ("MRF25 / MR12528") — copied from PackingCarton.patternNo at
     # generation time, same lock discipline as styleItemCode.
     patternNo = models.CharField(max_length=100, blank=True, default="")
-    # PackingList.referenceCode ("PKG-...") at generation time — copied, not
-    # FK-derived-live, same "locked at generation" discipline as
-    # exchangeRateValueLocked, so this invoice line stays correct even if the
-    # source packingCarton/packingList is later edited or deleted.
+    # The source intake record's PO reference at generation time — copied,
+    # not FK-derived-live, same "locked at generation" discipline as
+    # exchangeRateValueLocked, so this invoice line stays correct even if
+    # the source product/variant is later edited or deleted.
     packingListRef = models.CharField(max_length=32, blank=True, default="")
     remarks = models.CharField(max_length=255, blank=True, default="")  # FR-45: flag exceptions before approval
 

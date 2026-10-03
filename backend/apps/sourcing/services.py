@@ -86,10 +86,16 @@ def compute_variant_derived(variant: ProductVariant) -> None:
     Dimensions (ctnLength/Width/Height) are entered at Sourcing Intake in
     centimetres. CBM = L×W×H / 1,000,000 (cm³ → m³).
 
-    NOTE: PackingCarton still stores dimensions in inches. When the
-    frontend pre-fills a PackingCarton row from a ProductVariant, it
-    converts cm → inches at the boundary (÷ 2.54)."""
+    NOTE: PackingRule defaults stay in inches (their historic convention);
+    generate_variant_rows_from_rule converts them to centimetres when
+    pre-filling intake rows (apps.packing.services)."""
     variant.pcsPerCarton = sum_size_breakdown(variant.sizeBreakdown)
+    # Same default-only rule the former PackingCarton had: per-row poNo
+    # falls back to the Product's own poNo when blank, but a value the
+    # caller supplied is never overwritten (a split shipment may need a
+    # different PO on one row).
+    if not variant.poNo:
+        variant.poNo = variant.product.poNo
 
     if variant.cartonNoTo is not None and variant.cartonNoFrom is not None and variant.cartonNoTo >= variant.cartonNoFrom:
         variant.noOfCartons = variant.cartonNoTo - variant.cartonNoFrom + 1
@@ -97,6 +103,16 @@ def compute_variant_derived(variant: ProductVariant) -> None:
         variant.noOfCartons = 0
 
     variant.totalPcs = variant.pcsPerCarton * variant.noOfCartons
+
+    # Shipped-vs-ordered, computed exactly the way the former PackingCarton
+    # did (the merge kept the semantics, just the storage location changed):
+    # shipQty = noOfCartons x pcsPerCarton; shortExcessQty signed (positive
+    # = short of order, negative = excess over order).
+    variant.shipQty = variant.noOfCartons * variant.pcsPerCarton
+    variant.shortExcessQty = variant.orderQty - variant.shipQty
+    variant.shortExcessPct = (
+        _round2(_dec(variant.shortExcessQty) / _dec(variant.orderQty) * 100) if variant.orderQty else Decimal("0")
+    )
     variant.totalGrossWeight = _dec(variant.grossWeight) * variant.noOfCartons
     variant.totalNetWeight = _dec(variant.netWeight) * variant.noOfCartons
     # Buy price is per piece, flat across every size in the color — Amount
@@ -228,19 +244,67 @@ def reopen_sourcing_cost(cost: SourcingCost) -> SourcingCost:
     cost.fullPaymentConfirmedAt = None
     cost.save(update_fields=["status", "fullPaymentConfirmedAt", "updatedAt"])
     return cost
-    return cost
 
 
-def submit_for_approval(product: Product) -> Product:
+def submit_for_approval(product: Product, actor=None) -> Product:
     """BR-08 / BR-14 / FR-04 / FR-70: the hard gate — a product cannot enter
-    Pending Admin Approval while its Sourcing Cost is Open (or has none)."""
-    if product.status != ProductStatus.SOURCING_TRIP_OPEN:
+    Pending Admin Approval while its Sourcing Cost is Open (or has none).
+
+    Also the way back from Rejected: once the problem is corrected, the same
+    submit sends the product back to the approval queue (same Sourcing Cost
+    gate). The previous decision is cleared from the product so the queue
+    shows it as a fresh request, and kept in the audit log instead."""
+    if product.status not in (ProductStatus.SOURCING_TRIP_OPEN, ProductStatus.REJECTED):
         raise ValidationError(f"Cannot submit for approval from status '{product.status}'.")
     item = product.sourcingCostItems.order_by("-createdAt").first()
     if item is None or item.sourcingCost.status != TripStatus.CLOSED:
         raise ValidationError("Cannot submit for approval while the product's Sourcing Cost is Open (or missing).")
+
+    before = {"status": product.status}
+    update_fields = ["status", "updatedAt"]
+    resubmitting = product.status == ProductStatus.REJECTED
+    if resubmitting:
+        before["rejectionReason"] = product.rejectionReason
+        product.rejectionReason = ""
+        product.reviewedBy = None
+        product.reviewedAt = None
+        update_fields += ["rejectionReason", "reviewedBy", "reviewedAt"]
     product.status = ProductStatus.PENDING_ADMIN_APPROVAL
+    product.save(update_fields=update_fields)
+
+    if resubmitting and actor is not None:
+        from apps.audit.services import log_action
+
+        log_action(
+            actor=actor, action="RESUBMIT_PRODUCT", entity_type="Product", entity_id=product.id,
+            before=before, after={"status": product.status},
+        )
+    return product
+
+
+def mark_ready_for_final_qc(product: Product, actor) -> Product:
+    """In Warehouse -> Ready for Final QC. The Final QC spec defines this
+    status as "Warehouse Costs step already completed", but Warehouse Costs
+    are recorded per Sister Profile / Packing List, not per product (see
+    apps.warehouse.models.WarehouseCost), so there is no single per-product
+    event to hook automatically. The warehouse side confirms it explicitly
+    instead, and only once this order has at least one Warehouse Cost."""
+    if product.status != ProductStatus.IN_WAREHOUSE:
+        raise ValidationError(f"Cannot mark Ready for Final QC from status '{product.status}'.")
+    if not product.sisterProfile.warehouseCosts.exists():
+        raise ValidationError(
+            "Record this order's Warehouse Costs before marking the product Ready for Final QC."
+        )
+    before_status = product.status
+    product.status = ProductStatus.READY_FOR_FINAL_QC
     product.save(update_fields=["status", "updatedAt"])
+
+    from apps.audit.services import log_action
+
+    log_action(
+        actor=actor, action="READY_FOR_FINAL_QC", entity_type="Product", entity_id=product.id,
+        before={"status": before_status}, after={"status": product.status},
+    )
     return product
 
 

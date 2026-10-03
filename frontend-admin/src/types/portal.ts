@@ -1,5 +1,4 @@
 import type { InvoiceLineItem, InvoicePayment, InvoiceStatus } from "@/types/invoicing"
-import type { PackingCarton } from "@/types/packing"
 
 export interface PortalBuyerProfile {
   id: string
@@ -137,22 +136,40 @@ export interface PortalLedger {
   updatedAt: string
 }
 
+/** Since the Sourcing-Intake-as-Packing-List merge, the buyer portal's
+ * packing data is the order's Products (each Product's intake record is one
+ * packing list: header fields + per-color variant rows). */
 export interface PortalPackingList {
   id: string
-  referenceCode: string
-  poNo: string
+  styleNumber: string
+  name: string
   brandName: string
-  date: string | null
+  poNo: string
+  packingDate: string | null
+  frontMark: string
+  sideMark: string
   totalOrderQty: number
-  totalShipQty: number
+  variants: PortalPackingVariant[]
+  createdAt: string
+}
+
+export interface PortalPackingVariant {
+  id: string
+  colorName: string
+  patternNo: string
+  poNo: string
+  ctnSl: string
+  orderQty: number
+  shipQty: number
   shortExcessQty: number
   shortExcessPct: number
-  totalCartonQty: number
+  cartonNoFrom: number | null
+  cartonNoTo: number | null
+  noOfCartons: number
+  pcsPerCarton: number
   totalGrossWeight: number
   totalNetWeight: number
   totalCbm: number
-  cartons: PackingCarton[]
-  createdAt: string
 }
 
 export interface PortalInvoice {

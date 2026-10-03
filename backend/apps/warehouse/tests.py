@@ -1,55 +1,34 @@
 from decimal import Decimal
 
-from django.core.exceptions import ValidationError
+import pytest
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.accounts.models import Roles, User
-from apps.buyers.models import AgreementType, BuyerProfile, SisterProfile
+from apps.accounts.models import Roles
 from apps.expenses.models import Expense, SourceType
-from apps.packing.models import PackingList
 from apps.warehouse import services
 from apps.warehouse.models import WarehouseCost
+from tests.factories import BuyerProfileFactory, SisterProfileFactory, UserFactory
+
+pytestmark = pytest.mark.integration
 
 
 class WarehouseCostServiceTests(APITestCase):
     def setUp(self):
-        self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
-            buyerProfile=self.buyer, poReference="PO-001",
-            agreementType=AgreementType.TYPE_1,
-        )
-        self.other_sister = SisterProfile.objects.create(
-            buyerProfile=self.buyer, poReference="PO-002",
-            agreementType=AgreementType.TYPE_1,
-        )
-        self.wh_user = User.objects.create_user(username="wh", password="pass12345", role=Roles.WAREHOUSE)
-        self.packing_list = PackingList.objects.create(sisterProfile=self.sister, poNo="PO-001", createdBy=self.wh_user)
+        self.buyer = BuyerProfileFactory(name="Zara Textiles")
+        self.sister = SisterProfileFactory(buyerProfile=self.buyer, poReference="PO-001")
+        self.wh_user = UserFactory(role=Roles.WAREHOUSE)
 
     # ── No QC precondition, any number per Sister Profile ───────────────
 
     def test_create_warehouse_cost_against_sister_profile_only(self):
         wc = services.create_warehouse_cost(sister_profile=self.sister, created_by=self.wh_user, loaderCost=50)
         self.assertEqual(wc.sisterProfile, self.sister)
-        self.assertIsNone(wc.packingList)
-
-    def test_create_warehouse_cost_against_a_packing_list(self):
-        wc = services.create_warehouse_cost(
-            sister_profile=self.sister, created_by=self.wh_user, packing_list=self.packing_list, loaderCost=50,
-        )
-        self.assertEqual(wc.packingList, self.packing_list)
-
-    def test_packing_list_must_belong_to_the_selected_sister_profile(self):
-        other_list = PackingList.objects.create(sisterProfile=self.other_sister, poNo="PO-002", createdBy=self.wh_user)
-        with self.assertRaises(ValidationError):
-            services.create_warehouse_cost(
-                sister_profile=self.sister, created_by=self.wh_user, packing_list=other_list, loaderCost=50,
-            )
 
     def test_multiple_warehouse_costs_allowed_per_sister_profile(self):
         """Unlike the old one-per-QC-report rule — a shipment can rack up
-        more than one round of warehouse costs (e.g. one per Packing List)."""
+        more than one round of warehouse costs (e.g. one per shipment round)."""
         services.create_warehouse_cost(sister_profile=self.sister, created_by=self.wh_user, loaderCost=50)
         second = services.create_warehouse_cost(sister_profile=self.sister, created_by=self.wh_user, loaderCost=30)
         self.assertEqual(WarehouseCost.objects.filter(sisterProfile=self.sister).count(), 2)
@@ -135,21 +114,13 @@ class WarehouseCostServiceTests(APITestCase):
 
 class WarehouseCostAPITenantTests(APITestCase):
     def setUp(self):
-        self.buyer_a = BuyerProfile.objects.create(name="Buyer A")
-        self.buyer_b = BuyerProfile.objects.create(name="Buyer B")
-        self.sister_a = SisterProfile.objects.create(
-            buyerProfile=self.buyer_a, poReference="PO-A",
-            agreementType=AgreementType.TYPE_1,
-        )
-        self.sister_b = SisterProfile.objects.create(
-            buyerProfile=self.buyer_b, poReference="PO-B",
-            agreementType=AgreementType.TYPE_1,
-        )
-        self.wh_user = User.objects.create_user(username="wh", password="pass12345", role=Roles.WAREHOUSE)
-        self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
-        self.buyer_a_user = User.objects.create_user(
-            username="buyer_a", password="pass12345", role=Roles.BUYER, buyer_profile=self.buyer_a
-        )
+        self.buyer_a = BuyerProfileFactory(name="Buyer A")
+        self.buyer_b = BuyerProfileFactory(name="Buyer B")
+        self.sister_a = SisterProfileFactory(buyerProfile=self.buyer_a, poReference="PO-A")
+        self.sister_b = SisterProfileFactory(buyerProfile=self.buyer_b, poReference="PO-B")
+        self.wh_user = UserFactory(role=Roles.WAREHOUSE)
+        self.admin = UserFactory(role=Roles.ADMIN)
+        self.buyer_a_user = UserFactory(role=Roles.BUYER, buyer_profile=self.buyer_a)
 
         self.wc_a = services.create_warehouse_cost(sister_profile=self.sister_a, created_by=self.wh_user, loaderCost=20)
         self.wc_b = services.create_warehouse_cost(sister_profile=self.sister_b, created_by=self.wh_user, loaderCost=20)
@@ -177,15 +148,6 @@ class WarehouseCostAPITenantTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(resp.data["sisterProfile"], self.sister_a.id)
         self.assertEqual(resp.data["sisterProfilePoReference"], "PO-A")
-
-    def test_create_rejects_a_packing_list_from_a_different_sister_profile_via_api(self):
-        other_list = PackingList.objects.create(sisterProfile=self.sister_b, poNo="PO-B", createdBy=self.wh_user)
-        self.client.force_authenticate(user=self.wh_user)
-        resp = self.client.post(
-            reverse("warehouse-cost-list"),
-            {"sisterProfile": str(self.sister_a.id), "packingList": str(other_list.id), "loaderCost": 15}, format="json",
-        )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_buyer_can_view_but_not_create_a_warehouse_cost(self):
         self.client.force_authenticate(user=self.buyer_a_user)

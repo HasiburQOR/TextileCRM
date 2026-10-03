@@ -50,10 +50,11 @@ INCH_TO_CM = Decimal("2.54")
 
 
 def _cm(value, *, already_cm: bool) -> Decimal:
-    """PackingCarton stores carton dimensions in inches; the Commercial
-    Invoice / Packing List prints centimetres (and computes CBM as
-    L×W×H÷1,000,000 from them). Converting on the way into the invoice line
-    keeps every stored packing row untouched."""
+    """Carton dimensions arrive from sourcing intake rows
+    (ProductVariant) in centimetres (`already_cm=True` keeps them as-is);
+    the Commercial Invoice / Packing List prints centimetres either way
+    (and computes CBM as L×W×H÷1,000,000 from them). The inch path
+    (`already_cm=False`, ×2.54) remains for legacy clients."""
     value = _dec(value)
     return value if already_cm else (value * INCH_TO_CM).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -233,7 +234,7 @@ def create_invoice(
         InvoiceLineItem.objects.create(
             invoice=invoice,
             product=li.get("product"),
-            packingCarton=li.get("packingCarton"),
+            productVariant=li.get("productVariant"),
             warehouseCost=li.get("warehouseCost"),
             sourcingCost=li.get("sourcingCost"),
             description=li.get("description", ""),
@@ -253,11 +254,11 @@ def create_invoice(
             ctnWidthCm=li.get("ctnWidthCm") or 0,
             ctnHeightCm=li.get("ctnHeightCm") or 0,
             # Material normally arrives pre-filled from Product.material
-            # (captured at Sourcing Intake) via PackingCarton.productMaterial.
-            # The fallback here makes intake-captured material reach the line
-            # even when a client sends nothing, while an explicit per-line
-            # value still wins - same "locked at generation" discipline as
-            # styleItemCode/patternNo.
+            # (captured at Sourcing Intake — the intake row IS the packing
+            # row since the merge). The fallback here makes intake-captured
+            # material reach the line even when a client sends nothing,
+            # while an explicit per-line value still wins - same "locked at
+            # generation" discipline as styleItemCode/patternNo.
             material=li.get("material") or getattr(li.get("product"), "material", ""),
             styleItemCode=li.get("styleItemCode", ""),
             patternNo=li.get("patternNo", ""),

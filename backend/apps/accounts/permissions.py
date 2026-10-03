@@ -26,6 +26,15 @@ class IsQCOrAdmin(BasePermission):
         )
 
 
+class IsWarehouseOrAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and request.user.role in (Roles.ADMIN, Roles.WAREHOUSE)
+        )
+
+
 class IsSupplierStaff(BasePermission):
     """Any internal/supplier-side role — i.e. anyone but the Buyer role."""
 

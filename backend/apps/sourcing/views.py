@@ -1,10 +1,12 @@
 import io
 import json
+import os
 
 import qrcode
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import ProtectedError
 from django.http import HttpResponse
+from PIL import Image
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -13,7 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.models import Roles
-from apps.accounts.permissions import IsAdmin, IsQCOrAdmin, IsRole, IsSupplierStaff
+from apps.accounts.permissions import IsAdmin, IsQCOrAdmin, IsRole, IsSupplierStaff, IsWarehouseOrAdmin
 from apps.core.tenancy import TenantScopedViewSet
 from apps.sourcing import services
 from apps.sourcing.models import FieldGroup, FieldType, Product, ProductTemplate, SourcingCost, SourcingCostItem, TemplateField
@@ -32,10 +34,45 @@ from apps.sourcing.serializers import (
 
 WRITE_ACTIONS = ("update", "partial_update", "destroy")
 FINAL_QC_ACTIONS = ("final_qc", "generate_product_qr", "generate_carton_qr")
+XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _raise_from(exc: DjangoValidationError):
     raise DRFValidationError(exc.messages if hasattr(exc, "messages") else str(exc))
+
+
+FACTORY_PACKING_LIST_MAX_BYTES = 10 * 1024 * 1024  # matches nginx's client_max_body_size 10m
+_FACTORY_PACKING_LIST_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+
+def _validate_factory_packing_list(file) -> None:
+    """Only a photo or a PDF of the factory's sheet is accepted. Uploaded
+    media is served from the app's own origin, so an arbitrary file (e.g. an
+    .html or .svg with a script in it) would run with the logged-in user's
+    session — check both the extension and the actual file contents, since
+    either alone is trivially faked."""
+    name = (file.name or "").lower()
+    ext = os.path.splitext(name)[1]
+    if file.size > FACTORY_PACKING_LIST_MAX_BYTES:
+        raise DRFValidationError(
+            {"factoryPackingList": f"File is {file.size / (1024 * 1024):.1f} MB — the limit is 10 MB."}
+        )
+    if ext == ".pdf":
+        head = file.read(5)
+        file.seek(0)
+        if head != b"%PDF-":
+            raise DRFValidationError({"factoryPackingList": "That file is not a valid PDF."})
+        return
+    if ext in _FACTORY_PACKING_LIST_IMAGE_EXTENSIONS:
+        try:
+            with Image.open(file) as img:
+                img.verify()
+        except Exception:
+            raise DRFValidationError({"factoryPackingList": "That file is not a valid image."})
+        finally:
+            file.seek(0)
+        return
+    raise DRFValidationError({"factoryPackingList": "Upload a photo (JPG, PNG, GIF, WEBP) or a PDF."})
 
 
 def _qr_png_response(payload: dict, filename: str) -> HttpResponse:
@@ -70,6 +107,8 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
             return [IsAdmin()]
         if self.action in FINAL_QC_ACTIONS:
             return [IsQCOrAdmin()]
+        if self.action == "mark_ready_for_final_qc":
+            return [IsWarehouseOrAdmin()]
         return [IsAuthenticated()]
 
     def destroy(self, request, *args, **kwargs):
@@ -78,7 +117,7 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
             instance.delete()
         except ProtectedError:
             raise DRFValidationError(
-                "Cannot delete — this product already has QC reports or packing cartons "
+                "Cannot delete — this product already has QC reports "
                 "referencing it. Reject it instead if it was created in error."
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -87,10 +126,42 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
     def submit_for_approval(self, request, pk=None):
         product = self.get_object()
         try:
-            services.submit_for_approval(product)
+            services.submit_for_approval(product, actor=request.user)
         except DjangoValidationError as exc:
             _raise_from(exc)
         return Response(self.get_serializer(product).data)
+
+    @action(detail=True, methods=["post"], url_path="mark-ready-for-final-qc")
+    def mark_ready_for_final_qc(self, request, pk=None):
+        product = self.get_object()
+        try:
+            services.mark_ready_for_final_qc(product, request.user)
+        except DjangoValidationError as exc:
+            _raise_from(exc)
+        return Response(self.get_serializer(product).data)
+
+    @action(detail=True, methods=["get"], url_path="packing-list-export")
+    def packing_list_export(self, request, pk=None):
+        """Downloadable copy of this Product's packing list — PDF (default)
+        or ?filetype=xlsx. Since the Sourcing-Intake-as-Packing-List merge
+        the document is generated straight from the intake record (header
+        fields + variant rows); there is no separate packing-list entity.
+        (Named `filetype`, not `format` — see the matching note on
+        InvoiceViewSet.export.) Tenant-scoped via get_object(), same as
+        every other action here."""
+        from apps.packing import exports
+
+        product = self.get_object()
+        if request.query_params.get("filetype") == "xlsx":
+            content = exports.render_packing_list_xlsx(product)
+            response = HttpResponse(content, content_type=XLSX_CONTENT_TYPE)
+            filename = exports.packing_list_filename(product, "xlsx")
+        else:
+            content = exports.render_packing_list_pdf(product)
+            response = HttpResponse(content, content_type="application/pdf")
+            filename = exports.packing_list_filename(product, "pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
@@ -133,6 +204,7 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         file = request.FILES.get("factoryPackingList")
         if not file:
             raise DRFValidationError({"factoryPackingList": "This field is required."})
+        _validate_factory_packing_list(file)
         product.factoryPackingList = file
         product.save(update_fields=["factoryPackingList", "updatedAt"])
         return Response(self.get_serializer(product).data)
@@ -264,17 +336,19 @@ class SourcingCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         return SourcingCostSerializer
 
     def get_permissions(self):
-        if self.action in ("create", "close", "reopen"):
+        # Costs carry no approval gate by design (user rule for the merged
+        # workflow): the roles that can create costs can also edit, close,
+        # reopen, or delete them — no admin-only write step, no closed-is-
+        # frozen lock. The wallet deduction/refund bookkeeping still runs on
+        # every one of those paths (services layer), untouched.
+        if self.action in ("create", "close", "reopen", *WRITE_ACTIONS):
             return [IsRole()]
-        if self.action in WRITE_ACTIONS:
-            return [IsAdmin()]
         return [IsAuthenticated()]
 
     def destroy(self, request, *args, **kwargs):
         cost = self.get_object()
-        if cost.status == "closed":
-            raise DRFValidationError("Cannot delete a closed Sourcing Cost.")
-        # Refund all items' wallet deductions before deleting
+        # Refund all items' wallet deductions before deleting — allowed even
+        # when the cost was closed (no closed-means-permanent rule anymore).
         for item in cost.items.all():
             services.refund_cost_item(item, request.user)
         cost.delete()
@@ -316,10 +390,10 @@ class SourcingCostItemViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         return qs
 
     def get_permissions(self):
-        if self.action in ("create",):
+        # Same no-approval-gate rule as SourcingCostViewSet: item writes are
+        # not admin-only; wallet adjust/refund still runs on every path.
+        if self.action in ("create", *WRITE_ACTIONS):
             return [IsRole()]
-        if self.action in WRITE_ACTIONS:
-            return [IsAdmin()]
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):

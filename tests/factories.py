@@ -4,11 +4,15 @@ factory_boy factories. Keep these in lockstep with model changes —
 when a required field is added to a model, add it here too or
 every test using that factory breaks with an opaque IntegrityError.
 """
+from decimal import Decimal
+
 import factory
 from factory.django import DjangoModelFactory
 
 from apps.accounts.models import User
 from apps.buyers.models import AgreementType, BuyerProfile, SisterProfile
+from apps.packing.models import PackingRule
+from apps.sourcing.models import Product, ProductVariant
 from apps.wallet.models import BuyerWallet
 
 
@@ -53,3 +57,40 @@ class BuyerWalletFactory(DjangoModelFactory):
 
     buyerProfile = factory.SubFactory(BuyerProfileFactory)
     balance = 0
+
+
+class ProductFactory(DjangoModelFactory):
+    """Sourcing Intake record — which, since the Sourcing-Intake-as-Packing-
+    List merge, is also the packing list document (packingDate + front/side
+    marks live here, per-color packing rows on its variants)."""
+
+    class Meta:
+        model = Product
+
+    sisterProfile = factory.SubFactory(SisterProfileFactory)
+    name = factory.Sequence(lambda n: f"Product {n}")
+    poNo = factory.Sequence(lambda n: f"PO-{n}")
+    createdBy = factory.SubFactory(UserFactory)
+
+
+class ProductVariantFactory(DjangoModelFactory):
+    """One per-color intake row — the packing-list row since the merge."""
+
+    class Meta:
+        model = ProductVariant
+
+    product = factory.SubFactory(ProductFactory)
+    colorName = factory.Sequence(lambda n: f"Color {n}")
+
+
+class PackingRuleFactory(DjangoModelFactory):
+    class Meta:
+        model = PackingRule
+
+    name = factory.Sequence(lambda n: f"Rule {n}")
+    sizeRatio = {"S": 1, "M": 3, "L": 5, "XL": 4, "XXL": 2}
+    cartonLength = Decimal("24")  # inches — the rule's historic convention
+    cartonWidth = Decimal("18")
+    cartonHeight = Decimal("12")
+    cartonNetWeight = Decimal("6.7")
+    cartonGrossWeight = Decimal("6.9")

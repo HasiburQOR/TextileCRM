@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.packing.models import PackingCarton, PackingList, PackingRule
+from apps.packing.models import PackingRule
 
 
 class PackingRuleSerializer(serializers.ModelSerializer):
@@ -16,105 +16,10 @@ class PackingRuleSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "createdAt", "updatedAt"]
 
 
-class PackingCartonSerializer(serializers.ModelSerializer):
-    styleNumber = serializers.CharField(source="product.styleNumber", read_only=True)
-    productName = serializers.CharField(source="product.name", read_only=True)
-    # Product.material as captured at Sourcing Intake - the invoice builder
-    # pre-fills each line's Material column from this (see
-    # frontend-admin InvoicesPage cartonToLine), keeping intake as the single
-    # place the value is typed.
-    productMaterial = serializers.CharField(source="product.material", read_only=True)
-    # Denormalized for invoice line-item generation, which needs both the
-    # Product's own style code (styleNumber, "PRO-...") and the Packing
-    # List's code ("PKG-...") without a second round trip.
-    packingListReferenceCode = serializers.CharField(source="packingList.referenceCode", read_only=True)
-
-    class Meta:
-        model = PackingCarton
-        fields = [
-            "id", "packingList", "product", "styleNo", "poNo", "styleNumber", "productName", "productMaterial",
-            "packingListReferenceCode",
-            "cartonNoFrom", "cartonNoTo", "noOfCartons", "colorName", "patternNo", "assortId",
-            "ctnSl", "description", "material", "remarks",
-            "sizeBreakdown", "totalPcsPerCarton", "innerBundle", "customFieldValues",
-            "orderQty", "shipQty", "shortExcessQty", "shortExcessPct",
-            "unitPrice", "totalAmount",
-            "grossWeight", "netWeight", "totalGrossWeight", "totalNetWeight",
-            "ctnLength", "ctnWidth", "ctnHeight", "ctnCbm", "totalCbm",
-        ]
-        read_only_fields = [
-            "id", "styleNo", "noOfCartons", "totalPcsPerCarton", "shipQty", "shortExcessQty", "shortExcessPct",
-            "totalAmount",
-            "totalGrossWeight", "totalNetWeight", "ctnCbm", "totalCbm",
-        ]
-
-
-class PackingListSerializer(serializers.ModelSerializer):
-    """Admin/staff-facing — full detail, every field, nested cartons."""
-
-    cartons = PackingCartonSerializer(many=True, required=False)
-    sisterProfilePoReference = serializers.CharField(source="sisterProfile.poReference", read_only=True)
-    # For the buyer-currency Unit Price/Amount columns: one currency pair and
-    # rate per order (set on the Sister Profile), applying to every carton on
-    # this list — no need to look it up separately just to render them.
-    sisterProfileSupplierCurrency = serializers.CharField(source="sisterProfile.supplierCurrency", read_only=True)
-    sisterProfileBuyerCurrency = serializers.CharField(source="sisterProfile.buyerCurrency", read_only=True)
-    sisterProfileExchangeRate = serializers.DecimalField(source="sisterProfile.exchangeRate", max_digits=14, decimal_places=6, read_only=True)
-
-    class Meta:
-        model = PackingList
-        fields = [
-            "id", "sisterProfile", "sisterProfilePoReference",
-            "sisterProfileSupplierCurrency", "sisterProfileBuyerCurrency", "sisterProfileExchangeRate",
-            "referenceCode", "packingRule", "poNo",
-            "brandName", "date", "frontMark", "sideMark", "totalOrderQty", "totalShipQty", "shortExcessQty",
-            "shortExcessPct", "totalCartonQty", "totalGrossWeight", "totalNetWeight", "totalCbm", "cartons",
-            "createdBy", "createdAt", "updatedAt",
-        ]
-        read_only_fields = [
-            "id", "referenceCode", "totalOrderQty", "totalShipQty", "shortExcessQty", "shortExcessPct",
-            "totalCartonQty", "totalGrossWeight", "totalNetWeight", "totalCbm", "createdBy", "createdAt",
-            "updatedAt",
-        ]
-
-    def update(self, instance, validated_data):
-        """Edit form lets Admin correct any field, including carton rows —
-        cartons (when present in the payload) are fully replaced rather than
-        diffed/matched by id, same pattern as PackingListViewSet.create();
-        totals are recomputed the same way create_packing_list() does."""
-        from apps.packing import services
-
-        cartons_data = validated_data.pop("cartons", None)
-        instance = super().update(instance, validated_data)
-        if cartons_data is not None:
-            instance.cartons.all().delete()
-            for carton_data in cartons_data:
-                carton = PackingCarton(packingList=instance, **carton_data)
-                services.compute_carton_derived(carton)
-                services._validate_carton_ranges(carton)
-                carton.save()
-            services.recompute_packing_list_totals(instance)
-            instance.refresh_from_db()
-        return instance
-
-
-class PackingListSelfSerializer(serializers.ModelSerializer):
-    """Buyer-facing — BR-55/FR-80: read-only packing list visibility."""
-
-    cartons = PackingCartonSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = PackingList
-        fields = [
-            "id", "referenceCode", "poNo", "brandName", "date", "totalOrderQty", "totalShipQty",
-            "shortExcessQty", "shortExcessPct", "totalCartonQty", "totalGrossWeight",
-            "totalNetWeight", "totalCbm", "cartons", "createdAt",
-        ]
-        read_only_fields = fields
-
-
-class GenerateCartonsSerializer(serializers.Serializer):
-    """Input for the "auto-generate from rule" preview action (FR-19)."""
+class GenerateVariantRowsSerializer(serializers.Serializer):
+    """Input for the "auto-generate intake rows from a rule" preview
+    (FR-19, restated for the merged model). Output rows are ProductVariant-
+    shaped dicts the client posts back as the Product's variants."""
 
     product = serializers.UUIDField()
     packingRule = serializers.UUIDField()

@@ -39,7 +39,7 @@ export function BuyerOrderDetailPage() {
     setExportingKey(key)
     setExportError(null)
     try {
-      const base = kind === "invoice" ? `/invoices/${entityId}/export/` : `/packing-lists/${entityId}/export/`
+      const base = kind === "invoice" ? `/invoices/${entityId}/export/` : `/products/${entityId}/packing-list-export/`
       await downloadFile(`${base}${filetype === "xlsx" ? "?filetype=xlsx" : ""}`, filename)
     } catch (err) {
       setExportError(extractErrorMessage(err))
@@ -244,19 +244,19 @@ export function BuyerOrderDetailPage() {
             {packingQuery.data?.map((pl) => (
               <Card key={pl.id}>
                 <CardHeader className="flex-row items-center justify-between">
-                  <CardTitle>{pl.poNo || pl.referenceCode} — {pl.brandName || "—"}</CardTitle>
+                  <CardTitle>{pl.poNo || pl.styleNumber} — {pl.brandName || "—"}</CardTitle>
                   <div className="inline-flex gap-1">
                     <Button
                       size="sm" variant="outline"
                       disabled={exportingKey === `packing-list:${pl.id}:pdf`}
-                      onClick={() => handleExport("packing-list", pl.id, "pdf", `${pl.poNo || pl.referenceCode}.pdf`)}
+                      onClick={() => handleExport("packing-list", pl.id, "pdf", `${pl.poNo || pl.styleNumber}.pdf`)}
                     >
                       <Download className="h-3 w-3" /> PDF
                     </Button>
                     <Button
                       size="sm" variant="outline"
                       disabled={exportingKey === `packing-list:${pl.id}:xlsx`}
-                      onClick={() => handleExport("packing-list", pl.id, "xlsx", `${pl.poNo || pl.referenceCode}.xlsx`)}
+                      onClick={() => handleExport("packing-list", pl.id, "xlsx", `${pl.poNo || pl.styleNumber}.xlsx`)}
                     >
                       <FileSpreadsheet className="h-3 w-3" /> Excel
                     </Button>
@@ -271,9 +271,9 @@ export function BuyerOrderDetailPage() {
                       <th className="px-2 py-1.5 font-medium">G.W</th><th className="px-2 py-1.5 font-medium">N.W</th><th className="px-2 py-1.5 font-medium">CBM</th>
                     </tr></thead>
                     <tbody>
-                      {pl.cartons?.map((c) => (
+                      {pl.variants?.map((c) => (
                         <tr key={c.id} className="border-b border-slate-100 last:border-0">
-                          <td className="px-2 py-1.5 font-medium text-slate-900">{c.styleNumber}</td>
+                          <td className="px-2 py-1.5 font-medium text-slate-900">{pl.styleNumber}</td>
                           <td className="px-2 py-1.5 text-slate-500">{c.colorName || "—"}</td>
                           <td className="px-2 py-1.5 text-slate-500">{c.noOfCartons}</td>
                           <td className="px-2 py-1.5 text-slate-500">{c.shipQty}</td>

@@ -17,13 +17,11 @@ import { ProductsPage } from "@/pages/ProductsPage"
 import { ProductDetailPage } from "@/pages/ProductDetailPage"
 import { ProductTemplatesPage } from "@/pages/ProductTemplatesPage"
 import { ApprovalsPage } from "@/pages/ApprovalsPage"
-import { SourcingCostsPage } from "@/pages/SourcingCostsPage"
 import { SourcingCostDetailPage } from "@/pages/SourcingCostDetailPage"
-import { PackingListsPage } from "@/pages/PackingListsPage"
+import { CostsPage } from "@/pages/CostsPage"
 // Temporarily disabled — see the commented-out routes below.
 // import { FinalQCPage } from "@/pages/FinalQCPage"
 // import { QCCostsPage } from "@/pages/QCCostsPage"
-import { WarehouseCostsPage } from "@/pages/WarehouseCostsPage"
 import { ExpensesPage } from "@/pages/ExpensesPage"
 import { InvoicesPage } from "@/pages/InvoicesPage"
 import { InvoiceDetailPage } from "@/pages/InvoiceDetailPage"
@@ -71,9 +69,8 @@ function ProtectedApp() {
         <Route path="/products/:id" element={<ProductDetailPage />} />
         <Route path="/product-templates" element={<ProductTemplatesPage />} />
         <Route path="/approvals" element={<ApprovalsPage />} />
-        <Route path="/sourcing-costs" element={<SourcingCostsPage />} />
+        <Route path="/costs" element={<CostsPage />} />
         <Route path="/sourcing-costs/:id" element={<SourcingCostDetailPage />} />
-        <Route path="/packing-lists" element={<PackingListsPage />} />
         {/* Final QC & QR / QC Costs temporarily disabled — still under active
             work. Also hidden from nav (see lib/nav-items.ts). The pages and
             their backend endpoints are untouched; re-enable by uncommenting
@@ -81,7 +78,6 @@ function ProtectedApp() {
             then the catch-all below redirects these URLs to the dashboard. */}
         {/* <Route path="/final-qc" element={<FinalQCPage />} /> */}
         {/* <Route path="/qc-reports" element={<QCCostsPage />} /> */}
-        <Route path="/warehouse-costs" element={<WarehouseCostsPage />} />
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/invoices" element={<InvoicesPage />} />
         <Route path="/invoices/:id" element={<InvoiceDetailPage />} />

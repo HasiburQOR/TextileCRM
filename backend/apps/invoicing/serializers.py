@@ -14,7 +14,7 @@ class InvoiceLineItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceLineItem
         fields = [
-            "id", "invoice", "product", "packingCarton", "warehouseCost", "sourcingCost", "description", "brand", "ctn", "qtyPerCtn",
+            "id", "invoice", "product", "productVariant", "warehouseCost", "sourcingCost", "description", "brand", "ctn", "qtyPerCtn",
             "totalQty", "unitPrice", "amount", "netWeight", "grossWeight", "cbm", "material",
             "styleItemCode", "patternNo", "packingListRef", "remarks",
             "colorSizeNote", "markRef", "hsCode",

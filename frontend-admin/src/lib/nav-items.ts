@@ -13,10 +13,12 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/buyers", label: "Buyers", icon: "Users", roles: ["management"] },
   { to: "/sister-profiles", label: "Sister Profiles", icon: "GitBranch", roles: ["management"] },
   { to: "/product-templates", label: "Product Templates", icon: "LayoutTemplate", roles: [] },
-  { to: "/products", label: "Sourcing Intake", icon: "PackagePlus", roles: ["company_rep", "employee", "management"] },
-  { to: "/sourcing-costs", label: "Sourcing Costs", icon: "MapPin", roles: ["company_rep", "management"] },
-  { to: "/packing-lists", label: "Packing Lists", icon: "PackageCheck", roles: ["employee", "company_rep", "management"] },
-  { to: "/warehouse-costs", label: "Warehouse Costs", icon: "Warehouse", roles: ["warehouse", "management"] },
+  // warehouse: read-only here, plus "Mark Ready for Final QC" on In Warehouse products.
+  { to: "/products", label: "Sourcing Intake", icon: "PackagePlus", roles: ["company_rep", "employee", "management", "warehouse"] },
+  // One combined Costs page (Sourcing + Warehouse sections) since the
+  // Sourcing-Intake-as-Packing-List workflow merge — costs have no approval
+  // gates and live side by side in the sequence.
+  { to: "/costs", label: "Costs", icon: "MapPin", roles: ["company_rep", "warehouse", "management"] },
   // Temporarily disabled — still under active work, hidden from nav until ready.
   // { to: "/final-qc", label: "Final QC & QR", icon: "QrCode", roles: ["qc", "management"] },
   // { to: "/qc-reports", label: "QC Costs", icon: "ClipboardCheck", roles: ["qc", "management"] },

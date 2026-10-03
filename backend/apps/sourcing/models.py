@@ -198,6 +198,14 @@ class Product(UUIDModel, TimeStampedModel):
     # entry path to manual/catalog packing-list generation (Phase 4).
     factoryPackingList = models.FileField(upload_to="factory_packing_lists/%Y/%m/", null=True, blank=True)
 
+    # ── Packing List header fields (BR-16–22 / FR-13) ─────────────────────
+    # Absorbed from the former standalone PackingList model in the merge
+    # that made Sourcing Intake *be* the packing list: one Product's intake
+    # record is one packing list document now (packingDate, shipping marks).
+    packingDate = models.DateField(null=True, blank=True)
+    frontMark = models.TextField(blank=True, default="")
+    sideMark = models.TextField(blank=True, default="")
+
     # BR-33–35: status can only reach COMPLETED once both are True.
     # *QrPayload holds the versioned JSON that was actually encoded into
     # each QR — the PNG itself is rendered on demand from this (never
@@ -284,7 +292,26 @@ class ProductVariant(UUIDModel, TimeStampedModel):
     colorName = models.CharField(max_length=255, blank=True, default="")
     patternNo = models.CharField(max_length=100, blank=True, default="")
 
+    # Per-row identifiers carried over from the former PackingCarton model
+    # in the Sourcing-Intake-as-Packing-List merge — none dropped, none
+    # renamed. poNo defaults from the Product's own poNo at compute time
+    # but stays independently editable per row (a split shipment may carry
+    # a different PO on one color); assortId/ctnSl are pure packing-list
+    # columns.
+    poNo = models.CharField(max_length=255, blank=True, default="")
+    assortId = models.CharField(max_length=100, blank=True, default="")
+    ctnSl = models.CharField(max_length=64, blank=True, default="")
+
     orderQty = models.PositiveIntegerField(default=0)
+    # "SHIP QTY" and the derived short-or-excess pair, computed exactly the
+    # way the former PackingCarton computed them (see
+    # services.compute_variant_derived): shipQty = noOfCartons x
+    # pcsPerCarton; shortExcessQty is signed (positive = short of order,
+    # negative = shipped in excess); shortExcessPct = shortExcessQty /
+    # orderQty x 100.
+    shipQty = models.PositiveIntegerField(default=0)  # computed
+    shortExcessQty = models.IntegerField(default=0)  # computed
+    shortExcessPct = models.DecimalField(max_digits=6, decimal_places=2, default=0)  # computed
     # Custom_Size_Breakdown_Feature.md: a per-color, free-form array — not a
     # fixed S/M/L/XL/XXL dict — e.g. [{"size_label": "S", "quantity": 1}, ...].
     sizeBreakdown = models.JSONField(default=list, blank=True)
@@ -321,8 +348,8 @@ class ProductVariant(UUIDModel, TimeStampedModel):
 
     # Carton dimensions entered at Sourcing Intake in centimetres.
     # Stored as-is; CBM computed as L×W×H / 1,000,000 (cm³ → m³).
-    # When flowing to PackingCarton (which stores inches), the frontend
-    # converts cm → inches at the boundary (÷ 2.54).
+    # (PackingRule defaults are in inches; apps.packing.services converts
+    # them to cm when a rule pre-fills intake rows.)
     ctnLength = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # cm
     ctnWidth = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # cm
     ctnHeight = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)  # cm
@@ -331,7 +358,6 @@ class ProductVariant(UUIDModel, TimeStampedModel):
 
     # Per-row intake fields (not shared across colors)
     variantStyleNo = models.CharField(max_length=64, blank=True, default="")
-    ctnSl = models.CharField(max_length=64, blank=True, default="")
     material = models.CharField(max_length=255, blank=True, default="")
     description = models.TextField(blank=True, default="")
     remarks = models.TextField(blank=True, default="")

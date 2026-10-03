@@ -16,7 +16,6 @@ import type { Paginated } from "@/types/api"
 import type { CostBreakdown, SisterProfile, SisterProfileUpdateInput } from "@/types/buyers"
 import { AGREEMENTS } from "@/types/buyers"
 import type { Invoice } from "@/types/invoicing"
-import type { PackingList } from "@/types/packing"
 import type { Product, SourcingCost } from "@/types/sourcing"
 
 
@@ -29,13 +28,12 @@ interface DocumentRow {
   id: string; documentType: string; file: string; fileName: string; createdAt: string
 }
 
-type TabKey = "overview" | "products" | "costs" | "packing" | "expenses" | "invoices" | "documents"
+type TabKey = "overview" | "products" | "costs" | "expenses" | "invoices" | "documents"
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "products", label: "Products" },
   { key: "costs", label: "Sourcing Costs" },
-  { key: "packing", label: "Packing Lists" },
   { key: "expenses", label: "Expenses" },
   { key: "invoices", label: "Invoices" },
   { key: "documents", label: "Documents" },
@@ -82,19 +80,6 @@ export function SisterProfileDetailPage() {
   const costsForProfile = useMemo(
     () => (costsQuery.data ?? []).filter((t) => t.sisterProfile === id),
     [costsQuery.data, id],
-  )
-
-  const packingListsQuery = useQuery({
-    queryKey: ["packing-lists", "all"],
-    queryFn: async () => {
-      const { data } = await api.get<Paginated<PackingList>>("/packing-lists/", { params: { page_size: 200 } })
-      return data.results
-    },
-    enabled: !!id && tab === "packing",
-  })
-  const packingListsForProfile = useMemo(
-    () => (packingListsQuery.data ?? []).filter((pl) => pl.sisterProfile === id),
-    [packingListsQuery.data, id],
   )
 
   const expensesQuery = useQuery({
@@ -302,31 +287,6 @@ export function SisterProfileDetailPage() {
                   <td className="px-4 py-2"><Badge variant={t.status === "open" ? "default" : "success"}>{t.status}</Badge></td>
                   <td className="px-4 py-2 text-slate-500">{t.items.length}</td>
                   <td className="px-4 py-2 text-slate-500">{Number(t.totalAmount || 0).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </ListCard>
-      )}
-
-      {tab === "packing" && (
-        <ListCard
-          loading={packingListsQuery.isLoading}
-          empty={!packingListsForProfile.length}
-          emptyText="No packing lists yet under this profile."
-        >
-          <table className="w-full min-w-[560px] text-left text-sm">
-            <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
-              <th className="px-4 py-2 font-medium">PO No</th><th className="px-4 py-2 font-medium">Brand</th>
-              <th className="px-4 py-2 font-medium">Cartons</th><th className="px-4 py-2 font-medium">CBM</th>
-            </tr></thead>
-            <tbody>
-              {packingListsForProfile.map((pl) => (
-                <tr key={pl.id} className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50" onClick={() => navigate(`/packing-lists/${pl.id}`)}>
-                  <td className="px-4 py-2 font-medium text-slate-900">{pl.poNo || "—"}</td>
-                  <td className="px-4 py-2 text-slate-500">{pl.brandName || "—"}</td>
-                  <td className="px-4 py-2 text-slate-500">{pl.totalCartonQty}</td>
-                  <td className="px-4 py-2 text-slate-500">{Number(pl.totalCbm).toFixed(4)}</td>
                 </tr>
               ))}
             </tbody>

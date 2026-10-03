@@ -8,8 +8,6 @@ export interface WarehouseCost {
   id: string
   sisterProfile: string
   sisterProfilePoReference: string
-  packingList: string | null
-  packingListReferenceCode: string
   loaderCost: string
   extraWorkerCost: string
   labelsCost: string
