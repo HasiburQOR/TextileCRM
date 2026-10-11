@@ -43,7 +43,7 @@ class WalletServiceTests(APITestCase):
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
         self.wallet = services.create_wallet(self.buyer)
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001",
             agreementType=AgreementType.TYPE_1,
         )
@@ -111,15 +111,23 @@ class WalletServiceTests(APITestCase):
 
     def test_a_caller_supplied_currency_is_not_converted(self):
         """The profile's rate describes supplier→buyer only; it says nothing
-        about a third currency, so an explicit one passes through as-is."""
+        about a third currency. One that already IS the wallet's currency
+        passes through as-is; any other is refused rather than deducted at a
+        meaningless 1:1."""
         self._rated_profile("120")
         expense = record_expense(
             sister_profile=self.sister, source_type=SourceType.EXTRA_COST, amount=90,
-            currency="EUR", created_by=self.admin,
+            currency="USD", created_by=self.admin,
         )
-        self.assertEqual(expense.currency, "EUR")
+        self.assertEqual(expense.currency, "USD")
         self.assertEqual(expense.amountInBuyerCurrency, Decimal("90.00"))
         self.assertIsNone(expense.exchangeRateUsed)
+
+        with self.assertRaises(ValidationError):
+            record_expense(
+                sister_profile=self.sister, source_type=SourceType.EXTRA_COST, amount=90,
+                currency="EUR", created_by=self.admin,
+            )
 
     def test_a_refund_reverses_at_the_rate_it_was_charged_at(self):
         """The regression that matters: re-negotiating the rate must not
@@ -177,6 +185,26 @@ class WalletServiceTests(APITestCase):
 
         bdt = next(r for r in resp.data["bySupplierCurrency"] if r["currency"] == "BDT")
         self.assertEqual(bdt["spent"], Decimal("12000.00"))
+
+    def test_cost_in_another_currency_is_refused_until_a_rate_is_set(self):
+        """Regression: with no rate, 1,016 BDT used to be deducted from a USD
+        wallet as 1,016 USD (the balance is a plain SUM of amounts)."""
+        self.sister.supplierCurrency = "BDT"
+        self.sister.buyerCurrency = "USD"
+        self.sister.exchangeRate = Decimal("0")
+        self.sister.save(update_fields=["supplierCurrency", "buyerCurrency", "exchangeRate"])
+
+        with self.assertRaises(ValidationError) as ctx:
+            record_expense(sister_profile=self.sister, source_type=SourceType.QC_LUNCH, amount=1016, created_by=self.admin)
+        self.assertIn("exchange rate", str(ctx.exception))
+        # Refused before anything was written.
+        self.assertFalse(WalletTransaction.objects.exists())
+        self.assertFalse(self.sister.expenses.exists())
+
+        self._rated_profile("120")
+        record_expense(sister_profile=self.sister, source_type=SourceType.QC_LUNCH, amount=1200, created_by=self.admin)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("-10.00"))  # 1,200 BDT / 120, in USD
 
     def test_wallet_summary_is_admin_only(self):
         self.client.force_authenticate(user=self.rep)

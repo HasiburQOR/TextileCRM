@@ -16,7 +16,7 @@ from apps.sourcing.models import Product, ProductStatus
 class QCReportServiceTests(APITestCase):
     def setUp(self):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001",
             agreementType=AgreementType.TYPE_1,
         )
@@ -129,11 +129,11 @@ class QCReportAPITenantTests(APITestCase):
     def setUp(self):
         self.buyer_a = BuyerProfile.objects.create(name="Buyer A")
         self.buyer_b = BuyerProfile.objects.create(name="Buyer B")
-        self.sister_a = SisterProfile.objects.create(
+        self.sister_a = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer_a, poReference="PO-A",
             agreementType=AgreementType.TYPE_1,
         )
-        self.sister_b = SisterProfile.objects.create(
+        self.sister_b = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer_b, poReference="PO-B",
             agreementType=AgreementType.TYPE_1,
         )

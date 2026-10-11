@@ -141,6 +141,9 @@ class InvoiceServiceTests(APITestCase):
     # if the source WarehouseCost is later edited or deleted.
 
     def test_warehouse_cost_can_be_added_as_an_invoice_line_item(self):
+        # A cost in BDT needs the order's BDT→USD rate before it can be recorded.
+        self.sister.exchangeRate = Decimal("120")
+        self.sister.save(update_fields=["exchangeRate"])
         wc = warehouse_services.create_warehouse_cost(
             sister_profile=self.sister, created_by=self.employee, loaderCost=40, cartonsCost=25,
         )
@@ -157,6 +160,9 @@ class InvoiceServiceTests(APITestCase):
         self.assertEqual(wc_line.amount, Decimal("65.00"))
 
     def test_deleting_the_source_warehouse_cost_leaves_the_issued_line_item_intact(self):
+        # A cost in BDT needs the order's BDT→USD rate before it can be recorded.
+        self.sister.exchangeRate = Decimal("120")
+        self.sister.save(update_fields=["exchangeRate"])
         wc = warehouse_services.create_warehouse_cost(sister_profile=self.sister, created_by=self.employee, loaderCost=40)
         invoice = services.create_invoice(
             sister_profile=self.sister, created_by=self.employee,

@@ -42,7 +42,7 @@ class StateMachineTests(APITestCase):
 
     def setUp(self):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001",
             agreementType=AgreementType.TYPE_1,
         )
@@ -97,11 +97,11 @@ class SourcingTenantIsolationTests(APITestCase):
     def setUp(self):
         self.buyer_a = BuyerProfile.objects.create(name="Zara Textiles")
         self.buyer_b = BuyerProfile.objects.create(name="H&M Sourcing")
-        self.sister_a = SisterProfile.objects.create(
+        self.sister_a = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer_a, poReference="PO-A",
             agreementType=AgreementType.TYPE_1,
         )
-        self.sister_b = SisterProfile.objects.create(
+        self.sister_b = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer_b, poReference="PO-B",
             agreementType=AgreementType.TYPE_1,
         )
@@ -161,7 +161,7 @@ class FullWorkflowAPITests(APITestCase):
 
     def setUp(self):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001",
             agreementType=AgreementType.TYPE_1,
         )
@@ -233,7 +233,7 @@ class SourcingAdvanceExpenseTests(APITestCase):
 
     def setUp(self):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001",
             agreementType=AgreementType.TYPE_1,
         )
@@ -354,7 +354,7 @@ class CustomSizeBreakdownTests(APITestCase):
 
     def setUp(self):
         self.buyer = BuyerProfile.objects.create(name="Buyer")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-1",
             agreementType=AgreementType.TYPE_1,
         )
@@ -513,7 +513,7 @@ class ProductTemplateTests(APITestCase):
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.buyer = BuyerProfile.objects.create(name="Buyer")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-1",
             agreementType=AgreementType.TYPE_1,
         )
@@ -645,7 +645,7 @@ class ProductMaterialFieldTests(APITestCase):
 
     def setUp(self):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001",
             agreementType=AgreementType.TYPE_1,
         )
@@ -784,7 +784,7 @@ class MarkReadyForFinalQCTests(APITestCase):
 
     def setUp(self):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001", agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
@@ -841,7 +841,7 @@ class EditCannotWipeColourRowsTests(APITestCase):
 
     def setUp(self):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001", agreementType=AgreementType.TYPE_1,
         )
         self.admin = User.objects.create_user(username="admin", password="pass12345", role=Roles.ADMIN)
@@ -885,7 +885,7 @@ class FactoryPackingListUploadTests(APITestCase):
 
     def setUp(self):
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001", agreementType=AgreementType.TYPE_1,
         )
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)

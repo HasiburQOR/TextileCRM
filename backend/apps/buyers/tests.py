@@ -17,12 +17,12 @@ class TenantIsolationTests(APITestCase):
         self.buyer_a = BuyerProfile.objects.create(name="Zara Textiles")
         self.buyer_b = BuyerProfile.objects.create(name="H&M Sourcing")
 
-        self.sister_a = SisterProfile.objects.create(
+        self.sister_a = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer_a,
             poReference="PO-A-001",
             agreementType=AgreementType.TYPE_1,
         )
-        self.sister_b = SisterProfile.objects.create(
+        self.sister_b = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer_b,
             poReference="PO-B-001",
             agreementType=AgreementType.TYPE_2,
@@ -217,7 +217,7 @@ class TenantIsolationTests(APITestCase):
         self.assertEqual(resp.data["total"]["amountBuyer"], Decimal("300.00"))
 
     def test_cost_breakdown_is_tenant_scoped(self):
-        sister = SisterProfile.objects.create(
+        sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer_a, poReference="PO-CB2", agreementType=AgreementType.TYPE_1,
         )
         self.auth_as(self.buyer_b_user)
@@ -288,7 +288,7 @@ class BuyerPortalDashboardTests(APITestCase):
         self.buyer_user = User.objects.create_user(
             username="buyer_portal", password="pass12345", role=Roles.BUYER, buyer_profile=self.buyer
         )
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001",
             agreementType=AgreementType.TYPE_1,
         )
@@ -305,7 +305,7 @@ class BuyerPortalDashboardTests(APITestCase):
 
         # Another buyer entirely -- must never leak into the first buyer's dashboard.
         other_buyer = BuyerProfile.objects.create(name="Other Buyer")
-        SisterProfile.objects.create(
+        SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=other_buyer, poReference="PO-OTHER",
             agreementType=AgreementType.TYPE_1,
         )
@@ -357,7 +357,7 @@ class ReferenceCodeTests(APITestCase):
 
     def test_sister_profile_reference_code_auto_generates_independently_of_po_reference(self):
         buyer = BuyerProfile.objects.create(name="Buyer")
-        sister = SisterProfile.objects.create(
+        sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=buyer, poReference="002F25BV",
             agreementType=AgreementType.TYPE_1,
         )
@@ -381,7 +381,7 @@ class ReferenceCodeTests(APITestCase):
 
     def test_duplicate_sister_profile_reference_code_is_rejected(self):
         buyer = BuyerProfile.objects.create(name="Buyer")
-        SisterProfile.objects.create(
+        SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=buyer, referenceCode="SIS-DUPE",
             agreementType=AgreementType.TYPE_1,
         )

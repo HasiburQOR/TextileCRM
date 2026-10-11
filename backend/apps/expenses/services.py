@@ -13,6 +13,8 @@ Wallet can never drift apart.
 
 from decimal import ROUND_HALF_UP, Decimal
 
+from django.core.exceptions import ValidationError
+
 from apps.expenses.models import Expense
 
 
@@ -106,15 +108,20 @@ def record_expense(*, sister_profile, source_type, amount, created_by, product=N
     sees the number it recognises and a later refund can reverse at exactly
     the rate that was charged.
 
-    Two cases skip conversion and store the amount 1:1:
-      * the profile has no rate yet (exchangeRate 0, "not agreed"), and
-      * the caller named a currency of its own, which the profile's
-        supplier→buyer rate says nothing about.
-    Both leave `exchangeRateUsed` NULL, which is what "not converted" means
-    everywhere downstream.
+    An amount that needs no conversion (the cost is already in the wallet's
+    currency) is stored 1:1 with `exchangeRateUsed` NULL, which is what "not
+    converted" means everywhere downstream.
+
+    An amount that DOES need converting but can't be — the profile has no
+    rate yet (exchangeRate 0, "not agreed"), or the caller named a currency
+    the profile's supplier→buyer rate says nothing about — is refused. The
+    wallet balance is a plain SUM of transaction amounts, so deducting, say,
+    1,016 BDT from a USD wallet would silently subtract 1,016 USD.
     """
     if not amount:
         return None
+
+    from apps.wallet.services import create_wallet
 
     currency = currency or sister_profile.supplierCurrency
     buyer_currency = sister_profile.buyerCurrency
@@ -126,6 +133,18 @@ def record_expense(*, sister_profile, source_type, amount, created_by, product=N
     if buyer_amount is None:
         buyer_amount = _round2(amount)
         buyer_currency = currency
+
+    wallet = create_wallet(sister_profile.buyerProfile)
+    if buyer_currency != wallet.currency:
+        if currency == sister_profile.supplierCurrency and not sister_profile.exchangeRate:
+            raise ValidationError(
+                f"Set the exchange rate ({sister_profile.supplierCurrency} to {sister_profile.buyerCurrency}) "
+                f"on order {sister_profile.referenceCode} before recording costs: this cost is in "
+                f"{currency} but the buyer's wallet is in {wallet.currency}."
+            )
+        raise ValidationError(
+            f"Cannot record a cost in {buyer_currency}: the buyer's wallet is in {wallet.currency}."
+        )
 
     expense = Expense.objects.create(
         sisterProfile=sister_profile,
@@ -149,9 +168,8 @@ def record_expense(*, sister_profile, source_type, amount, created_by, product=N
     # Phase 3 app — doesn't hard-depend on apps.audit/apps.wallet at
     # Django's app-loading time; only at call time, once all are installed.
     from apps.audit.services import log_action
-    from apps.wallet.services import create_wallet, record_deduction
+    from apps.wallet.services import record_deduction
 
-    wallet = create_wallet(sister_profile.buyerProfile)
     record_deduction(
         wallet=wallet, amount=buyer_amount, source_type=source_type, sister_profile=sister_profile,
         source_expense=expense, currency=buyer_currency, created_by=created_by,

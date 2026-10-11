@@ -21,7 +21,7 @@ class AuditTrailTests(APITestCase):
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.employee = User.objects.create_user(username="emp", password="pass12345", role=Roles.EMPLOYEE)
         self.buyer = BuyerProfile.objects.create(name="Zara Textiles")
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001",
             agreementType=AgreementType.TYPE_1,
         )
@@ -90,7 +90,7 @@ class AuditAPIPermissionTests(APITestCase):
         self.rep = User.objects.create_user(username="rep", password="pass12345", role=Roles.COMPANY_REP)
         self.buyer = BuyerProfile.objects.create(name="Buyer")
         self.buyer_user = User.objects.create_user(username="buyer", password="pass12345", role=Roles.BUYER, buyer_profile=self.buyer)
-        sister = SisterProfile.objects.create(
+        sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-1", agreementType=AgreementType.TYPE_1
         )
         record_expense(sister_profile=sister, source_type=SourceType.QC_CARRYING, amount=100, created_by=self.admin)

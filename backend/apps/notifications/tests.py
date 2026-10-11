@@ -24,7 +24,7 @@ class NotificationTriggerTests(APITestCase):
         self.buyer_user = User.objects.create_user(
             username="buyer_portal", password="pass12345", role=Roles.BUYER, buyer_profile=self.buyer
         )
-        self.sister = SisterProfile.objects.create(
+        self.sister = SisterProfile.objects.create(supplierCurrency="USD", 
             buyerProfile=self.buyer, poReference="PO-001",
             agreementType=AgreementType.TYPE_1,
         )
