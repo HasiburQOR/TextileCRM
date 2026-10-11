@@ -136,7 +136,7 @@ export function DashboardPage() {
                   onClick={() => navigate(`/buyers/${w.buyerProfile}`)}
                 >
                   <span className="text-sm font-medium text-slate-900">{w.buyerProfileName}</span>
-                  <span className="text-sm font-semibold text-red-600">{Number(w.balance).toLocaleString()} {w.currency}</span>
+                  <span className="text-sm font-semibold text-red-600">{Number(w.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {w.currency}</span>
                 </div>
               ))}
             </div>

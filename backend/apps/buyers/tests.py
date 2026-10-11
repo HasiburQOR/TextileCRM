@@ -329,10 +329,30 @@ class BuyerPortalDashboardTests(APITestCase):
         self.assertEqual(kpis["ordersCompleted"], 0)
         # The invoice from setUp is still pending_approval (never issued),
         # so it doesn't count toward outstanding balance yet.
-        self.assertEqual(Decimal(str(kpis["invoicesOutstanding"])), Decimal("0"))
+        self.assertEqual(kpis["invoicesOutstanding"], [])
 
         self.assertEqual(resp.data["activeSourcingCosts"], [])
         self.assertIsInstance(resp.data["recentActivity"], list)
+
+    def test_outstanding_is_reported_in_the_buyers_currency(self):
+        from apps.invoicing import services as invoicing_services
+        from apps.invoicing.models import Invoice, InvoiceStatus
+
+        self.sister.exchangeRate = Decimal("120")  # 1 USD = 120 BDT
+        self.sister.save()
+        Invoice.objects.all().delete()  # the unconverted invoice from setUp
+        invoicing_services.create_invoice(
+            sister_profile=self.sister, created_by=self.employee,
+            line_items=[{"description": "Goods", "amount": "12000"}], commission_rate=8,
+        )
+        Invoice.objects.update(status=InvoiceStatus.ISSUED)
+
+        self.client.force_authenticate(user=self.buyer_user)
+        resp = self.client.get(reverse("portal-dashboard"))
+        rows = resp.data["kpis"]["invoicesOutstanding"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["currency"], "USD")
+        self.assertEqual(Decimal(str(rows[0]["amount"])), Decimal("108.00"))  # (12,000 + 8%) BDT / 120
 
     def test_non_buyer_role_gets_403(self):
         self.client.force_authenticate(user=self.admin)

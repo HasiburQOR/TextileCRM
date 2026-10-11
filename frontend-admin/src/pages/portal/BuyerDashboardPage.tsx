@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, MapPin } from "lucide-react"
+import { MapPin } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,6 +28,8 @@ export function BuyerDashboardPage() {
     return <p className="py-16 text-center text-sm text-slate-400">Unable to load your dashboard.</p>
   }
   const d = dashboardQuery.data
+  // One row per currency; zero balances aren't "owing".
+  const owing = (d.kpis.invoicesOutstanding ?? []).filter((r) => Number(r.amount) > 0)
 
   return (
     <div className="flex flex-col gap-6">
@@ -36,37 +38,16 @@ export function BuyerDashboardPage() {
         <p className="text-sm text-slate-500">{user?.username} · Buyer Portal</p>
       </div>
 
-      {(d.alerts?.length ?? 0) > 0 && (
-        <div className="flex flex-col gap-2">
-          {d.alerts?.map((a) => (
-            <div
-              key={a.sisterProfileId}
-              className="flex cursor-pointer items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 hover:bg-red-100"
-              onClick={() => navigate(`/portal/orders/${a.sisterProfileId}`)}
-            >
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              Order {a.poReference} has a negative balance of {Number(a.netPosition).toLocaleString()}. View Settlement Ledger →
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total Orders" value={d.kpis.totalOrders} />
         <StatCard label="Orders In Progress" value={d.kpis.ordersInProgress} />
         <StatCard label="Orders Completed" value={d.kpis.ordersCompleted} />
         <StatCard
           label="Invoices Outstanding"
-          value={Number(d.kpis.invoicesOutstanding).toLocaleString()}
-          tone={Number(d.kpis.invoicesOutstanding) > 0 ? "danger" : "success"}
+          value={owing.length === 0 ? "0" : owing.map((r) => formatMoney(r.amount, r.currency)).join(" + ")}
+          tone={owing.length > 0 ? "danger" : "success"}
         />
       </div>
-      {Number(d.kpis.negativeSettlementBalance) > 0 && (
-        <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          Recorded expense exceeds advance on one or more orders by {Number(d.kpis.negativeSettlementBalance).toLocaleString()} in total — see Settlement Ledger on the order for details.
-        </div>
-      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -83,11 +64,11 @@ export function BuyerDashboardPage() {
                     onClick={() => navigate(`/portal/orders/${t.sisterProfileId}`)}
                   >
                     <div>
-                      <p className="text-sm font-medium text-slate-900">{t.productName}</p>
+                      <p className="text-sm font-medium text-slate-900">{formatMoney(t.totalAmount, t.currency)}</p>
                       <p className="text-xs text-slate-400 flex items-center gap-1"><MapPin className="h-3 w-3" /> {t.poReference}</p>
                     </div>
-                    <Badge variant={t.locationsReported === t.locationsTotal && t.locationsTotal > 0 ? "success" : "warning"}>
-                      {t.locationsReported} of {t.locationsTotal} locations reported
+                    <Badge variant="warning">
+                      {t.itemsCount} {t.itemsCount === 1 ? "location" : "locations"}
                     </Badge>
                   </div>
                 ))}
@@ -117,6 +98,10 @@ export function BuyerDashboardPage() {
       </div>
     </div>
   )
+}
+
+function formatMoney(value: string, currency: string) {
+  return `${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
 }
 
 function StatCard({ label, value, tone }: { label: string; value: string | number; tone?: "success" | "danger" }) {

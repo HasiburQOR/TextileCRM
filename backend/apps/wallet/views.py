@@ -68,10 +68,14 @@ class WalletSummaryView(APIView):
                 # "how much has been charged" figure.
                 bucket[field] += abs(row["total"] or Decimal("0"))
 
+        # Deductions carry a negative sourceAmount and refunds a positive one,
+        # so the sum is the NET spend — a voided expense stops counting.
         by_supplier_currency = [
-            {"currency": row["sourceCurrency"], "spent": abs(row["total"] or Decimal("0"))}
+            {"currency": row["sourceCurrency"], "spent": -(row["total"] or Decimal("0"))}
             for row in (
-                WalletTransaction.objects.filter(type=WalletTransactionType.DEDUCTION)
+                WalletTransaction.objects.filter(
+                    type__in=[WalletTransactionType.DEDUCTION, WalletTransactionType.REFUND],
+                )
                 .exclude(sourceCurrency="")
                 .values("sourceCurrency")
                 .annotate(total=Sum("sourceAmount"))
