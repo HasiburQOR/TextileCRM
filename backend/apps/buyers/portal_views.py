@@ -65,29 +65,43 @@ class PortalDashboardView(APIView):
         sister_ids = [s.id for s in sister_profiles]
 
         # What the buyer actually still owes against issued invoices.
-        invoices_outstanding = Invoice.objects.filter(
-            sisterProfile_id__in=sister_ids, status=InvoiceStatus.ISSUED,
-        ).aggregate(total=Sum("outstandingBalance"))["total"] or Decimal("0")
+        # Invoice.outstandingBalance is held in the invoice's supplier
+        # currency, but the buyer reads in their own — so each balance is
+        # converted at the invoice's locked rate and the totals are kept per
+        # currency (an order with no agreed rate stays in its supplier
+        # currency rather than being added to a different one).
+        outstanding_by_currency = {}
+        for inv in Invoice.objects.filter(sisterProfile_id__in=sister_ids, status=InvoiceStatus.ISSUED):
+            converted = inv.convert(inv.outstandingBalance)
+            currency = inv.targetCurrency if converted is not None else inv.sourceCurrency
+            outstanding_by_currency[currency] = (
+                outstanding_by_currency.get(currency, Decimal("0"))
+                + (converted if converted is not None else inv.outstandingBalance)
+            )
 
         active_costs = (
             SourcingCost.objects.filter(sisterProfile_id__in=sister_ids, status="open")
             .select_related("sisterProfile")
             .prefetch_related("items__product")
         )
-        active_costs_data = [
-            {
-                "id": str(t.id),
-                "sisterProfileId": str(t.sisterProfile_id),
-                "poReference": t.sisterProfile.poReference,
-                "itemsCount": t.items.count(),
-                "totalAmount": sum(
-                    Decimal(str(cf.get("amount", 0)))
-                    for item in t.items.all()
-                    for cf in (item.customCostFields or [])
-                ),
-            }
-            for t in active_costs
-        ]
+        active_costs_data = []
+        for t in active_costs:
+            # Cost fields are entered in the order's supplier currency.
+            total = sum(
+                (Decimal(str(cf.get("amount", 0))) for item in t.items.all() for cf in (item.customCostFields or [])),
+                Decimal("0"),
+            )
+            converted = t.sisterProfile.convert_to_buyer_currency(total)
+            active_costs_data.append(
+                {
+                    "id": str(t.id),
+                    "sisterProfileId": str(t.sisterProfile_id),
+                    "poReference": t.sisterProfile.poReference,
+                    "itemsCount": t.items.count(),
+                    "totalAmount": converted if converted is not None else total,
+                    "currency": t.sisterProfile.buyerCurrency if converted is not None else t.sisterProfile.supplierCurrency,
+                }
+            )
 
         recent_activity = Notification.objects.filter(user=request.user).order_by("-createdAt")[:10]
 
@@ -98,7 +112,9 @@ class PortalDashboardView(APIView):
                     "totalOrders": len(sister_profiles),
                     "ordersInProgress": sum(1 for s in sister_profiles if s.status == "active"),
                     "ordersCompleted": sum(1 for s in sister_profiles if s.status == "completed"),
-                    "invoicesOutstanding": invoices_outstanding,
+                    "invoicesOutstanding": [
+                        {"currency": c, "amount": a} for c, a in sorted(outstanding_by_currency.items())
+                    ],
                 },
                 "activeSourcingCosts": active_costs_data,
                 "recentActivity": NotificationSerializer(recent_activity, many=True).data,
