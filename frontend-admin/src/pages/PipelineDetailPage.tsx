@@ -52,6 +52,15 @@ export function PipelineDetailPage() {
       ? stepParam
       : pipelineQuery.data?.nextStep ?? "intake"
 
+  // Opened without ?step=: land on the next pending step, then pin it in the
+  // URL. Unpinned, finishing a step (e.g. saving the first product) moved
+  // `nextStep` and swapped the screen out from under the user mid-work.
+  const resolvedNext = pipelineQuery.data ? pipelineQuery.data.nextStep ?? "intake" : null
+  const stepPinned = !!stepParam && PIPELINE_STEP_ORDER.includes(stepParam)
+  useEffect(() => {
+    if (!stepPinned && resolvedNext) setSearchParams({ step: resolvedNext }, { replace: true })
+  }, [stepPinned, resolvedNext, setSearchParams])
+
   // Progress is derived from the very lists the step screens edit — recompute
   // it whenever the user switches steps (edits made inside a step invalidate
   // ["pipeline"] themselves; see PackingListStep).
@@ -98,8 +107,17 @@ export function PipelineDetailPage() {
               <><span className="font-medium">All steps complete.</span> Nothing is locked — every step can still be revisited and edited.</>
             ) : (
               <>
-                <span className="font-medium">Next: {nextKey ? steps[nextKey].title : "—"}</span>
-                {" "}— the pipeline is guided, not gated: every step stays open in any order.
+                <span className="font-medium">Next: </span>
+                {nextKey ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearchParams({ step: nextKey })}
+                    className="cursor-pointer font-medium underline decoration-slate-400 underline-offset-2 hover:decoration-slate-900"
+                  >
+                    {steps[nextKey].title}
+                  </button>
+                ) : "—"}
+                {" "}— click any step above; they stay open in any order.
               </>
             )}
           </p>

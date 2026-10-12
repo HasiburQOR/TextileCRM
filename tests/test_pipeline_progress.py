@@ -147,3 +147,31 @@ def test_pipeline_is_tenant_scoped(buyer_client, buyer_profile, other_buyer_prof
     assert resp.status_code == 200
     assert resp.data["steps"]["intake"]["done"] is True
     assert resp.data["steps"]["packingList"]["done"] is True
+
+
+@pytest.mark.integration
+def test_buyer_download_does_not_mark_packing_step(buyer_client, buyer_profile, admin_client):
+    """The Buyer Portal offers the same packing-list download; a buyer
+    fetching their copy must not tick off the supplier's own step 3."""
+    profile = SisterProfileFactory(buyerProfile=buyer_profile)
+    product = ProductFactory(sisterProfile=profile)
+
+    resp = buyer_client.get(f"/api/v1/products/{product.id}/packing-list-export/")
+
+    assert resp.status_code == 200
+    product.refresh_from_db()
+    assert product.packingListExportedAt is None
+    assert _pipeline(admin_client, profile).data["steps"]["packingList"]["done"] is False
+
+
+@pytest.mark.integration
+def test_sourcing_costs_filter_by_sister_profile(admin_client):
+    """Pipeline step 2 lists one order's costs via ?sisterProfile=."""
+    mine, other = SisterProfileFactory(), SisterProfileFactory()
+    cost = SourcingCostFactory(sisterProfile=mine)
+    SourcingCostFactory(sisterProfile=other)
+
+    resp = admin_client.get(f"/api/v1/sourcing-costs/?sisterProfile={mine.id}")
+
+    assert resp.status_code == 200
+    assert [row["id"] for row in resp.data["results"]] == [str(cost.id)]

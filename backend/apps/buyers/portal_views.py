@@ -194,11 +194,22 @@ class PortalOrderCostsView(APIView):
             return Response({"detail": "Not found."}, status=404)
 
         expenses = Expense.objects.filter(sisterProfile=sister).order_by("-createdAt")
-        by_source = expenses.values("sourceType").annotate(total=Sum("amount")).order_by("sourceType")
+        # `total` is the cost as incurred (supplier currency); `totalBuyer`
+        # is what it took off the buyer's wallet, in the buyer's own
+        # currency — the figure the buyer actually reads.
+        by_source = (
+            expenses.values("sourceType")
+            .annotate(total=Sum("amount"), totalBuyer=Sum("amountInBuyerCurrency"))
+            .order_by("sourceType")
+        )
+        totals = expenses.aggregate(total=Sum("amount"), totalBuyer=Sum("amountInBuyerCurrency"))
         return Response(
             {
                 "bySourceType": list(by_source),
-                "total": expenses.aggregate(total=Sum("amount"))["total"] or Decimal("0"),
+                "total": totals["total"] or Decimal("0"),
+                "totalBuyer": totals["totalBuyer"] or Decimal("0"),
+                "supplierCurrency": sister.supplierCurrency,
+                "buyerCurrency": sister.buyerCurrency,
                 "items": ExpenseSelfSerializer(expenses, many=True).data,
             }
         )

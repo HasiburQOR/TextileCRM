@@ -148,9 +148,12 @@ class ProductViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
         # packing-list step ran for this product — stamp it and clear any
         # earlier skip so the two markers never both claim the step
         # (re-downloads just refresh the timestamp).
-        product.packingListExportedAt = timezone.now()
-        product.packingListSkipped = False
-        product.save(update_fields=["packingListExportedAt", "packingListSkipped", "updatedAt"])
+        # Staff downloads only: the Buyer Portal offers the same document,
+        # and a buyer's download must not tick off the supplier's own step.
+        if request.user.role != Roles.BUYER:
+            product.packingListExportedAt = timezone.now()
+            product.packingListSkipped = False
+            product.save(update_fields=["packingListExportedAt", "packingListSkipped", "updatedAt"])
         if request.query_params.get("filetype") == "xlsx":
             content = exports.render_packing_list_xlsx(product)
             response = HttpResponse(content, content_type=XLSX_CONTENT_TYPE)
@@ -321,6 +324,9 @@ class SourcingCostViewSet(TenantScopedViewSet, viewsets.ModelViewSet):
     queryset = SourcingCost.objects.select_related("sisterProfile__buyerProfile").prefetch_related("items__product")
     tenant_lookup = "sisterProfile__buyerProfile_id"
     allowed_roles = [Roles.COMPANY_REP]
+    # The pipeline's step 2 lists one order's costs — filtered here rather
+    # than by downloading every cost and filtering in the browser.
+    filterset_fields = ["status", "sisterProfile"]
 
     def get_serializer_class(self):
         if self.request.user.role == Roles.BUYER:

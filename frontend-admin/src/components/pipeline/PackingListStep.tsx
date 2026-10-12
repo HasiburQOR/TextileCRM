@@ -68,6 +68,9 @@ export function PackingListStep({ sisterProfileId }: { sisterProfileId: string }
     },
     onSuccess: refresh,
     onError: (err: unknown) => setError(extractErrorMessage(err)),
+    // Release the row either way — otherwise its download buttons stayed
+    // disabled after a skip until the page was reloaded.
+    onSettled: () => setBusyId(null),
   })
 
   const canSkip = !!user && CAN_SKIP_ROLES.includes(user.role)
@@ -148,7 +151,7 @@ export function PackingListStep({ sisterProfileId }: { sisterProfileId: string }
                               size="sm" variant="ghost"
                               title={p.packingListSkipped ? "Un-skip (back to pending)" : "Skip the packing list for this product"}
                               disabled={skipMutation.isPending && busyId === p.id}
-                              onClick={() => { setBusyId(p.id); skipMutation.mutate(p) }}
+                              onClick={() => { setError(null); setBusyId(p.id); skipMutation.mutate(p) }}
                             >
                               {p.packingListSkipped ? <Undo2 className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />}
                             </Button>

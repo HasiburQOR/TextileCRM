@@ -66,8 +66,11 @@ SISTER_PROFILES = [
     (0, "NRG-PO-2026-021", "3", "BDT", "USD", Decimal("120")),
     (1, "CL-4471", "2", "BDT", "USD", Decimal("118.5")),
     # Left unrated on purpose: exercises the "no rate agreed yet" path, where
-    # costs pass through to the wallet unconverted.
-    (2, "BRM-2026-A9", "1", "BDT", "USD", Decimal("0")),
+    # costs pass through to the wallet unconverted. That only works when the
+    # order is already in the wallet's currency — record_expense refuses an
+    # unrated BDT cost against a USD wallet, which used to abort this whole
+    # seed (and, via entrypoint.sh's `set -e`, the container on a fresh DB).
+    (2, "BRM-2026-A9", "1", "USD", "USD", Decimal("0")),
     (3, "AUR-88213", "1", "BDT", "USD", Decimal("121.25")),
     (3, "AUR-88240", "2", "BDT", "USD", Decimal("121.25")),
     (4, "MTX-0117", "1", "BDT", "USD", Decimal("119.75")),

@@ -184,10 +184,14 @@ export function ProductsPage({ sisterProfileId, embedded = false }: { sisterProf
   const [viewTarget, setViewTarget] = useState<Product | null>(null)
   const [editTarget, setEditTarget] = useState<Product | null>(null)
 
+  // Scoped to the order server-side when embedded in the pipeline, so an
+  // order's products never fall off the end of a global, size-capped page.
   const productsQuery = useQuery({
-    queryKey: ["products", "all"],
+    queryKey: sisterProfileId ? ["products", "by-sister", sisterProfileId] : ["products", "all"],
     queryFn: async () => {
-      const { data } = await api.get<Paginated<Product>>("/products/", { params: { page_size: 200 } })
+      const { data } = await api.get<Paginated<Product>>("/products/", {
+        params: sisterProfileId ? { sisterProfile: sisterProfileId, page_size: 500 } : { page_size: 500 },
+      })
       return data.results
     },
   })
@@ -196,6 +200,7 @@ export function ProductsPage({ sisterProfileId, embedded = false }: { sisterProf
     mutationFn: async (id: string) => { await api.delete(`/products/${id}/`) },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] })
+      queryClient.invalidateQueries({ queryKey: ["pipeline"] })
       setDeleteTarget(null)
       setDeleteError(null)
     },
@@ -361,7 +366,7 @@ export function ProductsPage({ sisterProfileId, embedded = false }: { sisterProf
         </CardContent>
       </Card>
 
-      {createOpen && <CreateProductDialog onClose={() => setCreateOpen(false)} defaultSisterProfile={sisterProfileId} />}
+      {createOpen && <CreateProductDialog onClose={() => setCreateOpen(false)} defaultSisterProfile={sisterProfileId} stayOnCreate={embedded} />}
 
       {viewTarget && <ViewProductDialog product={viewTarget} onClose={() => setViewTarget(null)} />}
 
@@ -387,7 +392,12 @@ export function ProductsPage({ sisterProfileId, embedded = false }: { sisterProf
   )
 }
 
-function CreateProductDialog({ onClose, defaultSisterProfile }: { onClose: () => void; defaultSisterProfile?: string }) {
+// `stayOnCreate` (pipeline step 1): after saving, close and stay on the
+// pipeline instead of jumping to the product's own page — that jump left the
+// user away from the stepper, with step 2 nowhere in sight.
+function CreateProductDialog({ onClose, defaultSisterProfile, stayOnCreate = false }: {
+  onClose: () => void; defaultSisterProfile?: string; stayOnCreate?: boolean
+}) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
@@ -448,7 +458,11 @@ function CreateProductDialog({ onClose, defaultSisterProfile }: { onClose: () =>
     },
     onSuccess: ({ product, failedPhotoColors }) => {
       queryClient.invalidateQueries({ queryKey: ["products"] })
+      queryClient.invalidateQueries({ queryKey: ["pipeline"] })
       onClose()
+      // A failed photo is reported (and fixed) on the product page, so that
+      // case still goes there even from the pipeline.
+      if (stayOnCreate && failedPhotoColors.length === 0) return
       navigate(`/products/${product.id}`, failedPhotoColors.length ? { state: { failedPhotoColors } } : undefined)
     },
     onError: (err: unknown) => setError(extractErrorMessage(err)),
@@ -534,7 +548,7 @@ function CreateProductDialog({ onClose, defaultSisterProfile }: { onClose: () =>
         </FormSection>
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-4">
-          <span className="mr-auto text-xs text-slate-400">Next: after saving, add this product to a Sourcing Cost, then submit it for approval.</span>
+          <span className="mr-auto text-xs text-slate-400">Next: after saving, record this product's costs in step 2 (Sourcing Cost).</span>
           <Button type="button" variant="outline" onClick={requestClose}>
             Cancel
           </Button>
@@ -1260,6 +1274,7 @@ export function EditProductDialog({ product, onClose }: { product: Product; onCl
     onSuccess: ({ data, failedPhotoIds }) => {
       queryClient.setQueryData(["products", product.id], data)
       queryClient.invalidateQueries({ queryKey: ["products"] })
+      queryClient.invalidateQueries({ queryKey: ["pipeline"] })
       if (failedPhotoIds.size === 0) {
         onClose()
         return

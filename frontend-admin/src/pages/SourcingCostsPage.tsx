@@ -37,9 +37,11 @@ export function SourcingCostsPage({ sisterProfileId, embedded = false }: { siste
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const costsQuery = useQuery({
-    queryKey: ["sourcing-costs", "all"],
+    queryKey: sisterProfileId ? ["sourcing-costs", "by-sister", sisterProfileId] : ["sourcing-costs", "all"],
     queryFn: async () => {
-      const { data } = await api.get<Paginated<SourcingCost>>("/sourcing-costs/", { params: { page_size: 200 } })
+      const { data } = await api.get<Paginated<SourcingCost>>("/sourcing-costs/", {
+        params: sisterProfileId ? { sisterProfile: sisterProfileId, page_size: 500 } : { page_size: 500 },
+      })
       return data.results
     },
   })
@@ -51,7 +53,7 @@ export function SourcingCostsPage({ sisterProfileId, embedded = false }: { siste
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => { await api.delete(`/sourcing-costs/${id}/`) },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["sourcing-costs"] }); setDeleteTarget(null); setDeleteError(null) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["sourcing-costs"] }); queryClient.invalidateQueries({ queryKey: ["pipeline"] }); setDeleteTarget(null); setDeleteError(null) },
     onError: (err: unknown) => setDeleteError(extractErrorMessage(err)),
   })
 
@@ -201,7 +203,7 @@ function CreateCostDialog({ onClose, defaultSisterProfile }: { onClose: () => vo
       const payload: SourcingCostCreateInput = { sisterProfile, items: items.map((it) => ({ ...it, customCostFields: it.customCostFields.filter((cf) => cf.name.trim() !== ""), date: new Date(it.date).toISOString() })) }
       const { data } = await api.post<SourcingCost>("/sourcing-costs/", payload); return data
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["sourcing-costs"] }); onClose() },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["sourcing-costs"] }); queryClient.invalidateQueries({ queryKey: ["pipeline"] }); onClose() },
     onError: (err: unknown) => setError(extractErrorMessage(err)),
   })
 

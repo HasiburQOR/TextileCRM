@@ -43,9 +43,11 @@ export function WarehouseCostsPage({ sisterProfileId, embedded = false }: { sist
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const costsQuery = useQuery({
-    queryKey: ["warehouse-costs", "all"],
+    queryKey: sisterProfileId ? ["warehouse-costs", "by-sister", sisterProfileId] : ["warehouse-costs", "all"],
     queryFn: async () => {
-      const { data } = await api.get<Paginated<WarehouseCost>>("/warehouse-costs/", { params: { page_size: 200 } })
+      const { data } = await api.get<Paginated<WarehouseCost>>("/warehouse-costs/", {
+        params: sisterProfileId ? { sisterProfile: sisterProfileId, page_size: 500 } : { page_size: 500 },
+      })
       return data.results
     },
   })
@@ -55,11 +57,18 @@ export function WarehouseCostsPage({ sisterProfileId, embedded = false }: { sist
     [costsQuery.data, sisterProfileId],
   )
 
+  // Every warehouse-cost write changes the cost list, the Central Expense
+  // Table and the pipeline's step-4 progress.
+  function invalidateAfterWrite() {
+    queryClient.invalidateQueries({ queryKey: ["warehouse-costs"] })
+    queryClient.invalidateQueries({ queryKey: ["expenses"] })
+    queryClient.invalidateQueries({ queryKey: ["pipeline"] })
+  }
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => { await api.delete(`/warehouse-costs/${id}/`) },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["warehouse-costs"] })
-      queryClient.invalidateQueries({ queryKey: ["expenses"] })
+      invalidateAfterWrite()
       setDeleteTarget(null)
       setDeleteError(null)
     },
@@ -141,7 +150,7 @@ export function WarehouseCostsPage({ sisterProfileId, embedded = false }: { sist
         <WarehouseCostFormDialog
           onClose={() => setCreateOpen(false)}
           defaultSisterProfile={sisterProfileId}
-          onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["warehouse-costs"] }); queryClient.invalidateQueries({ queryKey: ["expenses"] }); setCreateOpen(false) }}
+          onSuccess={() => { invalidateAfterWrite(); setCreateOpen(false) }}
         />
       )}
 
@@ -149,7 +158,7 @@ export function WarehouseCostsPage({ sisterProfileId, embedded = false }: { sist
         <WarehouseCostFormDialog
           existing={editTarget}
           onClose={() => setEditTarget(null)}
-          onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["warehouse-costs"] }); queryClient.invalidateQueries({ queryKey: ["expenses"] }); setEditTarget(null) }}
+          onSuccess={() => { invalidateAfterWrite(); setEditTarget(null) }}
         />
       )}
 
@@ -301,8 +310,8 @@ function WarehouseCostFormDialog({ existing, onClose, onSuccess, defaultSisterPr
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Loader Cost *</label>
-            <Input required type="number" min={0} step="0.01" value={loaderCost} onChange={(e) => setLoaderCost(Number(e.target.value))} />
+            <label className="mb-1 block text-xs font-medium text-slate-600">Loader Cost</label>
+            <Input type="number" min={0} step="0.01" value={loaderCost} onChange={(e) => setLoaderCost(Number(e.target.value))} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">Extra Worker Cost</label>

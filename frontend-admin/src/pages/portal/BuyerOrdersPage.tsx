@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { api } from "@/lib/api"
-import { cn } from "@/lib/utils"
 import type { PortalOrder, PortalOrderStatus } from "@/types/portal"
 
 const STATUS_BADGE: Record<PortalOrderStatus, "info" | "success" | "danger"> = {
@@ -44,7 +43,7 @@ export function BuyerOrdersPage() {
                   <th className="px-4 py-3 font-medium">Agreement Type</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Order Date</th>
-                  <th className="px-4 py-3 font-medium">Current Balance</th>
+                  <th className="px-4 py-3 font-medium">Currency</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -54,9 +53,7 @@ export function BuyerOrdersPage() {
                     <td className="px-4 py-3 text-slate-500">Type {o.agreementType}</td>
                     <td className="px-4 py-3"><Badge variant={STATUS_BADGE[o.status]}>{o.status}</Badge></td>
                     <td className="px-4 py-3 text-slate-400">{new Date(o.createdAt).toLocaleDateString()}</td>
-                    <td className={cn("px-4 py-3 font-semibold", Number(o.currentBalance) < 0 ? "text-red-600" : "text-emerald-600")}>
-                      {Number(o.currentBalance).toLocaleString()}
-                    </td>
+                    <td className="px-4 py-3 text-slate-500">{o.buyerCurrency || o.supplierCurrency || "—"}</td>
                   </tr>
                 ))}
               </tbody>

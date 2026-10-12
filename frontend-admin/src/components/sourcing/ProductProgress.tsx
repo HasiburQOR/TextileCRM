@@ -1,4 +1,4 @@
-import { Check, X } from "lucide-react"
+import { ArrowRight, Check, X } from "lucide-react"
 import { Link } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import type { ProductStatus } from "@/types/sourcing"
@@ -15,12 +15,14 @@ const STEPS: { status: ProductStatus; label: string }[] = [
   { status: "completed", label: "Completed" },
 ]
 
-const NEXT_STEP: Record<ProductStatus, { who: string; text: React.ReactNode }> = {
+// `pipeline` is the product's own order in the Sourcing Pipeline, so the
+// links land on the right step instead of the all-orders list.
+const nextStep = (pipeline: string): Record<ProductStatus, { who: string; text: React.ReactNode }> => ({
   sourcing_trip_open: {
     who: "Company Rep",
     text: (
       <>
-        Record this product's costs in the <Link to="/pipeline" className="font-medium underline">Sourcing Pipeline</Link> — legacy status:
+        Record this product's costs in the <Link to={`${pipeline}?step=sourcingCost`} className="font-medium underline">Sourcing Pipeline</Link> — legacy status:
         this product predates the removal of the approval step, but the QC report can be recorded any time.
       </>
     ),
@@ -38,7 +40,7 @@ const NEXT_STEP: Record<ProductStatus, { who: string; text: React.ReactNode }> =
     who: "Warehouse Manager",
     text: (
       <>
-        Record this order's Warehouse Costs in the <Link to="/pipeline" className="font-medium underline">Sourcing Pipeline</Link>, then click{" "}
+        Record this order's Warehouse Costs in the <Link to={`${pipeline}?step=warehouseCost`} className="font-medium underline">Sourcing Pipeline</Link>, then click{" "}
         <strong>Mark Ready for Final QC</strong>.
       </>
     ),
@@ -48,9 +50,9 @@ const NEXT_STEP: Record<ProductStatus, { who: string; text: React.ReactNode }> =
     text: <>Final QC: save the final goods name, price and fabric details, then generate both QR codes.</>,
   },
   completed: { who: "", text: <>Done — both QR codes have been generated.</> },
-}
+})
 
-export function ProductProgress({ status }: { status: ProductStatus }) {
+export function ProductProgress({ status, sisterProfileId }: { status: ProductStatus; sisterProfileId?: string }) {
   // Legacy statuses never occur on new products (no approval step anymore):
   // a legacy Rejected product sits at the Sourcing step in red; a legacy
   // Pending-Approval one counts as approved, i.e. sits at the QC step.
@@ -61,10 +63,20 @@ export function ProductProgress({ status }: { status: ProductStatus }) {
       ? "approved_for_qc"
       : status
   const currentIndex = STEPS.findIndex((s) => s.status === stepStatus)
-  const next = NEXT_STEP[status]
+  const pipelinePath = sisterProfileId ? `/pipeline/${sisterProfileId}` : "/pipeline"
+  const next = nextStep(pipelinePath)[status]
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Product status</span>
+        <Link
+          to={`${pipelinePath}${sisterProfileId ? "?step=sourcingCost" : ""}`}
+          className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+        >
+          Continue in Sourcing Pipeline <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
       <ol className="flex flex-wrap items-center gap-y-2">
         {STEPS.map((step, i) => {
           const done = i < currentIndex || status === "completed"

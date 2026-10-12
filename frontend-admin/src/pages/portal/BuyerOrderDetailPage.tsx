@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, ArrowLeft, Download, FileSpreadsheet } from "lucide-react"
+import { ArrowLeft, Download, FileSpreadsheet } from "lucide-react"
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
@@ -9,19 +9,26 @@ import { Spinner } from "@/components/ui/spinner"
 import { api } from "@/lib/api"
 import { downloadFile } from "@/lib/download"
 import { extractErrorMessage } from "@/lib/errors"
+import { resolveMediaUrl } from "@/lib/media"
 import { cn } from "@/lib/utils"
 import type {
-  PortalCosts, PortalDocument, PortalInvoice, PortalLedger, PortalOrderDetail,
+  PortalCosts, PortalDocument, PortalInvoice, PortalOrderDetail,
   PortalPackingList, PortalProductProgress,
 } from "@/types/portal"
 
-type TabKey = "overview" | "progress" | "costs" | "ledger" | "packing" | "invoices" | "documents"
+type TabKey = "overview" | "progress" | "costs" | "packing" | "invoices" | "documents"
+
+function money(value: string | number | null | undefined, currency?: string) {
+  const text = Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return currency ? `${text} ${currency}` : text
+}
+
+const label = (code: string) => code.replace(/_/g, " ")
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "progress", label: "Sourcing Progress" },
   { key: "costs", label: "Costs" },
-  { key: "ledger", label: "Settlement Ledger" },
   { key: "packing", label: "Packing List" },
   { key: "invoices", label: "Invoices" },
   { key: "documents", label: "Documents" },
@@ -54,12 +61,6 @@ export function BuyerOrderDetailPage() {
     enabled: !!id,
   })
 
-  const ledgerQuery = useQuery({
-    queryKey: ["portal", "orders", id, "ledger"],
-    queryFn: async () => { const { data } = await api.get<PortalLedger>(`/portal/orders/${id}/ledger/`); return data },
-    enabled: !!id,
-  })
-
   const progressQuery = useQuery({
     queryKey: ["portal", "orders", id, "sourcing-progress"],
     queryFn: async () => { const { data } = await api.get<PortalProductProgress[]>(`/portal/orders/${id}/sourcing-progress/`); return data },
@@ -69,7 +70,7 @@ export function BuyerOrderDetailPage() {
   const costsQuery = useQuery({
     queryKey: ["portal", "orders", id, "costs"],
     queryFn: async () => { const { data } = await api.get<PortalCosts>(`/portal/orders/${id}/costs/`); return data },
-    enabled: !!id && tab === "costs",
+    enabled: !!id && (tab === "costs" || tab === "overview"),
   })
 
   const packingQuery = useQuery({
@@ -93,7 +94,11 @@ export function BuyerOrderDetailPage() {
   if (orderQuery.isLoading) return <div className="flex justify-center py-16"><Spinner className="text-slate-400" /></div>
   if (!orderQuery.data) return <p className="py-16 text-center text-sm text-slate-400">Order not found.</p>
   const order = orderQuery.data
-  const ledger = ledgerQuery.data
+  const costs = costsQuery.data
+  const rate = Number(order.exchangeRate)
+  // Without an agreed rate nothing was converted, so the buyer-currency
+  // totals would read 0.00 — fall back to the cost as incurred.
+  const chargedTotal = costs ? (rate ? money(costs.totalBuyer, costs.buyerCurrency) : money(costs.total, costs.supplierCurrency)) : "—"
 
   return (
     <div className="flex flex-col gap-6">
@@ -114,20 +119,14 @@ export function BuyerOrderDetailPage() {
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div>
       )}
 
-      {ledger?.negativeBalance && (
-        <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          Negative balance: net position is {Number(ledger.netPosition).toLocaleString()}.
-        </div>
-      )}
-
       <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
         {TABS.map((t) => (
           <button
             key={t.key}
+            type="button"
             onClick={() => setTab(t.key)}
             className={cn(
-              "shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+              "shrink-0 cursor-pointer border-b-2 px-3 py-2 text-sm font-medium transition-colors",
               tab === t.key ? "border-slate-900 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-700",
             )}
           >
@@ -138,10 +137,13 @@ export function BuyerOrderDetailPage() {
 
       {tab === "overview" && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Total Advance" value={ledger ? Number(ledger.totalAdvance).toLocaleString() : "—"} />
-          <StatCard label="Total Expense" value={ledger ? Number(ledger.totalExpense).toLocaleString() : "—"} />
-          <StatCard label="Amount Owed" value={ledger ? Number(ledger.amountOwed).toLocaleString() : "—"} />
-          <StatCard label="Net Position" value={ledger ? Number(ledger.netPosition).toLocaleString() : "—"} tone={ledger?.negativeBalance ? "danger" : "success"} />
+          <StatCard label="Status" value={order.status.charAt(0).toUpperCase() + order.status.slice(1)} />
+          <StatCard label="Agreement Type" value={`Type ${order.agreementType}`} />
+          <StatCard
+            label="Exchange Rate"
+            value={rate ? `1 ${order.buyerCurrency} = ${rate.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${order.supplierCurrency}` : "Not set yet"}
+          />
+          <StatCard label="Costs Charged So Far" value={costsQuery.isLoading ? "…" : chargedTotal} />
         </div>
       )}
 
@@ -155,28 +157,32 @@ export function BuyerOrderDetailPage() {
                     <CardTitle>{row.product.name}</CardTitle>
                     <p className="text-xs text-slate-400">{row.product.styleNumber} · {row.product.brandName}</p>
                   </div>
-                  <Badge variant="default">{row.product.status.replace(/_/g, " ")}</Badge>
+                  <Badge variant="default">{label(row.product.status)}</Badge>
                 </CardHeader>
                 <CardContent className="pt-0">
                   {!row.cost ? (
                     <p className="text-sm text-slate-400">No sourcing cost recorded yet.</p>
                   ) : (
                     <div className="flex flex-col gap-2">
-                      <Badge variant={row.cost.status === "open" ? "default" : "success"}>{row.cost.status}</Badge>
+                      <div><Badge variant={row.cost.status === "open" ? "default" : "success"}>{row.cost.status === "open" ? "Costs open" : "Costs closed"}</Badge></div>
                       <table className="w-full text-left text-sm">
                         <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
                           <th className="px-2 py-1.5 font-medium">Location</th><th className="px-2 py-1.5 font-medium">Qty</th>
-                          <th className="px-2 py-1.5 font-medium">Advance</th><th className="px-2 py-1.5 font-medium">Status</th>
+                          <th className="px-2 py-1.5 font-medium">Costs</th>
+                          <th className="px-2 py-1.5 text-right font-medium">Amount ({order.supplierCurrency})</th>
                         </tr></thead>
                         <tbody>
-                          {row.cost.locations?.map((loc, i) => (
-                            <tr key={i} className="border-b border-slate-100 last:border-0">
-                              <td className="px-2 py-1.5 font-medium text-slate-900">{loc.locationName}</td>
-                              <td className="px-2 py-1.5 text-slate-500">{loc.quantity}</td>
-                              <td className="px-2 py-1.5 text-slate-500">{Number(loc.advanceAmount).toLocaleString()}</td>
-                              <td className="px-2 py-1.5"><Badge variant={loc.status === "reported" ? "success" : "warning"}>{loc.status}</Badge></td>
-                            </tr>
-                          ))}
+                          {row.cost.items?.map((loc, i) => {
+                            const fields = loc.customCostFields ?? []
+                            return (
+                              <tr key={i} className="border-b border-slate-100 align-top last:border-0">
+                                <td className="px-2 py-1.5 font-medium text-slate-900">{loc.locationName}</td>
+                                <td className="px-2 py-1.5 text-slate-500">{loc.quantity}</td>
+                                <td className="px-2 py-1.5 text-slate-500">{fields.map((cf) => cf.name).filter(Boolean).join(", ") || "—"}</td>
+                                <td className="px-2 py-1.5 text-right text-slate-700">{money(fields.reduce((s, cf) => s + (Number(cf.amount) || 0), 0))}</td>
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -195,26 +201,28 @@ export function BuyerOrderDetailPage() {
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div className="flex flex-wrap gap-4 text-sm">
                   {costsQuery.data.bySourceType?.map((s) => (
-                    <span key={s.sourceType} className="text-slate-600">
-                      {s.sourceType.replace(/_/g, " ")}: <strong>{Number(s.total).toLocaleString()}</strong>
+                    <span key={s.sourceType} className="capitalize text-slate-600">
+                      {label(s.sourceType)}: <strong>{rate ? money(s.totalBuyer, costsQuery.data.buyerCurrency) : money(s.total, costsQuery.data.supplierCurrency)}</strong>
                     </span>
                   ))}
                 </div>
-                <span className="text-lg font-semibold text-slate-900">Total: {Number(costsQuery.data.total).toLocaleString()}</span>
+                <span className="text-lg font-semibold text-slate-900">Total: {chargedTotal}</span>
               </CardContent>
             </Card>
           )}
           <ListCard loading={costsQuery.isLoading} empty={!costsQuery.data?.items?.length} emptyText="No costs recorded yet.">
             <table className="w-full min-w-[480px] text-left text-sm">
               <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400">
-                <th className="px-4 py-2 font-medium">Source</th><th className="px-4 py-2 font-medium">Amount</th>
+                <th className="px-4 py-2 font-medium">Source</th><th className="px-4 py-2 font-medium">Spent on your behalf</th>
+                <th className="px-4 py-2 font-medium">Charged to you</th>
                 <th className="px-4 py-2 font-medium">Remarks</th><th className="px-4 py-2 font-medium">Date</th>
               </tr></thead>
               <tbody>
                 {costsQuery.data?.items?.map((c) => (
                   <tr key={c.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-4 py-2 font-medium text-slate-900">{c.sourceType.replace(/_/g, " ")}</td>
-                    <td className="px-4 py-2 text-slate-500">{Number(c.amount).toLocaleString()} {c.currency}</td>
+                    <td className="px-4 py-2 font-medium capitalize text-slate-900">{label(c.sourceType)}</td>
+                    <td className="px-4 py-2 text-slate-500">{money(c.amount, c.currency)}</td>
+                    <td className="px-4 py-2 text-slate-700">{c.buyerCurrency ? money(c.amountInBuyerCurrency, c.buyerCurrency) : "—"}</td>
                     <td className="px-4 py-2 text-slate-400">{c.remarks || "—"}</td>
                     <td className="px-4 py-2 text-slate-400">{new Date(c.createdAt).toLocaleDateString()}</td>
                   </tr>
@@ -225,21 +233,8 @@ export function BuyerOrderDetailPage() {
         </div>
       )}
 
-      {tab === "ledger" && (
-        <ListCard loading={ledgerQuery.isLoading} empty={!ledger} emptyText="No ledger data yet.">
-          {ledger && (
-            <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard label="Total Advance" value={Number(ledger.totalAdvance).toLocaleString()} />
-              <StatCard label="Total Expense" value={Number(ledger.totalExpense).toLocaleString()} />
-              <StatCard label="Amount Owed" value={Number(ledger.amountOwed).toLocaleString()} />
-              <StatCard label="Net Position" value={Number(ledger.netPosition).toLocaleString()} tone={ledger.negativeBalance ? "danger" : "success"} />
-            </div>
-          )}
-        </ListCard>
-      )}
-
       {tab === "packing" && (
-        <ListCard loading={packingQuery.isLoading} empty={!packingQuery.data?.length} emptyText="No packing list published yet.">
+        <ListCard loading={packingQuery.isLoading} empty={!packingQuery.data?.length} emptyText="No products on this order yet.">
           <div className="flex flex-col gap-4 p-4">
             {packingQuery.data?.map((pl) => (
               <Card key={pl.id}>
@@ -305,10 +300,10 @@ export function BuyerOrderDetailPage() {
               {invoicesQuery.data?.map((inv) => (
                 <tr key={inv.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-4 py-2 font-medium text-slate-900">{inv.invoiceNo}</td>
-                  <td className="px-4 py-2 text-slate-500">{inv.status.replace(/_/g, " ")}</td>
-                  <td className="px-4 py-2 text-slate-500">{Number(inv.grandTotal).toLocaleString()}</td>
+                  <td className="px-4 py-2 capitalize text-slate-500">{label(inv.status)}</td>
+                  <td className="px-4 py-2 text-slate-500">{money(inv.grandTotal, inv.sourceCurrency)}</td>
                   <td className="px-4 py-2 text-slate-500">
-                    {inv.targetCurrency ? `${Number(inv.convertedTotal).toLocaleString()} ${inv.targetCurrency}` : "—"}
+                    {inv.targetCurrency ? money(inv.convertedTotal, inv.targetCurrency) : "—"}
                   </td>
                   <td className="px-4 py-2 text-right">
                     <div className="inline-flex gap-1">
@@ -345,9 +340,9 @@ export function BuyerOrderDetailPage() {
               {documentsQuery.data?.map((doc) => (
                 <tr key={doc.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-4 py-2">
-                    <a href={doc.file} target="_blank" rel="noreferrer" className="font-medium text-slate-900 hover:underline">{doc.fileName}</a>
+                    <a href={resolveMediaUrl(doc.file)} target="_blank" rel="noreferrer" className="font-medium text-slate-900 underline decoration-slate-300 hover:decoration-slate-900">{doc.fileName}</a>
                   </td>
-                  <td className="px-4 py-2 text-slate-500">{doc.documentType.replace(/_/g, " ")}</td>
+                  <td className="px-4 py-2 capitalize text-slate-500">{label(doc.documentType)}</td>
                   <td className="px-4 py-2 text-slate-400">{new Date(doc.createdAt).toLocaleDateString()}</td>
                 </tr>
               ))}
@@ -359,13 +354,11 @@ export function BuyerOrderDetailPage() {
   )
 }
 
-function StatCard({ label, value, tone }: { label: string; value: string; tone?: "success" | "danger" }) {
+function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <Card>
       <CardHeader><CardTitle>{label}</CardTitle></CardHeader>
-      <CardContent className={cn("pt-0 text-xl font-semibold", tone === "danger" ? "text-red-600" : tone === "success" ? "text-emerald-600" : "text-slate-900")}>
-        {value}
-      </CardContent>
+      <CardContent className="pt-0 text-xl font-semibold text-slate-900">{value}</CardContent>
     </Card>
   )
 }

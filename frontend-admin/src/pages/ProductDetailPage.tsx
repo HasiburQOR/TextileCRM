@@ -111,7 +111,7 @@ export function ProductDetailPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/pipeline")} title="Back to Sourcing Pipeline">
+        <Button variant="ghost" size="icon" onClick={() => navigate(`/pipeline/${product.sisterProfile}?step=intake`)} title="Back to this order's Sourcing Pipeline">
           <ArrowLeft className="h-4 w-4" />
         </Button>
 
@@ -137,7 +137,7 @@ export function ProductDetailPage() {
         )}
       </div>
 
-      <ProductProgress status={product.status} />
+      <ProductProgress status={product.status} sisterProfileId={product.sisterProfile} />
 
       {failedPhotoColors.length > 0 && (
         <div className="flex items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

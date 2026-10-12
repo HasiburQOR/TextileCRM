@@ -52,24 +52,28 @@ export interface PortalOrder {
   poReference: string
   agreementType: string
   status: PortalOrderStatus
+  /** Costs are incurred in the supplier currency and charged to the buyer
+   * in theirs, at `exchangeRate` ("1 buyer = X supplier"). */
+  supplierCurrency: string
+  buyerCurrency: string
+  exchangeRate: string | null
   createdAt: string
-  currentBalance: string
 }
 
-export type PortalOrderDetail = Omit<PortalOrder, "currentBalance">
+export type PortalOrderDetail = PortalOrder
 
-export interface PortalLocation {
+/** One sourcing location of a product, as returned by
+ * /portal/orders/{id}/sourcing-progress/ (amounts in the supplier currency). */
+export interface PortalCostLocation {
   locationName: string
   quantity: number
-  advanceAmount: string
-  status: "pending" | "reported"
-  reportedAt: string | null
+  customCostFields: { name: string; amount: number | string }[] | null
 }
 
 export interface PortalCost {
   status: "open" | "closed"
   fullPaymentConfirmedAt: string | null
-  locations: PortalLocation[]
+  items: PortalCostLocation[]
 }
 
 export interface PortalProductImage {
@@ -103,27 +107,22 @@ export interface PortalCostItem {
   sourceType: string
   amount: string
   currency: string
+  /** What this cost took off the buyer's wallet, in the buyer's currency. */
+  amountInBuyerCurrency: string
+  buyerCurrency: string
   remarks: string
   createdAt: string
 }
 
 export interface PortalCosts {
-  bySourceType: { sourceType: string; total: string }[]
+  bySourceType: { sourceType: string; total: string; totalBuyer: string }[]
+  /** As incurred, supplier currency. */
   total: string
+  /** As charged to the buyer, buyer currency. */
+  totalBuyer: string
+  supplierCurrency: string
+  buyerCurrency: string
   items: PortalCostItem[]
-}
-
-export interface PortalLedger {
-  sisterProfile: string
-  sisterProfilePoReference: string
-  buyerName: string
-  agreementType: string
-  totalAdvance: string
-  totalExpense: string
-  amountOwed: string
-  netPosition: string
-  negativeBalance: boolean
-  updatedAt: string
 }
 
 /** Since the Sourcing-Intake-as-Packing-List merge, the buyer portal's
@@ -170,6 +169,7 @@ export interface PortalInvoice {
   grandTotal: string
   convertedTotal: string
   targetCurrency: string
+  sourceCurrency: string
   outstandingBalance: string
   lineItems: InvoiceLineItem[]
   payments: InvoicePayment[]
